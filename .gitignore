@@ -1,0 +1,54 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+.npm/
+.yarn/
+
+# Build outputs
+dist/
+build/
+*.tsbuildinfo
+.turbo/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Environment variables
+.env
+.env.local
+.env*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+coverage/
+.nyc_output/
+
+# Cache
+.cache/
+.eslintcache
+*.tgz
+
+# Temporary files
+.temp/
+.tmp/
+*.tmp
+
+# Changesets
+.changeset/*.md
+!.changeset/README.md
+!.changeset/config.json
