@@ -1,0 +1,51 @@
+{
+  "name": "@savvagent/svelte",
+  "version": "0.1.0",
+  "description": "Svelte SDK for Savvagent feature flags with stores and runes",
+  "author": "Savvagent",
+  "license": "MIT",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts --external svelte --external svelte/store",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --external svelte --external svelte/store --watch",
+    "test": "vitest",
+    "lint": "eslint src --ext .ts",
+    "format": "prettier --write \"src/**/*.ts\""
+  },
+  "peerDependencies": {
+    "svelte": ">=4.0.0"
+  },
+  "dependencies": {
+    "@savvagent/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "svelte": "^5.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0"
+  },
+  "keywords": [
+    "savvagent",
+    "feature-flags",
+    "svelte",
+    "stores",
+    "runes",
+    "feature-toggles"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/savvagent/savvagent-sdks",
+    "directory": "packages/svelte"
+  }
+}

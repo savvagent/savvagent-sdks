@@ -1,0 +1,51 @@
+{
+  "name": "@savvagent/vue",
+  "version": "0.1.0",
+  "description": "Vue SDK for Savvagent feature flags with Composition API",
+  "author": "Savvagent",
+  "license": "MIT",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts --external vue",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --external vue --watch",
+    "test": "vitest",
+    "lint": "eslint src --ext .ts",
+    "format": "prettier --write \"src/**/*.ts\""
+  },
+  "peerDependencies": {
+    "vue": ">=3.0.0"
+  },
+  "dependencies": {
+    "@savvagent/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0",
+    "vue": "^3.4.0"
+  },
+  "keywords": [
+    "savvagent",
+    "feature-flags",
+    "vue",
+    "composables",
+    "composition-api",
+    "feature-toggles"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/savvagent/savvagent-sdks",
+    "directory": "packages/vue"
+  }
+}

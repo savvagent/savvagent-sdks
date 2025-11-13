@@ -1,0 +1,59 @@
+{
+  "name": "@savvagent/node-server",
+  "version": "0.1.0",
+  "description": "Savvagent Node.js Server SDK for feature flags with AI-powered error detection",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "lint": "eslint src --ext .ts",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "feature-flags",
+    "feature-toggles",
+    "savvagent",
+    "ai",
+    "error-detection",
+    "node",
+    "server",
+    "backend"
+  ],
+  "author": "Savvagent",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/savvagent/savvagent-sdks",
+    "directory": "packages/node-server"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "eventsource": "^2.0.2"
+  },
+  "engines": {
+    "node": ">=16"
+  }
+}

@@ -1,0 +1,57 @@
+{
+  "name": "@savvagent/remix",
+  "version": "0.1.0",
+  "description": "Remix SDK for Savvagent feature flags",
+  "author": "Savvagent",
+  "license": "MIT",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts --external react --external @remix-run/node --external @remix-run/react",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --external react --external @remix-run/node --external @remix-run/react --watch",
+    "test": "jest",
+    "lint": "eslint src --ext .ts,.tsx",
+    "format": "prettier --write \"src/**/*.{ts,tsx}\""
+  },
+  "peerDependencies": {
+    "@remix-run/node": ">=1.0.0",
+    "@remix-run/react": ">=1.0.0",
+    "react": ">=18.0.0"
+  },
+  "dependencies": {
+    "@savvagent/sdk": "workspace:*",
+    "@savvagent/react": "workspace:*"
+  },
+  "devDependencies": {
+    "@remix-run/node": "^2.8.0",
+    "@remix-run/react": "^2.8.0",
+    "@types/react": "^18.3.3",
+    "react": "^18.3.1",
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0"
+  },
+  "keywords": [
+    "savvagent",
+    "feature-flags",
+    "remix",
+    "loaders",
+    "actions",
+    "feature-toggles"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/savvagent/savvagent-sdks",
+    "directory": "packages/remix"
+  }
+}

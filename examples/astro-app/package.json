@@ -1,0 +1,20 @@
+{
+  "name": "astro-example",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Example Astro app using Savvagent SDK",
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview"
+  },
+  "dependencies": {
+    "@savvagent/astro": "workspace:*",
+    "@savvagent/sdk": "workspace:*",
+    "astro": "^4.14.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  }
+}

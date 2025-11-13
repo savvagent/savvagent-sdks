@@ -1,16 +1,67 @@
 # Savvagent SDKs
 
-Official SDKs, MCP servers, and example applications for [Savvagent](https://github.com/yourusername/savvagent-flags) - the AI-powered feature flag platform that prevents production incidents.
+Official SDKs, MCP servers, and example applications for [Savvagent](https://www.savvagent.com) - the AI-powered feature flag platform that prevents production incidents.
 
 ## Packages
 
-### SDKs
+### Client SDKs
 
 - **[@savvagent/sdk](./packages/typescript)** - TypeScript/JavaScript SDK for feature flags
   - Works with React, Next.js, SvelteKit, Node.js, and more
   - Real-time flag updates via WebSocket
   - Built-in caching and telemetry
   - Type-safe API
+
+### Framework SDKs
+
+- **[@savvagent/react](./packages/react)** - React hooks for feature flags
+- **[@savvagent/vue](./packages/vue)** - Vue 3 composables for feature flags
+- **[@savvagent/solid](./packages/solid)** - SolidJS primitives for feature flags
+- **[@savvagent/svelte](./packages/svelte)** - Svelte stores for feature flags
+- **[@savvagent/nextjs](./packages/nextjs)** - Next.js integration with App Router & Pages Router
+- **[@savvagent/remix](./packages/remix)** - Remix loaders and actions integration
+- **[@savvagent/sveltekit](./packages/sveltekit)** - SvelteKit server-side integration
+- **[@savvagent/astro](./packages/astro)** - Astro integration for feature flags
+
+### Mobile SDKs
+
+- **[SavvagentSDK (iOS)](./packages/ios-sdk)** - iOS SDK
+  - Native Swift with async/await
+  - SwiftUI and UIKit support
+  - Real-time updates via WebSocket
+  - Works on iOS, macOS, tvOS, and watchOS
+
+- **[savvagent-android-sdk](./packages/android-sdk)** - Android SDK
+  - Native Kotlin with Coroutines
+  - Jetpack Compose integration
+  - Flow-based reactive updates
+  - Material Design 3 support
+
+### Server SDKs
+
+- **[@savvagent/node-server](./packages/node-server)** - Node.js Server SDK
+  - Built for Express, Fastify, NestJS, and more
+  - Server-Sent Events for real-time updates
+  - In-memory caching with configurable TTL
+  - Full TypeScript support
+
+- **[savvagent-java-server-sdk](./packages/java-server)** - Java Server SDK
+  - Maven and Gradle support
+  - Thread-safe concurrent access
+  - OkHttp-based HTTP client
+  - Comprehensive JavaDocs
+
+- **[savvagent-go-server-sdk](./packages/go-server)** - Go Server SDK
+  - Goroutine-safe concurrent access
+  - Idiomatic Go patterns
+  - Minimal dependencies
+  - High-performance caching
+
+- **[savvagent (Rust)](./packages/rust-server)** - Rust Server SDK
+  - Async/await with Tokio runtime
+  - Zero-cost abstractions
+  - Memory-safe with Rust ownership
+  - Full type safety
 
 ### MCP Servers
 
@@ -63,9 +114,28 @@ if (isEnabled) {
 
 Working example applications are available in the [examples](./examples) directory:
 
+### Mobile Examples
+
+- **[iOS App](./examples/ios-app)** - SwiftUI app with native iOS SDK
+- **[Android App](./examples/android-app)** - Jetpack Compose app with Kotlin
+
+### Client & Framework Examples
+
+- **[React App](./examples/react-app)** - React 18 with Vite and hooks
+- **[Vue App](./examples/vue-app)** - Vue 3 with Composition API
+- **[Solid App](./examples/solid-app)** - SolidJS with reactive primitives
+- **[Svelte App](./examples/svelte-app)** - Svelte 4 with stores
 - **[Next.js App](./examples/nextjs-app)** - React Server Components + Client Components
+- **[Remix App](./examples/remix-app)** - Remix with loaders and server-side evaluation
 - **[SvelteKit App](./examples/sveltekit-app)** - Svelte 5 with runes
+- **[Astro App](./examples/astro-app)** - Astro with integration
+
+### Server Examples
+
 - **[Node.js Backend](./examples/node-backend)** - Express API server
+- **[Java Server](./examples/java-server)** - Spring Boot 3.2 with Maven
+- **[Go Server](./examples/go-server)** - Go with Gin framework
+- **[Rust Server](./examples/rust-server)** - Rust with Axum and Tokio
 
 ## Documentation
 
@@ -135,13 +205,38 @@ When your PR is merged:
 ```
 savvagent-sdks/
 ├── packages/
-│   ├── typescript/          # @savvagent/sdk
+│   ├── typescript/          # @savvagent/sdk (base TypeScript SDK)
+│   ├── react/              # @savvagent/react
+│   ├── vue/                # @savvagent/vue
+│   ├── solid/              # @savvagent/solid
+│   ├── svelte/             # @savvagent/svelte
+│   ├── nextjs/             # @savvagent/nextjs
+│   ├── remix/              # @savvagent/remix
+│   ├── sveltekit/          # @savvagent/sveltekit
+│   ├── astro/              # @savvagent/astro
+│   ├── ios-sdk/            # iOS SDK (Swift)
+│   ├── android-sdk/        # Android SDK (Kotlin)
+│   ├── node-server/        # @savvagent/node-server
+│   ├── java-server/        # Java server SDK
+│   ├── go-server/          # Go server SDK
+│   ├── rust-server/        # Rust server SDK
 │   ├── mcp-sdk/            # @savvagent/mcp-sdk
 │   └── mcp-sentry/         # @savvagent/mcp-sentry
 ├── examples/
+│   ├── ios-app/            # iOS SwiftUI example
+│   ├── android-app/        # Android Jetpack Compose example
+│   ├── react-app/          # React example
+│   ├── vue-app/            # Vue example
+│   ├── solid-app/          # SolidJS example
+│   ├── svelte-app/         # Svelte example
 │   ├── nextjs-app/         # Next.js example
+│   ├── remix-app/          # Remix example
 │   ├── sveltekit-app/      # SvelteKit example
-│   └── node-backend/       # Node.js example
+│   ├── astro-app/          # Astro example
+│   ├── node-backend/       # Node.js example
+│   ├── java-server/        # Java server example
+│   ├── go-server/          # Go server example
+│   └── rust-server/        # Rust server example
 ├── docs/                   # Documentation
 ├── .changeset/             # Changesets for versioning
 └── .github/workflows/      # CI/CD pipelines
@@ -212,18 +307,49 @@ MIT License - see [LICENSE](./LICENSE) for details
 
 - **Documentation**: [docs/](./docs)
 - **Examples**: [examples/](./examples)
-- **Issues**: [GitHub Issues](https://github.com/yourusername/savvagent-sdks/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/savvagent-sdks/discussions)
+- **Issues**: [GitHub Issues](https://github.com/savvagent/savvagent-sdks/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/savvagent/savvagent-sdks/discussions)
 
 ## Related Projects
 
-- **[Savvagent Platform](https://github.com/yourusername/savvagent-flags)** - The main platform repository
-- **[Savvagent Docs](https://docs.savvagent.com)** - Official documentation
+- **[Savvagent Platform](https://www.savvagent.com)** - The main platform repository
+- **[Savvagent Docs](https://www.savvagent.com/docs)** - Official documentation
 
 ## Packages Status
+
+### Mobile SDKs
+
+| Package | Platform | Version | Status |
+|---------|----------|---------|--------|
+| [SavvagentSDK](./packages/ios-sdk) | iOS 13+ | v0.1.0 | Beta |
+| [savvagent-android-sdk](./packages/android-sdk) | Android 5.0+ | v0.1.0 | Beta |
+
+### Client & Framework SDKs
 
 | Package | Version | Status |
 |---------|---------|--------|
 | [@savvagent/sdk](./packages/typescript) | [![npm](https://img.shields.io/npm/v/@savvagent/sdk)](https://www.npmjs.com/package/@savvagent/sdk) | Stable |
+| [@savvagent/react](./packages/react) | [![npm](https://img.shields.io/npm/v/@savvagent/react)](https://www.npmjs.com/package/@savvagent/react) | Beta |
+| [@savvagent/vue](./packages/vue) | [![npm](https://img.shields.io/npm/v/@savvagent/vue)](https://www.npmjs.com/package/@savvagent/vue) | Beta |
+| [@savvagent/solid](./packages/solid) | [![npm](https://img.shields.io/npm/v/@savvagent/solid)](https://www.npmjs.com/package/@savvagent/solid) | Beta |
+| [@savvagent/svelte](./packages/svelte) | [![npm](https://img.shields.io/npm/v/@savvagent/svelte)](https://www.npmjs.com/package/@savvagent/svelte) | Beta |
+| [@savvagent/nextjs](./packages/nextjs) | [![npm](https://img.shields.io/npm/v/@savvagent/nextjs)](https://www.npmjs.com/package/@savvagent/nextjs) | Beta |
+| [@savvagent/remix](./packages/remix) | [![npm](https://img.shields.io/npm/v/@savvagent/remix)](https://www.npmjs.com/package/@savvagent/remix) | Beta |
+| [@savvagent/sveltekit](./packages/sveltekit) | [![npm](https://img.shields.io/npm/v/@savvagent/sveltekit)](https://www.npmjs.com/package/@savvagent/sveltekit) | Beta |
+| [@savvagent/astro](./packages/astro) | [![npm](https://img.shields.io/npm/v/@savvagent/astro)](https://www.npmjs.com/package/@savvagent/astro) | Beta |
+
+### Server SDKs
+
+| Package | Language | Version | Status |
+|---------|----------|---------|--------|
+| [@savvagent/node-server](./packages/node-server) | Node.js | v0.1.0 | Beta |
+| [savvagent-java-server-sdk](./packages/java-server) | Java 11+ | v0.1.0 | Beta |
+| [savvagent-go-server-sdk](./packages/go-server) | Go 1.21+ | v0.1.0 | Beta |
+| [savvagent](./packages/rust-server) | Rust 1.70+ | v0.1.0 | Beta |
+
+### MCP Servers
+
+| Package | Version | Status |
+|---------|---------|--------|
 | [@savvagent/mcp-sdk](./packages/mcp-sdk) | [![npm](https://img.shields.io/npm/v/@savvagent/mcp-sdk)](https://www.npmjs.com/package/@savvagent/mcp-sdk) | Beta |
 | [@savvagent/mcp-sentry](./packages/mcp-sentry) | [![npm](https://img.shields.io/npm/v/@savvagent/mcp-sentry)](https://www.npmjs.com/package/@savvagent/mcp-sentry) | Beta |

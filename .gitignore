@@ -3,12 +3,62 @@ node_modules/
 .pnpm-store/
 .npm/
 .yarn/
+vendor/
 
 # Build outputs
 dist/
 build/
 *.tsbuildinfo
 .turbo/
+
+# Java
+target/
+*.class
+*.jar
+*.war
+*.ear
+.settings/
+.project
+.classpath
+.factorypath
+.apt_generated/
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
+
+# Rust
+target/
+**/*.rs.bk
+*.pdb
+
+# Swift/iOS (in case not caught by package-level .gitignore)
+.build/
+.swiftpm/
+xcuserdata/
+DerivedData/
+*.xcodeproj/*
+!*.xcodeproj/project.pbxproj
+!*.xcodeproj/xcshareddata/
+Package.resolved
+
+# Android/Kotlin (in case not caught by package-level .gitignore)
+.gradle/
+local.properties
+*.iml
+.idea/
+*.apk
+*.aab
+*.ap_
+*.dex
+.externalNativeBuild/
+.cxx/
 
 # Logs
 *.log
@@ -25,7 +75,6 @@ lerna-debug.log*
 
 # IDE
 .vscode/
-.idea/
 *.swp
 *.swo
 *~
@@ -33,10 +82,13 @@ lerna-debug.log*
 # OS
 .DS_Store
 Thumbs.db
+ehthumbs.db
+Desktop.ini
 
 # Testing
 coverage/
 .nyc_output/
+*.lcov
 
 # Cache
 .cache/

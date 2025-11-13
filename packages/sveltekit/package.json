@@ -1,0 +1,59 @@
+{
+  "name": "@savvagent/sveltekit",
+  "version": "0.1.0",
+  "description": "SvelteKit SDK for Savvagent feature flags with server and client support",
+  "author": "Savvagent",
+  "license": "MIT",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./server": {
+      "import": "./dist/server.mjs",
+      "require": "./dist/server.js",
+      "types": "./dist/server.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts src/server.ts --format cjs,esm --dts --external svelte --external @sveltejs/kit",
+    "dev": "tsup src/index.ts src/server.ts --format cjs,esm --dts --external svelte --external @sveltejs/kit --watch",
+    "test": "vitest",
+    "lint": "eslint src --ext .ts",
+    "format": "prettier --write \"src/**/*.ts\""
+  },
+  "peerDependencies": {
+    "@sveltejs/kit": ">=1.0.0 || >=2.0.0",
+    "svelte": ">=4.0.0"
+  },
+  "dependencies": {
+    "@savvagent/sdk": "workspace:*",
+    "@savvagent/svelte": "workspace:*"
+  },
+  "devDependencies": {
+    "@sveltejs/kit": "^2.5.0",
+    "svelte": "^5.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0"
+  },
+  "keywords": [
+    "savvagent",
+    "feature-flags",
+    "sveltekit",
+    "svelte",
+    "server-side",
+    "feature-toggles"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/savvagent/savvagent-sdks",
+    "directory": "packages/sveltekit"
+  }
+}

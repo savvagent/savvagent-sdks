@@ -1,0 +1,52 @@
+{
+  "name": "@savvagent/solid",
+  "version": "0.1.0",
+  "description": "SolidJS SDK for Savvagent feature flags with reactive primitives",
+  "author": "Savvagent",
+  "license": "MIT",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.tsx --format cjs,esm --dts --external solid-js",
+    "dev": "tsup src/index.tsx --format cjs,esm --dts --external solid-js --watch",
+    "test": "vitest",
+    "lint": "eslint src --ext .ts,.tsx",
+    "format": "prettier --write \"src/**/*.{ts,tsx}\""
+  },
+  "peerDependencies": {
+    "solid-js": ">=1.0.0"
+  },
+  "dependencies": {
+    "@savvagent/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "solid-js": "^1.8.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0"
+  },
+  "keywords": [
+    "savvagent",
+    "feature-flags",
+    "solidjs",
+    "solid",
+    "reactive",
+    "signals",
+    "feature-toggles"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/savvagent/savvagent-sdks",
+    "directory": "packages/solid"
+  }
+}
