@@ -22,30 +22,41 @@ func newCache(ttl time.Duration) *cache {
 
 // Get retrieves a cached value if it exists and hasn't expired
 func (c *cache) Get(key string) (bool, bool) {
+	entry, found := c.GetEntry(key)
+	if !found {
+		return false, false
+	}
+	return entry.Value, true
+}
+
+// GetEntry retrieves a complete cached entry (includes configuration and variation)
+func (c *cache) GetEntry(key string) (*cacheEntry, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	entry, exists := c.entries[key]
 	if !exists {
-		return false, false
+		return nil, false
 	}
 
 	// Check if expired
 	if time.Now().After(entry.ExpiresAt) {
-		return false, false
+		return nil, false
 	}
 
-	return entry.Value, true
+	return &entry, true
 }
 
 // Set stores a value in the cache with TTL
-func (c *cache) Set(key string, value bool) {
+func (c *cache) Set(key string, value bool, configuration map[string]interface{}, variation string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	c.entries[key] = cacheEntry{
-		Value:     value,
-		ExpiresAt: time.Now().Add(c.ttl),
+		Value:         value,
+		Configuration: configuration,
+		Variation:     variation,
+		ExpiresAt:     time.Now().Add(c.ttl),
 	}
 }
 

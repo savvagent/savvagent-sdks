@@ -44,10 +44,62 @@ public struct UserContext {
     }
 }
 
+/// Result from flag evaluation
+public struct FlagEvaluationResult {
+    public let key: String
+    public let value: Bool
+    public let configuration: [String: Any]?
+    public let variation: String?
+    public let reason: String
+
+    public init(key: String, value: Bool, configuration: [String: Any]? = nil, variation: String? = nil, reason: String = "evaluated") {
+        self.key = key
+        self.value = value
+        self.configuration = configuration
+        self.variation = variation
+        self.reason = reason
+    }
+}
+
+/// Result from variation evaluation for multi-variant flags
+public struct VariationResult {
+    public let variation: String
+    public let enabled: Bool
+    public let configuration: [String: Any]?
+
+    public init(variation: String, enabled: Bool, configuration: [String: Any]? = nil) {
+        self.variation = variation
+        self.enabled = enabled
+        self.configuration = configuration
+    }
+}
+
+/// Cache entry for flag values
+private struct CacheEntry {
+    let value: Bool
+    let configuration: [String: Any]?
+    let variation: String?
+}
+
+/// Configuration override entry
+private struct ConfigOverrideEntry {
+    let config: [String: Any]
+    let merge: Bool
+    let timestamp: Date
+}
+
+/// Variation override entry
+private struct VariationOverrideEntry {
+    let variation: String
+    let timestamp: Date
+}
+
 /// Main Savvagent SDK client for feature flag evaluation
 public class SavvagentClient {
     private let config: SavvagentConfig
-    private var flagCache: [String: Bool] = [:]
+    private var flagCache: [String: CacheEntry] = [:]
+    private var configOverrides: [String: ConfigOverrideEntry] = [:]
+    private var variationOverrides: [String: VariationOverrideEntry] = [:]
     private var webSocketTask: URLSessionWebSocketTask?
     private let session: URLSession
     private let queue = DispatchQueue(label: "com.savvagent.sdk", qos: .utility)
@@ -65,15 +117,37 @@ public class SavvagentClient {
         startPolling()
     }
 
-    /// Check if a feature flag is enabled for a given user context
+    /// Evaluate a feature flag and get full details (Phase 1 & 2)
     /// - Parameters:
     ///   - flagKey: The key of the feature flag
     ///   - context: User context for evaluation
-    /// - Returns: Boolean indicating if the flag is enabled
-    public func isEnabled(flagKey: String, context: UserContext) async throws -> Bool {
+    /// - Returns: FlagEvaluationResult with value, configuration, and variation
+    public func evaluate(flagKey: String, context: UserContext) async throws -> FlagEvaluationResult {
         // Check cache first
         if let cached = flagCache[flagKey] {
-            return cached
+            var configuration = cached.configuration
+            var variation = cached.variation
+
+            // Apply overrides
+            if let configOverride = configOverrides[flagKey] {
+                configuration = if configOverride.merge, let baseConfig = configuration {
+                    mergeConfigurations(base: baseConfig, override: configOverride.config)
+                } else {
+                    configOverride.config
+                }
+            }
+
+            if let variationOverride = variationOverrides[flagKey] {
+                variation = variationOverride.variation
+            }
+
+            return FlagEvaluationResult(
+                key: flagKey,
+                value: cached.value,
+                configuration: configuration,
+                variation: variation,
+                reason: "cached"
+            )
         }
 
         // Fetch from API
@@ -102,15 +176,71 @@ public class SavvagentClient {
             throw SavvagentError.invalidResponse
         }
 
+        var configuration = json["configuration"] as? [String: Any]
+        var variation = json["variation"] as? String
+
         // Update cache
         queue.async { [weak self] in
-            self?.flagCache[flagKey] = enabled
+            self?.flagCache[flagKey] = CacheEntry(value: enabled, configuration: configuration, variation: variation)
         }
 
-        return enabled
+        // Apply overrides to evaluated result
+        if let configOverride = configOverrides[flagKey] {
+            configuration = if configOverride.merge, let baseConfig = configuration {
+                mergeConfigurations(base: baseConfig, override: configOverride.config)
+            } else {
+                configOverride.config
+            }
+        }
+
+        if let variationOverride = variationOverrides[flagKey] {
+            variation = variationOverride.variation
+        }
+
+        return FlagEvaluationResult(
+            key: flagKey,
+            value: enabled,
+            configuration: configuration,
+            variation: variation,
+            reason: "evaluated"
+        )
     }
 
-    /// Get a variation value for a feature flag
+    /// Check if a feature flag is enabled for a given user context (convenience method)
+    /// - Parameters:
+    ///   - flagKey: The key of the feature flag
+    ///   - context: User context for evaluation
+    /// - Returns: Boolean indicating if the flag is enabled
+    public func isEnabled(flagKey: String, context: UserContext) async throws -> Bool {
+        let result = try await evaluate(flagKey: flagKey, context: context)
+        return result.value
+    }
+
+    /// Get dynamic configuration for a flag (Phase 1)
+    /// - Parameters:
+    ///   - flagKey: The key of the feature flag
+    ///   - context: User context for evaluation
+    /// - Returns: Configuration dictionary if flag is enabled, otherwise nil
+    public func getConfig(flagKey: String, context: UserContext) async throws -> [String: Any]? {
+        let result = try await evaluate(flagKey: flagKey, context: context)
+        return result.value ? result.configuration : nil
+    }
+
+    /// Get variation details for multi-variant flags (Phase 2)
+    /// - Parameters:
+    ///   - flagKey: The key of the feature flag
+    ///   - context: User context for evaluation
+    /// - Returns: VariationResult with variation name, enabled status, and configuration
+    public func getVariationDetails(flagKey: String, context: UserContext) async throws -> VariationResult {
+        let result = try await evaluate(flagKey: flagKey, context: context)
+        return VariationResult(
+            variation: result.variation ?? "control",
+            enabled: result.value,
+            configuration: result.configuration
+        )
+    }
+
+    /// Get a variation value for a feature flag (legacy method - kept for backward compatibility)
     /// - Parameters:
     ///   - flagKey: The key of the feature flag
     ///   - context: User context for evaluation
@@ -184,6 +314,99 @@ public class SavvagentClient {
         webSocketTask?.cancel(with: .goingAway, reason: nil)
     }
 
+    /// Set a configuration override for a flag
+    /// Useful for testing different configuration values without server changes
+    /// - Parameters:
+    ///   - flagKey: The key of the feature flag
+    ///   - config: Configuration dictionary to override with
+    ///   - merge: Whether to merge with existing configuration (default: false)
+    public func setConfigOverride(flagKey: String, config: [String: Any], merge: Bool = false) {
+        queue.async { [weak self] in
+            self?.configOverrides[flagKey] = ConfigOverrideEntry(config: config, merge: merge, timestamp: Date())
+            // Clear cache to force re-evaluation with override
+            self?.flagCache.removeValue(forKey: flagKey)
+        }
+    }
+
+    /// Clear configuration override for a flag
+    /// - Parameter flagKey: The key of the feature flag
+    public func clearConfigOverride(flagKey: String) {
+        queue.async { [weak self] in
+            self?.configOverrides.removeValue(forKey: flagKey)
+            // Clear cache to get fresh API values
+            self?.flagCache.removeValue(forKey: flagKey)
+        }
+    }
+
+    /// Set a variation override for a multi-variant flag
+    /// Forces the flag to return a specific variation
+    /// - Parameters:
+    ///   - flagKey: The key of the feature flag
+    ///   - variation: The variation identifier to force
+    public func setVariationOverride(flagKey: String, variation: String) {
+        queue.async { [weak self] in
+            self?.variationOverrides[flagKey] = VariationOverrideEntry(variation: variation, timestamp: Date())
+            // Clear cache to force re-evaluation with override
+            self?.flagCache.removeValue(forKey: flagKey)
+        }
+    }
+
+    /// Clear variation override for a flag
+    /// - Parameter flagKey: The key of the feature flag
+    public func clearVariationOverride(flagKey: String) {
+        queue.async { [weak self] in
+            self?.variationOverrides.removeValue(forKey: flagKey)
+            // Clear cache to get fresh API values
+            self?.flagCache.removeValue(forKey: flagKey)
+        }
+    }
+
+    /// Check if a flag has a configuration override
+    /// - Parameter flagKey: The key of the feature flag
+    /// - Returns: Boolean indicating if override exists
+    public func hasConfigOverride(flagKey: String) -> Bool {
+        return configOverrides[flagKey] != nil
+    }
+
+    /// Check if a flag has a variation override
+    /// - Parameter flagKey: The key of the feature flag
+    /// - Returns: Boolean indicating if override exists
+    public func hasVariationOverride(flagKey: String) -> Bool {
+        return variationOverrides[flagKey] != nil
+    }
+
+    /// Get all configuration overrides (for debugging/inspection)
+    /// - Returns: Dictionary mapping flag keys to override details
+    public func getConfigOverrides() -> [String: [String: Any]] {
+        return configOverrides.mapValues { entry in
+            [
+                "config": entry.config,
+                "merge": entry.merge,
+                "timestamp": entry.timestamp
+            ] as [String: Any]
+        }
+    }
+
+    /// Get all variation overrides (for debugging/inspection)
+    /// - Returns: Dictionary mapping flag keys to override details
+    public func getVariationOverrides() -> [String: [String: Any]] {
+        return variationOverrides.mapValues { entry in
+            [
+                "variation": entry.variation,
+                "timestamp": entry.timestamp
+            ] as [String: Any]
+        }
+    }
+
+    /// Clear all configuration and variation overrides
+    public func clearAllOverrides() {
+        queue.async { [weak self] in
+            self?.configOverrides.removeAll()
+            self?.variationOverrides.removeAll()
+            self?.flagCache.removeAll()
+        }
+    }
+
     // MARK: - Private Methods
 
     private func setupWebSocket() {
@@ -236,8 +459,11 @@ public class SavvagentClient {
             return
         }
 
+        let configuration = json["configuration"] as? [String: Any]
+        let variation = json["variation"] as? String
+
         queue.async { [weak self] in
-            self?.flagCache[flagKey] = enabled
+            self?.flagCache[flagKey] = CacheEntry(value: enabled, configuration: configuration, variation: variation)
         }
     }
 
@@ -267,8 +493,10 @@ public class SavvagentClient {
                     for flag in flags {
                         if let key = flag["key"] as? String,
                            let enabled = flag["enabled"] as? Bool {
+                            let configuration = flag["configuration"] as? [String: Any]
+                            let variation = flag["variation"] as? String
                             queue.async { [weak self] in
-                                self?.flagCache[key] = enabled
+                                self?.flagCache[key] = CacheEntry(value: enabled, configuration: configuration, variation: variation)
                             }
                         }
                     }
@@ -277,6 +505,29 @@ public class SavvagentClient {
                 // Silently fail for polling
             }
         }
+    }
+
+    /// Merge two configuration dictionaries (for partial overrides)
+    /// Deep merge where override values take precedence
+    /// - Parameters:
+    ///   - base: Base configuration dictionary
+    ///   - override: Override configuration dictionary
+    /// - Returns: Merged configuration dictionary
+    private func mergeConfigurations(base: [String: Any], override: [String: Any]) -> [String: Any] {
+        var result = base
+
+        for (key, overrideValue) in override {
+            if let baseValue = result[key] as? [String: Any],
+               let overrideDict = overrideValue as? [String: Any] {
+                // Recursively merge nested dictionaries
+                result[key] = mergeConfigurations(base: baseValue, override: overrideDict)
+            } else {
+                // Override the value
+                result[key] = overrideValue
+            }
+        }
+
+        return result
     }
 }
 

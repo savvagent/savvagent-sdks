@@ -64,6 +64,12 @@ type EvaluationResult struct {
 	// Value is the evaluated value
 	Value bool `json:"value"`
 
+	// Configuration is the dynamic configuration attached to the flag (Phase 1)
+	Configuration map[string]interface{} `json:"configuration,omitempty"`
+
+	// Variation is the identifier for multi-variant flags (Phase 2)
+	Variation string `json:"variation,omitempty"`
+
 	// Reason indicates why this value was returned
 	Reason string `json:"reason"` // "cached", "evaluated", "default", "error"
 
@@ -78,8 +84,44 @@ type Metadata struct {
 	Variant     string `json:"variant,omitempty"`
 }
 
+// VariationResult contains variation information for multi-variant flags
+type VariationResult struct {
+	// Variation is the variation identifier (e.g., "control", "variant_a")
+	Variation string `json:"variation"`
+
+	// Enabled indicates if the flag is enabled
+	Enabled bool `json:"enabled"`
+
+	// Configuration is the dynamic configuration for this variation
+	Configuration map[string]interface{} `json:"configuration,omitempty"`
+}
+
 // cacheEntry represents a cached flag value
 type cacheEntry struct {
-	Value     bool
-	ExpiresAt time.Time
+	Value         bool
+	Configuration map[string]interface{}
+	Variation     string
+	ExpiresAt     time.Time
+}
+
+// ConfigOverrideOptions holds options for setting configuration overrides
+type ConfigOverrideOptions struct {
+	// Merge indicates whether to merge with API configuration (default: false)
+	Merge bool
+
+	// Validate indicates whether to validate configuration structure (default: true)
+	Validate bool
+}
+
+// configOverrideEntry stores a configuration override
+type configOverrideEntry struct {
+	Config    map[string]interface{}
+	Merge     bool
+	Timestamp time.Time
+}
+
+// variationOverrideEntry stores a variation override
+type variationOverrideEntry struct {
+	Variation string
+	Timestamp time.Time
 }

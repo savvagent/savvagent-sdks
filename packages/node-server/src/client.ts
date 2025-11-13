@@ -5,6 +5,9 @@ import {
   FlagClientConfig,
   FlagContext,
   FlagEvaluationResult,
+  ConfigOverrideOptions,
+  ConfigOverrideEntry,
+  VariationOverrideEntry,
 } from './types';
 
 /**
@@ -15,6 +18,8 @@ export class FlagClient {
   private cache: FlagCache;
   private telemetry: TelemetryService;
   private realtime: RealtimeService | null = null;
+  private configOverrides: Map<string, ConfigOverrideEntry> = new Map();
+  private variationOverrides: Map<string, VariationOverrideEntry> = new Map();
 
   constructor(config: FlagClientConfig) {
     // Apply defaults
@@ -70,19 +75,42 @@ export class FlagClient {
     const startTime = Date.now();
 
     try {
-      // Check cache first
-      const cachedValue = this.cache.get(flagKey);
-      if (cachedValue !== null) {
+      // Check for variation override first
+      const variationOverride = this.variationOverrides.get(flagKey);
+
+      // Check cache
+      const cachedEntry = this.cache.getEntry(flagKey);
+      if (cachedEntry !== null) {
+        let configuration = cachedEntry.configuration;
+        let variation = cachedEntry.variation;
+
+        // Apply configuration override
+        const configOverride = this.configOverrides.get(flagKey);
+        if (configOverride) {
+          if (configOverride.merge && configuration) {
+            configuration = this.mergeConfigurations(configuration, configOverride.config);
+          } else {
+            configuration = configOverride.config;
+          }
+        }
+
+        // Apply variation override
+        if (variationOverride) {
+          variation = variationOverride.variation;
+        }
+
         const result: FlagEvaluationResult = {
           key: flagKey,
-          value: cachedValue,
+          value: cachedEntry.value,
+          configuration,
+          variation,
           reason: 'cached',
         };
 
         // Track evaluation
         this.telemetry.trackEvaluation({
           flagKey,
-          result: cachedValue,
+          result: cachedEntry.value,
           context,
           durationMs: Date.now() - startTime,
           timestamp: new Date().toISOString(),
@@ -119,18 +147,39 @@ export class FlagClient {
 
       const data = await response.json() as {
         value?: boolean;
+        configuration?: any;
+        variation?: string;
         flagId?: string;
         description?: string;
         variant?: string;
       };
       const value = data.value ?? this.config.defaults[flagKey] ?? false;
 
-      // Cache the result
-      this.cache.set(flagKey, value, data.flagId);
+      // Cache the result (including configuration and variation)
+      this.cache.set(flagKey, value, data.flagId, data.configuration, data.variation);
+
+      // Apply overrides to evaluated result
+      let finalConfiguration = data.configuration;
+      let finalVariation = data.variation;
+
+      const configOverride = this.configOverrides.get(flagKey);
+      if (configOverride) {
+        if (configOverride.merge && finalConfiguration) {
+          finalConfiguration = this.mergeConfigurations(finalConfiguration, configOverride.config);
+        } else {
+          finalConfiguration = configOverride.config;
+        }
+      }
+
+      if (variationOverride) {
+        finalVariation = variationOverride.variation;
+      }
 
       const result: FlagEvaluationResult = {
         key: flagKey,
         value,
+        configuration: finalConfiguration,
+        variation: finalVariation,
         reason: 'evaluated',
         metadata: {
           flagId: data.flagId,
@@ -182,6 +231,40 @@ export class FlagClient {
   }
 
   /**
+   * Get dynamic configuration for a flag (Phase 1)
+   * Returns configuration if flag is enabled, otherwise returns defaultValue or null
+   */
+  async getConfig<T = any>(
+    flagKey: string,
+    context?: FlagContext,
+    defaultValue?: T
+  ): Promise<T | null> {
+    const result = await this.evaluate(flagKey, context);
+
+    if (!result.value) {
+      return defaultValue ?? null;
+    }
+
+    return result.configuration ?? defaultValue ?? null;
+  }
+
+  /**
+   * Get variation details for multi-variant flags (Phase 2)
+   * Returns variation name, enabled status, and configuration
+   */
+  async getVariation(
+    flagKey: string,
+    context?: FlagContext
+  ): Promise<{ variation: string; enabled: boolean; configuration?: any }> {
+    const result = await this.evaluate(flagKey, context);
+    return {
+      variation: result.variation || 'control',
+      enabled: result.value,
+      configuration: result.configuration,
+    };
+  }
+
+  /**
    * Subscribe to flag updates
    */
   subscribe(flagKey: string, callback: () => void): () => void {
@@ -226,5 +309,158 @@ export class FlagClient {
       this.realtime.close();
     }
     this.cache.clear();
+  }
+
+  /**
+   * Set a configuration override for a flag
+   * Useful for testing different configuration values without server changes
+   */
+  setConfigOverride(
+    flagKey: string,
+    config: any,
+    options?: ConfigOverrideOptions
+  ): void {
+    const validate = options?.validate ?? true;
+    const merge = options?.merge ?? false;
+
+    // Validate JSON structure
+    if (validate) {
+      try {
+        JSON.stringify(config);
+      } catch (error) {
+        const err = error as Error;
+        throw new Error(`Invalid configuration for flag '${flagKey}': ${err.message}`);
+      }
+    }
+
+    // Store override
+    this.configOverrides.set(flagKey, {
+      config,
+      merge,
+      timestamp: Date.now(),
+    });
+
+    // Invalidate cache to force re-evaluation with override
+    this.cache.invalidate(flagKey);
+  }
+
+  /**
+   * Clear configuration override for a flag
+   */
+  clearConfigOverride(flagKey: string): void {
+    this.configOverrides.delete(flagKey);
+    // Invalidate cache to get fresh API values
+    this.cache.invalidate(flagKey);
+  }
+
+  /**
+   * Set a variation override for a multi-variant flag
+   * Forces the flag to return a specific variation
+   */
+  setVariationOverride(flagKey: string, variation: string): void {
+    this.variationOverrides.set(flagKey, {
+      variation,
+      timestamp: Date.now(),
+    });
+
+    // Invalidate cache to force re-evaluation with override
+    this.cache.invalidate(flagKey);
+  }
+
+  /**
+   * Clear variation override for a flag
+   */
+  clearVariationOverride(flagKey: string): void {
+    this.variationOverrides.delete(flagKey);
+    // Invalidate cache to get fresh API values
+    this.cache.invalidate(flagKey);
+  }
+
+  /**
+   * Check if a flag has a configuration override
+   */
+  hasConfigOverride(flagKey: string): boolean {
+    return this.configOverrides.has(flagKey);
+  }
+
+  /**
+   * Check if a flag has a variation override
+   */
+  hasVariationOverride(flagKey: string): boolean {
+    return this.variationOverrides.has(flagKey);
+  }
+
+  /**
+   * Get all configuration overrides (for debugging/inspection)
+   */
+  getConfigOverrides(): Record<string, { config: any; merge: boolean; timestamp: number }> {
+    const overrides: Record<string, { config: any; merge: boolean; timestamp: number }> = {};
+    this.configOverrides.forEach((entry, key) => {
+      overrides[key] = {
+        config: entry.config,
+        merge: entry.merge,
+        timestamp: entry.timestamp,
+      };
+    });
+    return overrides;
+  }
+
+  /**
+   * Get all variation overrides (for debugging/inspection)
+   */
+  getVariationOverrides(): Record<string, { variation: string; timestamp: number }> {
+    const overrides: Record<string, { variation: string; timestamp: number }> = {};
+    this.variationOverrides.forEach((entry, key) => {
+      overrides[key] = {
+        variation: entry.variation,
+        timestamp: entry.timestamp,
+      };
+    });
+    return overrides;
+  }
+
+  /**
+   * Clear all configuration and variation overrides
+   */
+  clearAllOverrides(): void {
+    this.configOverrides.clear();
+    this.variationOverrides.clear();
+    this.cache.clear();
+  }
+
+  /**
+   * Merge two configuration objects (for partial overrides)
+   * Deep merge where override values take precedence
+   */
+  private mergeConfigurations(base: any, override: any): any {
+    if (!base || typeof base !== 'object') {
+      return override;
+    }
+    if (!override || typeof override !== 'object') {
+      return override;
+    }
+
+    const result = { ...base };
+
+    for (const key in override) {
+      if (Object.prototype.hasOwnProperty.call(override, key)) {
+        if (
+          typeof override[key] === 'object' &&
+          override[key] !== null &&
+          !Array.isArray(override[key]) &&
+          typeof result[key] === 'object' &&
+          result[key] !== null &&
+          !Array.isArray(result[key])
+        ) {
+          // Recursively merge nested objects
+          result[key] = this.mergeConfigurations(result[key], override[key]);
+        } else {
+          // Override primitive values, arrays, and nulls
+          result[key] = override[key];
+        }
+      }
+    }
+
+    return result;
   }
 }

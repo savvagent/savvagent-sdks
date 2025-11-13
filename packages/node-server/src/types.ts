@@ -54,6 +54,10 @@ export interface FlagEvaluationResult {
   key: string;
   /** Evaluated value */
   value: boolean;
+  /** Dynamic configuration attached to the flag (Phase 1) */
+  configuration?: any;
+  /** Variation identifier for multi-variant flags (Phase 2) */
+  variation?: string;
   /** Reason for the value (cached, evaluated, default) */
   reason: 'cached' | 'evaluated' | 'default' | 'error';
   /** Metadata about the flag */
@@ -95,6 +99,8 @@ export interface ErrorEvent {
  */
 export interface CacheEntry {
   value: boolean;
+  configuration?: any;
+  variation?: string;
   expiresAt: number;
   flagId?: string;
 }
@@ -106,4 +112,36 @@ export interface FlagUpdateEvent {
   type: 'flag.updated' | 'flag.deleted' | 'flag.created';
   flagKey: string;
   data?: any;
+}
+
+/**
+ * Options for setting configuration overrides
+ */
+export interface ConfigOverrideOptions {
+  /** Merge with API configuration instead of replacing (default: false) */
+  merge?: boolean;
+  /** Validate configuration structure (default: true) */
+  validate?: boolean;
+}
+
+/**
+ * Internal structure for storing configuration overrides
+ */
+export interface ConfigOverrideEntry {
+  /** Configuration override data */
+  config: any;
+  /** Whether to merge with API config */
+  merge: boolean;
+  /** Timestamp when override was set */
+  timestamp: number;
+}
+
+/**
+ * Internal structure for storing variation overrides
+ */
+export interface VariationOverrideEntry {
+  /** Forced variation identifier */
+  variation: string;
+  /** Timestamp when override was set */
+  timestamp: number;
 }

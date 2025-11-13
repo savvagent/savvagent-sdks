@@ -159,12 +159,34 @@ pub struct EvaluationResult {
     /// Evaluated value
     pub value: bool,
 
+    /// Dynamic configuration attached to the flag (Phase 1)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub configuration: Option<serde_json::Value>,
+
+    /// Variation identifier for multi-variant flags (Phase 2)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub variation: Option<String>,
+
     /// Reason for the value
     pub reason: String,
 
     /// Metadata about the flag
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<Metadata>,
+}
+
+/// Result from variation evaluation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VariationResult {
+    /// Variation identifier (e.g., "control", "variant_a")
+    pub variation: String,
+
+    /// Whether the flag is enabled
+    pub enabled: bool,
+
+    /// Dynamic configuration for this variation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub configuration: Option<serde_json::Value>,
 }
 
 /// Metadata about a flag
@@ -178,4 +200,48 @@ pub struct Metadata {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub variant: Option<String>,
+}
+
+/// Options for setting configuration overrides
+#[derive(Debug, Clone, Default)]
+pub struct ConfigOverrideOptions {
+    /// Merge with API configuration instead of replacing (default: false)
+    pub merge: bool,
+
+    /// Validate configuration structure (default: true)
+    pub validate: bool,
+}
+
+impl ConfigOverrideOptions {
+    pub fn new() -> Self {
+        Self {
+            merge: false,
+            validate: true,
+        }
+    }
+
+    pub fn with_merge(mut self, merge: bool) -> Self {
+        self.merge = merge;
+        self
+    }
+
+    pub fn with_validate(mut self, validate: bool) -> Self {
+        self.validate = validate;
+        self
+    }
+}
+
+/// Internal structure for storing configuration overrides
+#[derive(Debug, Clone)]
+pub(crate) struct ConfigOverrideEntry {
+    pub config: serde_json::Value,
+    pub merge: bool,
+    pub timestamp: std::time::SystemTime,
+}
+
+/// Internal structure for storing variation overrides
+#[derive(Debug, Clone)]
+pub(crate) struct VariationOverrideEntry {
+    pub variation: String,
+    pub timestamp: std::time::SystemTime,
 }

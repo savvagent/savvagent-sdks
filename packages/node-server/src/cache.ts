@@ -16,6 +16,14 @@ export class FlagCache {
    * Get a cached flag value
    */
   get(key: string): boolean | null {
+    const entry = this.getEntry(key);
+    return entry ? entry.value : null;
+  }
+
+  /**
+   * Get a complete cached entry (includes configuration and variation)
+   */
+  getEntry(key: string): CacheEntry | null {
     const entry = this.cache.get(key);
     if (!entry) return null;
 
@@ -25,15 +33,17 @@ export class FlagCache {
       return null;
     }
 
-    return entry.value;
+    return entry;
   }
 
   /**
    * Set a flag value in cache
    */
-  set(key: string, value: boolean, flagId?: string): void {
+  set(key: string, value: boolean, flagId?: string, configuration?: any, variation?: string): void {
     this.cache.set(key, {
       value,
+      configuration,
+      variation,
       expiresAt: Date.now() + this.ttl,
       flagId,
     });

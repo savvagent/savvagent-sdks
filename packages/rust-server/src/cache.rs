@@ -5,6 +5,8 @@ use std::time::{Duration, Instant};
 #[derive(Clone)]
 pub(crate) struct CacheEntry {
     pub value: bool,
+    pub configuration: Option<serde_json::Value>,
+    pub variation: Option<String>,
     pub expires_at: Instant,
 }
 
@@ -26,6 +28,11 @@ impl Cache {
 
     /// Get a cached value if it exists and hasn't expired
     pub fn get(&self, key: &str) -> Option<bool> {
+        self.get_entry(key).map(|entry| entry.value)
+    }
+
+    /// Get a complete cached entry (includes configuration and variation)
+    pub fn get_entry(&self, key: &str) -> Option<CacheEntry> {
         let entries = self.entries.read().ok()?;
         let entry = entries.get(key)?;
 
@@ -33,16 +40,24 @@ impl Cache {
             return None;
         }
 
-        Some(entry.value)
+        Some(entry.clone())
     }
 
     /// Set a value in the cache
-    pub fn set(&self, key: String, value: bool) {
+    pub fn set(
+        &self,
+        key: String,
+        value: bool,
+        configuration: Option<serde_json::Value>,
+        variation: Option<String>,
+    ) {
         if let Ok(mut entries) = self.entries.write() {
             entries.insert(
                 key,
                 CacheEntry {
                     value,
+                    configuration,
+                    variation,
                     expires_at: Instant::now() + self.ttl,
                 },
             );

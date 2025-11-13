@@ -42,6 +42,52 @@ data class UserContext(
 }
 
 /**
+ * Result from flag evaluation
+ */
+data class FlagEvaluationResult(
+    val key: String,
+    val value: Boolean,
+    val configuration: Map<String, Any>? = null,
+    val variation: String? = null,
+    val reason: String = "evaluated"
+)
+
+/**
+ * Result from variation evaluation for multi-variant flags
+ */
+data class VariationResult(
+    val variation: String,
+    val enabled: Boolean,
+    val configuration: Map<String, Any>? = null
+)
+
+/**
+ * Cache entry for flag values
+ */
+private data class CacheEntry(
+    val value: Boolean,
+    val configuration: Map<String, Any>? = null,
+    val variation: String? = null
+)
+
+/**
+ * Configuration override entry
+ */
+private data class ConfigOverrideEntry(
+    val config: Map<String, Any>,
+    val merge: Boolean,
+    val timestamp: Long
+)
+
+/**
+ * Variation override entry
+ */
+private data class VariationOverrideEntry(
+    val variation: String,
+    val timestamp: Long
+)
+
+/**
  * Main Savvagent SDK client for feature flag evaluation
  */
 class SavvagentClient(
@@ -61,7 +107,9 @@ class SavvagentClient(
         }
         .build()
 
-    private val flagCache = ConcurrentHashMap<String, Boolean>()
+    private val flagCache = ConcurrentHashMap<String, CacheEntry>()
+    private val configOverrides = ConcurrentHashMap<String, ConfigOverrideEntry>()
+    private val variationOverrides = ConcurrentHashMap<String, VariationOverrideEntry>()
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var webSocket: WebSocket? = null
     private var pollingJob: Job? = null
@@ -77,14 +125,38 @@ class SavvagentClient(
     }
 
     /**
-     * Check if a feature flag is enabled for a given user context
+     * Evaluate a feature flag and get full details (Phase 1 & 2)
      */
-    suspend fun isEnabled(flagKey: String, userContext: UserContext): Result<Boolean> {
+    suspend fun evaluate(flagKey: String, userContext: UserContext): Result<FlagEvaluationResult> {
         return withContext(Dispatchers.IO) {
             try {
                 // Check cache first
-                flagCache[flagKey]?.let {
-                    return@withContext Result.success(it)
+                flagCache[flagKey]?.let { cached ->
+                    var configuration = cached.configuration
+                    var variation = cached.variation
+
+                    // Apply overrides
+                    configOverrides[flagKey]?.let { override ->
+                        configuration = if (override.merge && configuration != null) {
+                            mergeConfigurations(configuration, override.config)
+                        } else {
+                            override.config
+                        }
+                    }
+
+                    variationOverrides[flagKey]?.let { override ->
+                        variation = override.variation
+                    }
+
+                    return@withContext Result.success(
+                        FlagEvaluationResult(
+                            key = flagKey,
+                            value = cached.value,
+                            configuration = configuration,
+                            variation = variation,
+                            reason = "cached"
+                        )
+                    )
                 }
 
                 // Fetch from API
@@ -109,11 +181,38 @@ class SavvagentClient(
                 val jsonResponse = JSONObject(body)
                 val enabled = jsonResponse.getBoolean("enabled")
 
+                var configuration = if (jsonResponse.has("configuration")) {
+                    jsonResponse.getJSONObject("configuration").toMap()
+                } else null
+
+                var variation = if (jsonResponse.has("variation")) {
+                    jsonResponse.getString("variation")
+                } else null
+
                 // Update cache
-                flagCache[flagKey] = enabled
+                flagCache[flagKey] = CacheEntry(enabled, configuration, variation)
                 updateFlagFlow()
 
-                Result.success(enabled)
+                // Apply overrides to evaluated result
+                configOverrides[flagKey]?.let { override ->
+                    configuration = if (override.merge && configuration != null) {
+                        mergeConfigurations(configuration, override.config)
+                    } else {
+                        override.config
+                    }
+                }
+
+                variationOverrides[flagKey]?.let { override ->
+                    variation = override.variation
+                }
+
+                Result.success(FlagEvaluationResult(
+                    key = flagKey,
+                    value = enabled,
+                    configuration = configuration,
+                    variation = variation,
+                    reason = "evaluated"
+                ))
             } catch (e: Exception) {
                 logError("Error checking flag: $flagKey", e)
                 Result.failure(e)
@@ -122,7 +221,38 @@ class SavvagentClient(
     }
 
     /**
-     * Get a variation value for a feature flag
+     * Check if a feature flag is enabled for a given user context (convenience method)
+     */
+    suspend fun isEnabled(flagKey: String, userContext: UserContext): Result<Boolean> {
+        return evaluate(flagKey, userContext).map { it.value }
+    }
+
+    /**
+     * Get dynamic configuration for a flag (Phase 1)
+     * Returns configuration if flag is enabled, otherwise returns null
+     */
+    suspend fun getConfig(flagKey: String, userContext: UserContext): Result<Map<String, Any>?> {
+        return evaluate(flagKey, userContext).map { result ->
+            if (result.value) result.configuration else null
+        }
+    }
+
+    /**
+     * Get variation details for multi-variant flags (Phase 2)
+     * Returns variation name, enabled status, and configuration
+     */
+    suspend fun getVariationDetails(flagKey: String, userContext: UserContext): Result<VariationResult> {
+        return evaluate(flagKey, userContext).map { result ->
+            VariationResult(
+                variation = result.variation ?: "control",
+                enabled = result.value,
+                configuration = result.configuration
+            )
+        }
+    }
+
+    /**
+     * Get a variation value for a feature flag (legacy method - kept for backward compatibility)
      */
     suspend fun <T> getVariation(
         flagKey: String,
@@ -205,6 +335,92 @@ class SavvagentClient(
         scope.cancel()
     }
 
+    /**
+     * Set a configuration override for a flag
+     * Useful for testing different configuration values without server changes
+     */
+    fun setConfigOverride(flagKey: String, config: Map<String, Any>, merge: Boolean = false) {
+        configOverrides[flagKey] = ConfigOverrideEntry(config, merge, System.currentTimeMillis())
+        // Clear cache to force re-evaluation with override
+        flagCache.remove(flagKey)
+    }
+
+    /**
+     * Clear configuration override for a flag
+     */
+    fun clearConfigOverride(flagKey: String) {
+        configOverrides.remove(flagKey)
+        // Clear cache to get fresh API values
+        flagCache.remove(flagKey)
+    }
+
+    /**
+     * Set a variation override for a multi-variant flag
+     * Forces the flag to return a specific variation
+     */
+    fun setVariationOverride(flagKey: String, variation: String) {
+        variationOverrides[flagKey] = VariationOverrideEntry(variation, System.currentTimeMillis())
+        // Clear cache to force re-evaluation with override
+        flagCache.remove(flagKey)
+    }
+
+    /**
+     * Clear variation override for a flag
+     */
+    fun clearVariationOverride(flagKey: String) {
+        variationOverrides.remove(flagKey)
+        // Clear cache to get fresh API values
+        flagCache.remove(flagKey)
+    }
+
+    /**
+     * Check if a flag has a configuration override
+     */
+    fun hasConfigOverride(flagKey: String): Boolean {
+        return configOverrides.containsKey(flagKey)
+    }
+
+    /**
+     * Check if a flag has a variation override
+     */
+    fun hasVariationOverride(flagKey: String): Boolean {
+        return variationOverrides.containsKey(flagKey)
+    }
+
+    /**
+     * Get all configuration overrides (for debugging/inspection)
+     */
+    fun getConfigOverrides(): Map<String, Map<String, Any>> {
+        return configOverrides.mapValues { (_, entry) ->
+            mapOf(
+                "config" to entry.config,
+                "merge" to entry.merge,
+                "timestamp" to entry.timestamp
+            )
+        }
+    }
+
+    /**
+     * Get all variation overrides (for debugging/inspection)
+     */
+    fun getVariationOverrides(): Map<String, Map<String, Any>> {
+        return variationOverrides.mapValues { (_, entry) ->
+            mapOf(
+                "variation" to entry.variation,
+                "timestamp" to entry.timestamp
+            )
+        }
+    }
+
+    /**
+     * Clear all configuration and variation overrides
+     */
+    fun clearAllOverrides() {
+        configOverrides.clear()
+        variationOverrides.clear()
+        flagCache.clear()
+    }
+
     // MARK: - Private Methods
 
     private fun setupWebSocket() {
@@ -239,8 +455,12 @@ class SavvagentClient(
             val json = JSONObject(message)
             val flagKey = json.getString("flagKey")
             val enabled = json.getBoolean("enabled")
+            val configuration = if (json.has("configuration")) {
+                json.getJSONObject("configuration").toMap()
+            } else null
+            val variation = if (json.has("variation")) json.getString("variation") else null
 
-            flagCache[flagKey] = enabled
+            flagCache[flagKey] = CacheEntry(enabled, configuration, variation)
             updateFlagFlow()
         } catch (e: Exception) {
             logError("Error handling WebSocket message", e)
@@ -277,7 +497,11 @@ class SavvagentClient(
                     val flag = flags.getJSONObject(i)
                     val key = flag.getString("key")
                     val enabled = flag.getBoolean("enabled")
-                    flagCache[key] = enabled
+                    val configuration = if (flag.has("configuration")) {
+                        flag.getJSONObject("configuration").toMap()
+                    } else null
+                    val variation = if (flag.has("variation")) flag.getString("variation") else null
+                    flagCache[key] = CacheEntry(enabled, configuration, variation)
                 }
 
                 updateFlagFlow()
@@ -288,13 +512,39 @@ class SavvagentClient(
     }
 
     private fun updateFlagFlow() {
-        _flagUpdates.value = flagCache.toMap()
+        _flagUpdates.value = flagCache.mapValues { it.value.value }
     }
 
     private fun logError(message: String, throwable: Throwable? = null) {
         if (config.enableLogging) {
             Log.e(TAG, message, throwable)
         }
+    }
+
+    /**
+     * Merge two configuration maps (for partial overrides)
+     * Deep merge where override values take precedence
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun mergeConfigurations(base: Map<String, Any>, override: Map<String, Any>): Map<String, Any> {
+        val result = base.toMutableMap()
+
+        for ((key, overrideValue) in override) {
+            val baseValue = result[key]
+
+            if (baseValue is Map<*, *> && overrideValue is Map<*, *>) {
+                // Recursively merge nested maps
+                result[key] = mergeConfigurations(
+                    baseValue as Map<String, Any>,
+                    overrideValue as Map<String, Any>
+                )
+            } else {
+                // Override the value
+                result[key] = overrideValue
+            }
+        }
+
+        return result
     }
 
     companion object {
@@ -306,3 +556,25 @@ class SavvagentClient(
  * Exception thrown by the Savvagent SDK
  */
 class SavvagentException(message: String, cause: Throwable? = null) : Exception(message, cause)
+
+/**
+ * Extension function to convert JSONObject to Map
+ */
+private fun JSONObject.toMap(): Map<String, Any> {
+    val map = mutableMapOf<String, Any>()
+    keys().forEach { key ->
+        val value = get(key)
+        map[key] = when (value) {
+            is JSONObject -> value.toMap()
+            is org.json.JSONArray -> {
+                val list = mutableListOf<Any>()
+                for (i in 0 until value.length()) {
+                    list.add(value.get(i))
+                }
+                list
+            }
+            else -> value
+        }
+    }
+    return map
+}
