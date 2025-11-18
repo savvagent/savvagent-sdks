@@ -17,3 +17,6 @@ export type {
   CacheEntry,
   FlagUpdateEvent,
 } from './types';
+
+// Re-export generated API types from the main SDK for advanced users
+export type { components, components as ApiTypes } from '@savvagent/sdk';

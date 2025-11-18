@@ -6,6 +6,11 @@ import {
   FlagContext,
   FlagEvaluationResult,
 } from './types';
+import { components } from './generated/api-types';
+
+// Type aliases for generated API types
+type ApiEvaluateRequest = components['schemas']['EvaluateFlag'];
+type ApiEvaluateResponse = components['schemas']['FlagEvaluationResponse'];
 
 /**
  * Savvagent Client for feature flag evaluation with AI-powered error detection
@@ -205,6 +210,12 @@ export class FlagClient {
       // Build context with user identifiers
       const evaluationContext = this.buildContext(context);
 
+      // Build type-safe request body
+      // Cast to any for JsonValue compatibility (all fields are JSON-serializable)
+      const requestBody: ApiEvaluateRequest = {
+        context: evaluationContext as any,
+      };
+
       // Fetch from API
       const response = await fetch(`${this.config.baseUrl}/api/flags/${flagKey}/evaluate`, {
         method: 'POST',
@@ -212,18 +223,19 @@ export class FlagClient {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${this.config.apiKey}`,
         },
-        body: JSON.stringify({ context: evaluationContext }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
         throw new Error(`Flag evaluation failed: ${response.status}`);
       }
 
-      const data = await response.json();
+      // Parse response with type safety
+      const data: ApiEvaluateResponse = await response.json();
       const value = data.enabled || false;
 
-      // Cache the result
-      this.cache.set(flagKey, value, data.id);
+      // Cache the result (use key as ID since response doesn't include UUID)
+      this.cache.set(flagKey, value, data.key);
 
       // Track evaluation
       const durationMs = Date.now() - startTime;
@@ -241,8 +253,10 @@ export class FlagClient {
         value,
         reason: 'evaluated',
         metadata: {
-          flagId: data.id,
-          description: data.description,
+          scope: data.scope,
+          configuration: data.configuration,
+          variation: data.variation,
+          timestamp: data.timestamp,
         },
       };
     } catch (error) {

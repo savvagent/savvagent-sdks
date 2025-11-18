@@ -1,12 +1,12 @@
 /**
- * Example usage of Vexil SDK
+ * Example usage of Savvagent SDK
  * Run with: npx tsx example.ts
  */
 
 import { FlagClient } from './src';
 
 async function main() {
-  console.log('🚀 Vexil SDK Example\n');
+  console.log('🚀 Savvagent SDK Example\n');
 
   // Initialize the client
   const client = new FlagClient({

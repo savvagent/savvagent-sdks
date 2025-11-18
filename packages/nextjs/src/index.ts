@@ -51,4 +51,7 @@ export type {
   EvaluationEvent,
   ErrorEvent,
   FlagUpdateEvent,
+  // Generated API types for advanced users
+  ApiTypes,
+  components,
 } from '@savvagent/sdk';

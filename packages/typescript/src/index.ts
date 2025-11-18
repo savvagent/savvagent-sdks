@@ -17,3 +17,11 @@ export type {
   CacheEntry,
   FlagUpdateEvent,
 } from './types';
+
+// Export generated API types for advanced users
+export type { components } from './generated/api-types';
+
+// Convenience type aliases for common API types
+export type {
+  components as ApiTypes,
+} from './generated/api-types';

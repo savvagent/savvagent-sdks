@@ -62,6 +62,10 @@ export interface FlagEvaluationResult {
   metadata?: {
     flagId?: string;
     description?: string;
+    scope?: string | null;
+    configuration?: any;
+    variation?: string | null;
+    timestamp?: number;
   };
 }
 

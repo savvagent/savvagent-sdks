@@ -22,4 +22,7 @@ export type {
   FlagClientConfig,
   FlagContext,
   FlagEvaluationResult,
+  // Generated API types for advanced users
+  ApiTypes,
+  components,
 } from '@savvagent/react';
