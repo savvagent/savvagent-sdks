@@ -16,10 +16,12 @@
     "format": "pnpm -r run format",
     "changeset": "changeset",
     "version-packages": "changeset version",
-    "release": "pnpm build && changeset publish"
+    "release": "pnpm build && changeset publish",
+    "sync:types": "openapi-typescript ../savvagent-flags/docs/openapi.json -o packages/typescript/src/generated/api-types.ts"
   },
   "devDependencies": {
-    "@changesets/cli": "^2.27.1"
+    "@changesets/cli": "^2.27.1",
+    "openapi-typescript": "^7.10.1"
   },
   "engines": {
     "node": ">=18.0.0",
