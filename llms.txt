@@ -1,0 +1,99 @@
+# Savvagent SDKs
+
+> Savvagent is an AI-powered feature flag platform that prevents production incidents. This repository contains official SDKs for TypeScript/JavaScript, React, Vue, Svelte, Next.js, Node.js, Go, Java, Rust, iOS, and Android.
+
+Savvagent feature flags enable safe rollouts with automatic error detection and correlation. The platform tracks flag evaluations and correlates production errors with recent flag changes using AI.
+
+## Core Concepts
+
+- **Feature Flags**: Boolean toggles that control feature visibility
+- **Context**: User/session data for targeted rollouts (userId, attributes)
+- **Real-time Updates**: Server-Sent Events push flag changes instantly
+- **Telemetry**: Automatic tracking of evaluations and errors
+- **AI Error Detection**: Correlates production errors with flag changes
+
+## Quick Start (TypeScript)
+
+```typescript
+import { FlagClient } from '@savvagent/sdk';
+
+const client = new FlagClient({
+  apiKey: 'sdk_your_key_here',
+  baseUrl: 'https://api.savvagent.com',
+});
+
+// Check if flag is enabled
+const enabled = await client.isEnabled('new-feature', {
+  userId: 'user-123',
+  attributes: { plan: 'pro' },
+});
+
+// Execute code conditionally with automatic error tracking
+await client.withFlag('experimental', async () => {
+  await experimentalFeature();
+});
+```
+
+## SDK Documentation
+
+- [TypeScript/JavaScript SDK](https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/packages/typescript/README.md): Core SDK with caching, real-time updates, telemetry
+- [React SDK](https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/packages/react/README.md): React hooks for feature flags
+- [Vue SDK](https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/packages/vue/README.md): Vue 3 composables
+- [Svelte SDK](https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/packages/svelte/README.md): Svelte stores
+- [Next.js SDK](https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/packages/nextjs/README.md): App Router and Pages Router support
+- [Node.js Server SDK](https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/packages/node-server/README.md): Server-side SDK for Express, Fastify, etc.
+- [Go Server SDK](https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/packages/go-server/README.md): Idiomatic Go with goroutine-safe access
+- [Java Server SDK](https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/packages/java-server/README.md): Thread-safe for Spring Boot, etc.
+- [Rust Server SDK](https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/packages/rust-server/README.md): Async/await with Tokio
+- [iOS SDK](https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/packages/ios-sdk/README.md): Swift with async/await, SwiftUI support
+- [Android SDK](https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/packages/android-sdk/README.md): Kotlin with Jetpack Compose
+
+## Guides
+
+- [SDK Integration Guide](https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/docs/SDK-INTEGRATION.md): Complete setup and usage instructions
+- [Dynamic Configuration](https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/docs/DYNAMIC-CONFIGURATION.md): Advanced flag variations and targeting
+- [Client-Side Overrides](https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/docs/CLIENT-SIDE-OVERRIDES.md): Testing flags in development
+
+## API Reference
+
+### FlagClient Configuration
+
+```typescript
+interface FlagClientConfig {
+  apiKey: string;              // Required: SDK key (starts with sdk_)
+  baseUrl?: string;            // API URL (default: production)
+  enableRealtime?: boolean;    // SSE updates (default: true)
+  cacheTtl?: number;           // Cache TTL in ms (default: 60000)
+  enableTelemetry?: boolean;   // Track evaluations (default: true)
+  defaults?: Record<string, boolean>;  // Fallback values
+  onError?: (error: Error) => void;    // Error handler
+}
+```
+
+### FlagClient Methods
+
+- `isEnabled(flagKey, context?)` - Returns boolean, checks if flag is enabled
+- `evaluate(flagKey, context?)` - Returns detailed result with reason and metadata
+- `withFlag(flagKey, callback, context?)` - Executes callback if flag enabled, tracks errors
+- `trackError(flagKey, error, context?)` - Manually track error with flag context
+- `subscribe(flagKey, callback)` - Subscribe to real-time flag updates
+- `getCachedFlags()` - Get all cached flag keys
+- `clearCache()` - Force re-evaluation
+- `close()` - Cleanup resources
+
+### Context Object
+
+```typescript
+interface EvaluationContext {
+  userId?: string;           // User identifier for targeting
+  attributes?: {             // Custom attributes for rules
+    [key: string]: string | number | boolean;
+  };
+}
+```
+
+## Optional
+
+- [Examples Repository](https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/examples): Working example apps for all frameworks
+- [Migration Guide](https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/docs/MIGRATION.md): Migrating from other feature flag providers
+- [MCP SDK](https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/packages/mcp-sdk/README.md): Building observability integrations

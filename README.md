@@ -144,6 +144,32 @@ Working example applications are available in the [examples](./examples) directo
 - **[API Reference](./packages/typescript/README.md)** - Full SDK API documentation
 - **[MCP Integration Guide](./packages/mcp-sdk/README.md)** - Building MCP servers
 
+## AI-Assisted Development
+
+Use AI coding assistants (Claude Code, Cursor, GitHub Copilot) to integrate Savvagent faster. We provide AI-optimized documentation:
+
+| File | Description | Use Case |
+|------|-------------|----------|
+| [llms.txt](./llms.txt) | Quick reference (~4KB) | Fast lookups, links to detailed docs |
+| [llms-full.txt](./llms-full.txt) | Complete docs (~15KB) | Full context for complex integrations |
+
+### Quick Start with AI
+
+**Claude Code / Cursor:**
+```
+Add Savvagent feature flags to my React app.
+Reference: https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/llms-full.txt
+```
+
+**Add to project context** for better suggestions:
+```bash
+# Claude Code - add to .claude/settings.json
+# Cursor - add to Settings > Features > Docs
+https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/llms-full.txt
+```
+
+See **[AI-Assisted Development Guide](./docs/AI-ASSISTED-DEVELOPMENT.md)** for detailed instructions.
+
 ## Development
 
 This is a pnpm workspace monorepo with independent package versioning.

@@ -1,0 +1,849 @@
+# Savvagent SDKs - Complete Documentation
+
+> Savvagent is an AI-powered feature flag platform that prevents production incidents. This repository contains official SDKs for TypeScript/JavaScript, React, Vue, Svelte, Next.js, Node.js, Go, Java, Rust, iOS, and Android.
+
+---
+
+## Overview
+
+Savvagent enables safe feature rollouts by:
+- **Feature Flags**: Boolean toggles that control feature visibility with targeting rules
+- **AI Error Detection**: Automatically correlates production errors with recent flag changes
+- **Real-time Updates**: Server-Sent Events push flag changes instantly to all clients
+- **Telemetry**: Automatic tracking of flag evaluations for analytics and debugging
+
+### Key Benefits
+- Prevent production incidents by quickly disabling problematic features
+- Gradual rollouts with percentage-based targeting
+- User segmentation by attributes, geography, and language
+- Real-time flag updates without page reloads
+
+---
+
+## Installation
+
+### TypeScript/JavaScript (npm)
+```bash
+npm install @savvagent/sdk
+# or
+pnpm add @savvagent/sdk
+# or
+yarn add @savvagent/sdk
+```
+
+### React
+```bash
+npm install @savvagent/react
+```
+
+### Vue 3
+```bash
+npm install @savvagent/vue
+```
+
+### Next.js
+```bash
+npm install @savvagent/nextjs
+```
+
+### Node.js Server
+```bash
+npm install @savvagent/node-server
+```
+
+### Go
+```bash
+go get github.com/savvagent/savvagent-go-server-sdk
+```
+
+### Java (Maven)
+```xml
+<dependency>
+  <groupId>com.savvagent</groupId>
+  <artifactId>savvagent-java-server-sdk</artifactId>
+  <version>0.1.0</version>
+</dependency>
+```
+
+### Rust
+```toml
+[dependencies]
+savvagent = "0.1.0"
+```
+
+### iOS (Swift Package Manager)
+```swift
+.package(url: "https://github.com/savvagent/savvagent-ios-sdk.git", from: "0.1.0")
+```
+
+### Android (Gradle)
+```kotlin
+implementation("com.savvagent:savvagent-android-sdk:0.1.0")
+```
+
+---
+
+## Quick Start
+
+### TypeScript/JavaScript
+
+```typescript
+import { FlagClient } from '@savvagent/sdk';
+
+// Initialize the client
+const client = new FlagClient({
+  apiKey: 'sdk_your_api_key_here',
+  baseUrl: 'https://api.savvagent.com',
+  enableRealtime: true,
+  enableTelemetry: true,
+});
+
+// Check if a flag is enabled
+const isEnabled = await client.isEnabled('new-feature', {
+  userId: 'user-123',
+  attributes: {
+    plan: 'pro',
+    country: 'US',
+  },
+});
+
+if (isEnabled) {
+  // Show new feature
+} else {
+  // Show old feature
+}
+
+// Execute code conditionally with automatic error tracking
+await client.withFlag('experimental', async () => {
+  // This code only runs if flag is enabled
+  // Errors are automatically tracked with flag context
+  await experimentalFeature();
+});
+
+// Get detailed evaluation result
+const result = await client.evaluate('my-feature', { userId: 'user-123' });
+// Returns: { key, value, reason, metadata }
+
+// Subscribe to real-time flag updates
+const unsubscribe = client.subscribe('my-feature', () => {
+  console.log('Flag was updated!');
+});
+
+// Clean up
+client.close();
+```
+
+### React
+
+```tsx
+import { SavvagentProvider, useFlag } from '@savvagent/react';
+
+// 1. Wrap your app with the provider
+function App() {
+  return (
+    <SavvagentProvider
+      config={{
+        apiKey: 'sdk_your_api_key_here',
+        enableRealtime: true,
+      }}
+    >
+      <YourApp />
+    </SavvagentProvider>
+  );
+}
+
+// 2. Use the useFlag hook in components
+function MyFeature() {
+  const { value: isEnabled, loading } = useFlag('new-checkout-flow', {
+    defaultValue: false,
+    context: {
+      user_id: currentUser.id,
+      attributes: { plan: currentUser.plan },
+    },
+  });
+
+  if (loading) return <Spinner />;
+  return isEnabled ? <NewCheckout /> : <OldCheckout />;
+}
+
+// 3. Track errors with flag context
+function ExperimentalFeature() {
+  const trackError = useTrackError('experimental-feature');
+
+  const handleAction = async () => {
+    try {
+      await riskyOperation();
+    } catch (error) {
+      trackError(error); // Correlated with flag state
+      throw error;
+    }
+  };
+
+  return <button onClick={handleAction}>Try It</button>;
+}
+```
+
+### Vue 3
+
+```vue
+<script setup lang="ts">
+import { useFlag, useSavvagent } from '@savvagent/vue';
+
+const { value: isEnabled, loading } = useFlag('new-feature', {
+  defaultValue: false,
+});
+</script>
+
+<template>
+  <div v-if="loading">Loading...</div>
+  <NewFeature v-else-if="isEnabled" />
+  <OldFeature v-else />
+</template>
+```
+
+### Next.js (App Router)
+
+```tsx
+// app/layout.tsx - Server-side initialization
+import { SavvagentProvider } from '@savvagent/nextjs/server';
+
+export default function RootLayout({ children }) {
+  return (
+    <html>
+      <body>
+        <SavvagentProvider
+          config={{
+            apiKey: process.env.SAVVAGENT_SDK_KEY!,
+          }}
+        >
+          {children}
+        </SavvagentProvider>
+      </body>
+    </html>
+  );
+}
+
+// components/Feature.tsx - Client component
+'use client';
+import { useFlag } from '@savvagent/nextjs/client';
+
+export function Feature() {
+  const { value } = useFlag('new-feature');
+  return value ? <NewUI /> : <OldUI />;
+}
+```
+
+### Node.js Server (Express)
+
+```typescript
+import express from 'express';
+import { FlagClient } from '@savvagent/node-server';
+
+const app = express();
+const flags = new FlagClient({
+  apiKey: process.env.SAVVAGENT_SDK_KEY!,
+  cache: { enabled: true, ttl: 60000 },
+});
+
+app.get('/api/feature', async (req, res) => {
+  const isEnabled = await flags.isEnabled('api-feature', {
+    userId: req.user.id,
+    attributes: { plan: req.user.plan },
+  });
+
+  if (isEnabled) {
+    res.json({ data: 'new response' });
+  } else {
+    res.json({ data: 'old response' });
+  }
+});
+```
+
+### Go
+
+```go
+package main
+
+import (
+    "context"
+    savvagent "github.com/savvagent/savvagent-go-server-sdk"
+)
+
+func main() {
+    client, err := savvagent.NewClient(savvagent.Config{
+        APIKey:  "sdk_your_api_key",
+        BaseURL: "https://api.savvagent.com",
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer client.Close()
+
+    ctx := context.Background()
+    isEnabled, err := client.IsEnabled(ctx, "new-feature", savvagent.Context{
+        UserID: "user-123",
+        Attributes: map[string]interface{}{
+            "plan": "pro",
+        },
+    })
+
+    if isEnabled {
+        // New feature logic
+    }
+}
+```
+
+### Java
+
+```java
+import com.savvagent.sdk.FlagClient;
+import com.savvagent.sdk.FlagContext;
+
+public class Example {
+    public static void main(String[] args) {
+        FlagClient client = FlagClient.builder()
+            .apiKey("sdk_your_api_key")
+            .baseUrl("https://api.savvagent.com")
+            .build();
+
+        FlagContext context = FlagContext.builder()
+            .userId("user-123")
+            .attribute("plan", "pro")
+            .build();
+
+        boolean isEnabled = client.isEnabled("new-feature", context);
+
+        if (isEnabled) {
+            // New feature logic
+        }
+
+        client.close();
+    }
+}
+```
+
+### Rust
+
+```rust
+use savvagent::{FlagClient, FlagContext};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = FlagClient::new(
+        "sdk_your_api_key",
+        "https://api.savvagent.com",
+    )?;
+
+    let context = FlagContext::new()
+        .user_id("user-123")
+        .attribute("plan", "pro");
+
+    let is_enabled = client.is_enabled("new-feature", &context).await?;
+
+    if is_enabled {
+        // New feature logic
+    }
+
+    Ok(())
+}
+```
+
+### iOS (Swift)
+
+```swift
+import SavvagentSDK
+
+// Initialize
+let client = try FlagClient(
+    apiKey: "sdk_your_api_key",
+    baseURL: "https://api.savvagent.com"
+)
+
+// Check flag
+let isEnabled = try await client.isEnabled("new-feature", context: [
+    "userId": "user-123",
+    "attributes": ["plan": "pro"]
+])
+
+// SwiftUI integration
+struct FeatureView: View {
+    @State private var isEnabled = false
+
+    var body: some View {
+        Group {
+            if isEnabled {
+                NewFeatureView()
+            } else {
+                OldFeatureView()
+            }
+        }
+        .task {
+            isEnabled = try? await FlagClient.shared.isEnabled("new-feature")
+        }
+    }
+}
+```
+
+### Android (Kotlin)
+
+```kotlin
+import com.savvagent.sdk.FlagClient
+import com.savvagent.sdk.FlagContext
+
+// Initialize
+val client = FlagClient(
+    apiKey = "sdk_your_api_key",
+    baseUrl = "https://api.savvagent.com"
+)
+
+// Check flag
+val context = FlagContext(
+    userId = "user-123",
+    attributes = mapOf("plan" to "pro")
+)
+val isEnabled = client.isEnabled("new-feature", context)
+
+// Jetpack Compose integration
+@Composable
+fun FeatureScreen() {
+    val isEnabled by remember {
+        mutableStateOf(false)
+    }
+
+    LaunchedEffect(Unit) {
+        isEnabled = FlagClient.isEnabled("new-feature")
+    }
+
+    if (isEnabled) {
+        NewFeature()
+    } else {
+        OldFeature()
+    }
+}
+```
+
+---
+
+## Configuration Reference
+
+### FlagClient Configuration
+
+```typescript
+interface FlagClientConfig {
+  // Required
+  apiKey: string;              // SDK key (starts with sdk_)
+
+  // Optional - API
+  baseUrl?: string;            // API URL (default: https://api.savvagent.com)
+  timeout?: number;            // Request timeout in ms (default: 5000)
+
+  // Optional - Caching
+  cache?: {
+    enabled: boolean;          // Enable caching (default: true)
+    ttl: number;               // Cache TTL in ms (default: 60000)
+  };
+
+  // Optional - Real-time
+  enableRealtime?: boolean;    // SSE updates (default: true)
+
+  // Optional - Telemetry
+  enableTelemetry?: boolean;   // Track evaluations (default: true)
+
+  // Optional - Defaults
+  defaults?: Record<string, boolean>;  // Fallback values per flag
+
+  // Optional - Error handling
+  onError?: (error: Error) => void;    // Custom error handler
+}
+```
+
+### Evaluation Context
+
+```typescript
+interface EvaluationContext {
+  userId?: string;             // User identifier for targeting
+  anonymousId?: string;        // Anonymous user ID (auto-generated if not set)
+  attributes?: {               // Custom attributes for targeting rules
+    [key: string]: string | number | boolean;
+  };
+  language?: string;           // Language code (e.g., 'en-US')
+  environment?: string;        // Environment override
+}
+```
+
+---
+
+## API Reference
+
+### FlagClient Methods
+
+| Method | Description | Returns |
+|--------|-------------|---------|
+| `isEnabled(flagKey, context?)` | Check if flag is enabled | `Promise<boolean>` |
+| `evaluate(flagKey, context?)` | Get detailed evaluation result | `Promise<EvaluationResult>` |
+| `withFlag(flagKey, callback, context?)` | Execute callback if flag enabled, tracks errors | `Promise<T \| null>` |
+| `trackError(flagKey, error, context?)` | Manually track error with flag context | `void` |
+| `subscribe(flagKey, callback)` | Subscribe to real-time flag updates | `() => void` (unsubscribe) |
+| `getCachedFlags()` | Get all cached flag keys | `string[]` |
+| `clearCache()` | Force re-evaluation on next call | `void` |
+| `isRealtimeConnected()` | Check SSE connection status | `boolean` |
+| `close()` | Cleanup resources and connections | `void` |
+
+### EvaluationResult
+
+```typescript
+interface EvaluationResult {
+  key: string;                 // Flag key
+  value: boolean;              // Evaluated value
+  reason: 'evaluated' | 'cached' | 'default' | 'error';
+  metadata?: {
+    flagId: string;
+    description?: string;
+    variation?: string;        // For multi-variant flags
+  };
+}
+```
+
+### React Hooks
+
+| Hook | Description |
+|------|-------------|
+| `useFlag(flagKey, options?)` | Evaluate flag with loading/error states |
+| `useSavvagent()` | Access underlying FlagClient instance |
+| `useWithFlag(flagKey, callback)` | Execute callback when flag is enabled |
+| `useUser()` | Manage user identification |
+| `useTrackError(flagKey)` | Get error tracking function for a flag |
+
+---
+
+## Targeting & Rollouts
+
+### Percentage Rollouts (Sticky)
+
+Savvagent uses consistent hashing to ensure users always see the same flag state:
+
+```typescript
+// 25% rollout - same users always in the 25%
+const isEnabled = await client.isEnabled('gradual-rollout', {
+  userId: 'user-123', // Required for sticky behavior
+});
+```
+
+### User Attribute Targeting
+
+Target users based on custom attributes:
+
+```typescript
+const isEnabled = await client.isEnabled('premium-feature', {
+  userId: 'user-123',
+  attributes: {
+    plan: 'enterprise',        // Target enterprise users
+    country: 'US',             // Target US users
+    signupDate: '2024-01-15',  // Target users by signup date
+  },
+});
+```
+
+### Language Targeting
+
+Target users by language/locale:
+
+```typescript
+const isEnabled = await client.isEnabled('localized-feature', {
+  language: 'en-US', // or 'fr-FR', 'de-DE', etc.
+});
+```
+
+### Geolocation Targeting
+
+Target users by country, city, or timezone (requires server-side context):
+
+```typescript
+// Server-side with geolocation context
+const isEnabled = await client.isEnabled('regional-feature', {
+  userId: 'user-123',
+  attributes: {
+    country: 'US',
+    city: 'San Francisco',
+    timezone: 'America/Los_Angeles',
+  },
+});
+```
+
+---
+
+## Real-time Updates
+
+### Enabling Real-time
+
+```typescript
+const client = new FlagClient({
+  apiKey: 'sdk_...',
+  enableRealtime: true, // Default: true
+});
+```
+
+### Subscribing to Changes
+
+```typescript
+// Subscribe to specific flag
+const unsubscribe = client.subscribe('feature-x', () => {
+  console.log('Flag changed! Re-evaluating...');
+  refreshUI();
+});
+
+// Subscribe to all flag changes
+client.subscribe('*', () => {
+  console.log('Some flag changed');
+});
+
+// Unsubscribe when done
+unsubscribe();
+```
+
+### React Real-time
+
+```tsx
+// Automatic with useFlag
+const { value } = useFlag('feature', { realtime: true });
+// Component re-renders when flag changes
+```
+
+---
+
+## Error Tracking
+
+Savvagent's AI correlates errors with flag changes to identify problematic rollouts:
+
+### Automatic Tracking (withFlag)
+
+```typescript
+// Errors in callback are automatically tracked
+await client.withFlag('new-payment-flow', async () => {
+  await processPayment(); // If this throws, error is tracked
+});
+```
+
+### Manual Tracking
+
+```typescript
+try {
+  await riskyOperation();
+} catch (error) {
+  client.trackError('feature-flag-key', error, {
+    userId: 'user-123',
+  });
+  throw error;
+}
+```
+
+### React Error Tracking
+
+```tsx
+function Feature() {
+  const trackError = useTrackError('new-feature');
+
+  const handleClick = async () => {
+    try {
+      await doSomething();
+    } catch (error) {
+      trackError(error);
+    }
+  };
+
+  return <button onClick={handleClick}>Do Something</button>;
+}
+```
+
+---
+
+## Client-Side Overrides
+
+Override flag values locally for development and testing:
+
+### Configuration Overrides
+
+```typescript
+const client = new FlagClient({
+  apiKey: 'sdk_...',
+  overrides: {
+    'new-checkout': true,    // Always enabled locally
+    'beta-feature': false,   // Always disabled locally
+  },
+});
+```
+
+### Runtime Overrides
+
+```typescript
+// Set override
+client.setOverride('feature-x', true);
+
+// Check (returns overridden value)
+await client.isEnabled('feature-x'); // → true
+
+// Clear override
+client.clearOverride('feature-x');
+
+// Clear all overrides
+client.clearAllOverrides();
+```
+
+### URL Query Parameters
+
+```typescript
+const client = new FlagClient({
+  apiKey: 'sdk_...',
+  enableQueryOverrides: true,
+});
+
+// Now visit: https://app.example.com?flag:dark-mode=true
+// Flag will be overridden based on URL
+```
+
+---
+
+## Best Practices
+
+### 1. Initialize Once, Reuse Everywhere
+
+```typescript
+// lib/flags.ts
+export const flagClient = new FlagClient({
+  apiKey: process.env.SAVVAGENT_SDK_KEY!,
+});
+
+// other files
+import { flagClient } from '@/lib/flags';
+```
+
+### 2. Always Provide Context for Targeting
+
+```typescript
+// Include userId for sticky rollouts
+const isEnabled = await client.isEnabled('feature', {
+  userId: user.id,
+  attributes: { plan: user.plan },
+});
+```
+
+### 3. Use Default Values
+
+```typescript
+const client = new FlagClient({
+  apiKey: 'sdk_...',
+  defaults: {
+    'critical-feature': true,  // Safe default for critical features
+    'experimental': false,     // Safe default for experiments
+  },
+});
+```
+
+### 4. Handle Loading States (React)
+
+```tsx
+function Feature() {
+  const { value, loading } = useFlag('feature', { defaultValue: false });
+
+  if (loading) return <Skeleton />;
+  return value ? <NewFeature /> : <OldFeature />;
+}
+```
+
+### 5. Enable Telemetry for Analytics
+
+```typescript
+const client = new FlagClient({
+  apiKey: 'sdk_...',
+  enableTelemetry: true, // Default, but be explicit
+});
+```
+
+### 6. Clean Up on Shutdown
+
+```typescript
+// In cleanup/shutdown handler
+client.close();
+```
+
+---
+
+## Environment Configuration
+
+### Development
+
+```typescript
+const client = new FlagClient({
+  apiKey: 'sdk_dev_...',
+  baseUrl: 'http://localhost:8080',
+  cache: { enabled: false }, // Disable for testing
+});
+```
+
+### Production
+
+```typescript
+const client = new FlagClient({
+  apiKey: process.env.SAVVAGENT_SDK_KEY!,
+  baseUrl: 'https://api.savvagent.com',
+  cache: { enabled: true, ttl: 60000 },
+  enableTelemetry: true,
+});
+```
+
+### Environment Variables
+
+```bash
+# .env
+SAVVAGENT_SDK_KEY=sdk_prod_xxx
+SAVVAGENT_API_URL=https://api.savvagent.com
+
+# .env.local (client-side)
+NEXT_PUBLIC_SAVVAGENT_SDK_KEY=sdk_prod_xxx
+VITE_SAVVAGENT_SDK_KEY=sdk_prod_xxx
+```
+
+---
+
+## Troubleshooting
+
+### Flags Always Return False
+- Verify API key is correct and starts with `sdk_`
+- Check baseUrl points to correct API
+- Verify flag exists and is enabled for the environment
+- Check network requests in browser DevTools
+
+### Real-time Updates Not Working
+- Ensure `enableRealtime: true` (default)
+- Check if EventSource/SSE is supported in environment
+- Verify SSE endpoint is accessible (not blocked by proxy)
+
+### High Latency
+- Enable caching: `cache: { enabled: true, ttl: 60000 }`
+- Use real-time updates instead of polling
+- Batch multiple flag checks
+
+### Inconsistent Flag Values
+- Ensure userId is provided for sticky rollouts
+- Same userId should always get same value
+- Check if flag has percentage rollout configured
+
+---
+
+## Package Versions
+
+| Package | npm | Status |
+|---------|-----|--------|
+| @savvagent/sdk | [![npm](https://img.shields.io/npm/v/@savvagent/sdk)](https://npmjs.com/package/@savvagent/sdk) | Stable |
+| @savvagent/react | [![npm](https://img.shields.io/npm/v/@savvagent/react)](https://npmjs.com/package/@savvagent/react) | Beta |
+| @savvagent/vue | [![npm](https://img.shields.io/npm/v/@savvagent/vue)](https://npmjs.com/package/@savvagent/vue) | Beta |
+| @savvagent/nextjs | [![npm](https://img.shields.io/npm/v/@savvagent/nextjs)](https://npmjs.com/package/@savvagent/nextjs) | Beta |
+| @savvagent/node-server | [![npm](https://img.shields.io/npm/v/@savvagent/node-server)](https://npmjs.com/package/@savvagent/node-server) | Beta |
+
+---
+
+## Support
+
+- **Documentation**: https://docs.savvagent.com
+- **GitHub Issues**: https://github.com/savvagent/savvagent-sdks/issues
+- **Email**: support@savvagent.com
