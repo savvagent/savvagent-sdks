@@ -1,6 +1,6 @@
 {
   "name": "@savvagent/mcp-sentry",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Savvagent Sentry MCP integration - Connect feature flags with Sentry error tracking",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
@@ -38,13 +38,13 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/savvagent-sdks",
+    "url": "https://github.com/savvagent/savvagent-sdks",
     "directory": "packages/mcp-sentry"
   },
   "bugs": {
-    "url": "https://github.com/yourusername/savvagent-sdks/issues"
+    "url": "https://github.com/savvagent/savvagent-sdks/issues"
   },
-  "homepage": "https://github.com/yourusername/savvagent-sdks/tree/main/packages/mcp-sentry#readme",
+  "homepage": "https://github.com/savvagent/savvagent-sdks/tree/main/packages/mcp-sentry#readme",
   "publishConfig": {
     "access": "public"
   },

@@ -1,6 +1,6 @@
 {
   "name": "@savvagent/svelte",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Svelte SDK for Savvagent feature flags with stores and runes",
   "author": "Savvagent",
   "license": "MIT",
@@ -47,5 +47,12 @@
     "type": "git",
     "url": "https://github.com/savvagent/savvagent-sdks",
     "directory": "packages/svelte"
+  },
+  "bugs": {
+    "url": "https://github.com/savvagent/savvagent-sdks/issues"
+  },
+  "homepage": "https://github.com/savvagent/savvagent-sdks/tree/main/packages/svelte#readme",
+  "publishConfig": {
+    "access": "public"
   }
 }

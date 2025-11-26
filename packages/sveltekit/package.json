@@ -1,6 +1,6 @@
 {
   "name": "@savvagent/sveltekit",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "SvelteKit SDK for Savvagent feature flags with server and client support",
   "author": "Savvagent",
   "license": "MIT",
@@ -55,5 +55,12 @@
     "type": "git",
     "url": "https://github.com/savvagent/savvagent-sdks",
     "directory": "packages/sveltekit"
+  },
+  "bugs": {
+    "url": "https://github.com/savvagent/savvagent-sdks/issues"
+  },
+  "homepage": "https://github.com/savvagent/savvagent-sdks/tree/main/packages/sveltekit#readme",
+  "publishConfig": {
+    "access": "public"
   }
 }

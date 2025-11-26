@@ -1,6 +1,6 @@
 {
   "name": "@savvagent/vue",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Vue SDK for Savvagent feature flags with Composition API",
   "author": "Savvagent",
   "license": "MIT",
@@ -47,5 +47,12 @@
     "type": "git",
     "url": "https://github.com/savvagent/savvagent-sdks",
     "directory": "packages/vue"
+  },
+  "bugs": {
+    "url": "https://github.com/savvagent/savvagent-sdks/issues"
+  },
+  "homepage": "https://github.com/savvagent/savvagent-sdks/tree/main/packages/vue#readme",
+  "publishConfig": {
+    "access": "public"
   }
 }

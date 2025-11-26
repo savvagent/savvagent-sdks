@@ -1,6 +1,6 @@
 {
   "name": "@savvagent/node-server",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Savvagent Node.js Server SDK for feature flags with AI-powered error detection",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
@@ -42,6 +42,10 @@
     "url": "https://github.com/savvagent/savvagent-sdks",
     "directory": "packages/node-server"
   },
+  "bugs": {
+    "url": "https://github.com/savvagent/savvagent-sdks/issues"
+  },
+  "homepage": "https://github.com/savvagent/savvagent-sdks/tree/main/packages/node-server#readme",
   "publishConfig": {
     "access": "public"
   },

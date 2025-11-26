@@ -1,6 +1,6 @@
 {
   "name": "@savvagent/remix",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Remix SDK for Savvagent feature flags",
   "author": "Savvagent",
   "license": "MIT",
@@ -53,5 +53,12 @@
     "type": "git",
     "url": "https://github.com/savvagent/savvagent-sdks",
     "directory": "packages/remix"
+  },
+  "bugs": {
+    "url": "https://github.com/savvagent/savvagent-sdks/issues"
+  },
+  "homepage": "https://github.com/savvagent/savvagent-sdks/tree/main/packages/remix#readme",
+  "publishConfig": {
+    "access": "public"
   }
 }

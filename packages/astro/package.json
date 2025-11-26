@@ -1,6 +1,6 @@
 {
   "name": "@savvagent/astro",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Astro integration for Savvagent feature flags",
   "author": "Savvagent",
   "license": "MIT",
@@ -47,5 +47,12 @@
     "type": "git",
     "url": "https://github.com/savvagent/savvagent-sdks",
     "directory": "packages/astro"
+  },
+  "bugs": {
+    "url": "https://github.com/savvagent/savvagent-sdks/issues"
+  },
+  "homepage": "https://github.com/savvagent/savvagent-sdks/tree/main/packages/astro#readme",
+  "publishConfig": {
+    "access": "public"
   }
 }

@@ -1,6 +1,6 @@
 {
   "name": "@savvagent/sdk",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Savvagent TypeScript/JavaScript SDK for feature flags with AI-powered error detection",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
@@ -37,13 +37,13 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/savvagent-sdks",
+    "url": "https://github.com/savvagent/savvagent-sdks",
     "directory": "packages/typescript"
   },
   "bugs": {
-    "url": "https://github.com/yourusername/savvagent-sdks/issues"
+    "url": "https://github.com/savvagent/savvagent-sdks/issues"
   },
-  "homepage": "https://github.com/yourusername/savvagent-sdks/tree/main/packages/typescript#readme",
+  "homepage": "https://github.com/savvagent/savvagent-sdks/tree/main/packages/typescript#readme",
   "publishConfig": {
     "access": "public"
   },
