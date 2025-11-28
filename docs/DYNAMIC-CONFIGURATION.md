@@ -468,7 +468,7 @@ const enabled = await client.isEnabled('new-checkout', {
 
 ## Proposed Enhancements
 
-### Phase 1: Foundation (Weeks 1-2)
+### Phase 1: Foundation
 
 #### 1.1 Add `configuration` Field to Environments
 
@@ -542,14 +542,19 @@ FlagEvaluationResponse {
 #### 1.3 Add SDK Method for Config Retrieval
 
 **JavaScript/TypeScript SDK:**
+
+The SDK returns response fields aligned with the API (see [SDK-DEVELOPER-GUIDE.md](./SDK-DEVELOPER-GUIDE.md)):
+
 ```typescript
 // @savvagent/client-web
 
 interface FlagEvaluationResult {
-  enabled: boolean;
-  configuration?: any;
+  key: string;                    // The flag key
+  enabled: boolean;               // Whether the flag is enabled for this context
   scope?: 'application' | 'enterprise';
-  timestamp: number;
+  variation?: string;             // The allocated variation name (if A/B testing)
+  configuration?: any;            // Dynamic configuration attached to flag/variation
+  timestamp: number;              // Unix timestamp of evaluation
 }
 
 class FlagClient {
@@ -592,15 +597,16 @@ class FlagClient {
 **Usage Examples:**
 ```typescript
 // Example 1: Simple boolean check (unchanged)
-const enabled = await client.isEnabled('new-checkout');
+// Always provide user context for consistent rollout behavior
+const enabled = await client.isEnabled('new-checkout', { user_id: 'user-123' });
 
 // Example 2: Get configuration only
-const config = await client.getConfig('checkout-experience', { userId: 'user-123' });
+const config = await client.getConfig('checkout-experience', { user_id: 'user-123' });
 if (config) {
   renderCheckout(config);
 }
 
-// Example 3: Get configuration with default
+// Example 3: Get configuration with default (graceful degradation)
 const themeConfig = await client.getConfig('theme-settings', context, {
   primaryColor: '#007bff',
   fontSize: 16,
@@ -613,9 +619,11 @@ if (result.enabled) {
 }
 ```
 
+> **Important:** Always provide `user_id` or `anonymous_id` for consistent user experiences across evaluations.
+
 ---
 
-### Phase 2: Multi-Variant Flags (Weeks 3-4)
+### Phase 2: Multi-Variant Flags
 
 #### 2.1 Add Variations Support
 
@@ -725,7 +733,7 @@ switch (result.variation) {
 
 ---
 
-### Phase 3: Attribute-Based Targeting (Weeks 5-6)
+### Phase 3: Attribute-Based Targeting
 
 #### 3.1 Generic Attribute Targeting
 
@@ -836,7 +844,7 @@ fn evaluate_attribute_rules(
 
 ---
 
-### Phase 4: User Segments (Weeks 7-8)
+### Phase 4: User Segments
 
 #### 4.1 Segments Table
 
@@ -925,9 +933,7 @@ async fn evaluate_segment_rules(
 
 ## Implementation Plan
 
-### Timeline: 8 Weeks
-
-#### Week 1-2: Foundation (Dynamic Configuration)
+### Phase 1: Foundation (Dynamic Configuration)
 - [ ] Add `configuration` field support to environment JSONB
 - [ ] Update `FlagEvaluationResponse` to include configuration
 - [ ] Modify evaluation logic to return configuration
@@ -941,7 +947,7 @@ async fn evaluate_segment_rules(
 - UI supports editing flag configurations
 - Documentation with examples
 
-#### Week 3-4: Multi-Variant Flags
+### Phase 2: Multi-Variant Flags
 - [ ] Add `variations` column to feature_flags table
 - [ ] Implement variation allocation logic (consistent hashing)
 - [ ] Update evaluation to select variation and return config
@@ -955,7 +961,7 @@ async fn evaluate_segment_rules(
 - SDK returns variation name + config
 - UI for A/B/n test setup
 
-#### Week 5-6: Attribute-Based Targeting
+### Phase 3: Attribute-Based Targeting
 - [ ] Design attribute targeting rule schema
 - [ ] Implement attribute evaluation engine
 - [ ] Support all operators (in, >=, endsWith, etc.)
@@ -969,7 +975,7 @@ async fn evaluate_segment_rules(
 - Visual rule builder in UI
 - Comprehensive operator coverage
 
-#### Week 7-8: User Segments
+### Phase 4: User Segments
 - [ ] Create user_segments table
 - [ ] Build segment CRUD APIs
 - [ ] Implement segment evaluation in flag logic
@@ -1191,7 +1197,7 @@ if (user.projectCount >= limits.maxProjects) {
 - ❌ No multi-variant support
 - ❌ No attribute-based targeting
 
-### After Implementation (8 Weeks)
+### After Implementation
 - ✅ Full dynamic configuration support
 - ✅ Multi-variant flags (A/B/n testing)
 - ✅ Attribute-based targeting with rich operators
@@ -1208,6 +1214,7 @@ if (user.projectCount >= limits.maxProjects) {
 
 ## References
 
+- [SDK-DEVELOPER-GUIDE.md](./SDK-DEVELOPER-GUIDE.md) - Official SDK development guide with API specification
 - Split.io Dynamic Configuration: https://www.split.io/product/dynamic-configuration/
 - Harness Feature Flags: https://developer.harness.io/docs/feature-management-experimentation/
 - Current flag evaluation: `backend/src/api/flags.rs:338`

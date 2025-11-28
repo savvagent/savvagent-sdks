@@ -9,11 +9,12 @@
 
 // Context and Provider
 export { SavvagentProvider, useSavvagent } from './context';
-export type { SavvagentProviderProps } from './context';
+export type { SavvagentProviderProps, DefaultFlagContext } from './context';
 
 // Hooks
 export {
   useFlag,
+  useFlags,
   useWithFlag,
   useUser,
   useTrackError,
@@ -21,6 +22,8 @@ export {
 export type {
   UseFlagOptions,
   UseFlagResult,
+  UseFlagsOptions,
+  UseFlagsResult,
 } from './hooks';
 
 // Re-export types from core SDK
@@ -31,6 +34,8 @@ export type {
   EvaluationEvent,
   ErrorEvent,
   FlagUpdateEvent,
+  FlagDefinition,
+  FlagListResponse,
   // Generated API types for advanced users
   ApiTypes,
   components,

@@ -76,7 +76,8 @@ Update via your package manager (Gradle/CocoaPods/SPM).
 
 ```typescript
 // v1.x code - STILL WORKS in v2.0
-const enabled = await client.isEnabled('my-flag', { userId: 'user-123' });
+// Always provide user context for consistent rollout behavior
+const enabled = await client.isEnabled('my-flag', { user_id: 'user-123' });
 if (enabled) {
   showNewFeature();
 }
@@ -100,7 +101,8 @@ Choose flags to migrate based on value:
 
 **Before (v1.x):**
 ```typescript
-const enabled = await client.isEnabled('new-checkout');
+// Always provide user context for consistent rollout behavior
+const enabled = await client.isEnabled('new-checkout', { user_id: 'user-123' });
 
 if (enabled) {
   renderCheckout({
@@ -113,7 +115,8 @@ if (enabled) {
 
 **After (v2.0):**
 ```typescript
-const config = await client.getConfig('checkout-experience', context, {
+// Configuration includes default values for graceful degradation
+const config = await client.getConfig('checkout-experience', { user_id: 'user-123' }, {
   primaryColor: '#007bff',
   buttonText: 'Checkout',
   timeout: 5000
@@ -721,11 +724,12 @@ const config = await client.getConfig<MyConfig>('flag');
 
 ## Support & Resources
 
-- 📚 [Dynamic Configuration Guide](./DYNAMIC-CONFIGURATION-GUIDE.md)
-- 📖 [API Reference](./SDK-REFERENCE.md)
-- 💬 [Community Forum](https://github.com/savvagent/savvagent-sdks/discussions)
-- 🐛 [Report Issues](https://github.com/savvagent/savvagent-sdks/issues)
-- 📧 support@savvagent.com
+- [SDK-DEVELOPER-GUIDE.md](./SDK-DEVELOPER-GUIDE.md) - Official API specification
+- [Dynamic Configuration Guide](./DYNAMIC-CONFIGURATION-GUIDE.md)
+- [SDK Integration Guide](./SDK-INTEGRATION.md)
+- [Community Forum](https://github.com/savvagent/savvagent-sdks/discussions)
+- [Report Issues](https://github.com/savvagent/savvagent-sdks/issues)
+- support@savvagent.com
 
 ---
 

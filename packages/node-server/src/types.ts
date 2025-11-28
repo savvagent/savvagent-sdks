@@ -4,9 +4,15 @@
 
 /**
  * Configuration for initializing the FlagClient
+ * Per SDK Developer Guide: https://docs.savvagent.com/sdk-developer-guide
  */
 export interface FlagClientConfig {
-  /** SDK API key (starts with sdk_) */
+  /**
+   * API key for authentication
+   * - SDK keys (sdk_) - Safe for client-side apps (browsers, mobile)
+   * - Server keys (srv_) - Secret, for server-side apps only (Node.js, Python)
+   * Per SDK Developer Guide: Server keys should never be exposed in client-side code
+   */
   apiKey: string;
   /** Application ID for application-scoped flags (omit for enterprise flags only) */
   applicationId?: string;
@@ -28,21 +34,28 @@ export interface FlagClientConfig {
 
 /**
  * Context passed to flag evaluation
+ * Per SDK Developer Guide: https://docs.savvagent.com/sdk-developer-guide
  */
 export interface FlagContext {
-  /** User ID for targeted rollouts */
+  /** User ID for targeted rollouts (logged-in users) - required for percentage rollouts */
   user_id?: string;
-  /** Session ID for session-based rollouts */
+  /** Anonymous ID for consistent rollouts (anonymous users) - alternative to user_id */
+  anonymous_id?: string;
+  /** Session ID as fallback identifier */
   session_id?: string;
-  /** Application ID for application-scoped flags (auto-injected from config) */
+  /** Target environment (e.g., "production", "staging") */
+  environment?: string;
+  /** Organization ID for multi-tenant apps */
+  organization_id?: string;
+  /** Application ID for hierarchical flag lookup (auto-injected from config) */
   application_id?: string;
+  /** User's language code (e.g., "en", "es") */
+  language?: string;
   /** Custom attributes for targeting rules */
   attributes?: Record<string, any>;
-  /** Environment (dev, staging, production) */
-  environment?: string;
-  /** IP address for geo-targeting */
+  /** IP address for geo-targeting (server-side only) */
   ip_address?: string;
-  /** User agent string */
+  /** User agent string (server-side only) */
   user_agent?: string;
 }
 
@@ -144,4 +157,40 @@ export interface VariationOverrideEntry {
   variation: string;
   /** Timestamp when override was set */
   timestamp: number;
+}
+
+/**
+ * Flag definition returned from getAllFlags endpoint
+ * Per SDK Developer Guide: GET /api/sdk/flags
+ */
+export interface FlagDefinition {
+  /** Flag key */
+  key: string;
+  /** Enabled state for the requested environment */
+  enabled: boolean;
+  /** Flag scope: "application" or "enterprise" */
+  scope: 'application' | 'enterprise';
+  /** Environment configuration with enabled state and rollout percentage */
+  environments: Record<string, { enabled: boolean; rollout_percentage?: number }>;
+  /** Variation definitions for A/B testing (if any) */
+  variations?: Record<string, any> | null;
+  /** Dynamic configuration attached to the flag */
+  configuration?: any;
+  /** Flag version for cache invalidation */
+  version: number;
+}
+
+/**
+ * Response from getAllFlags endpoint
+ * Per SDK Developer Guide: GET /api/sdk/flags
+ */
+export interface FlagListResponse {
+  /** List of flag definitions */
+  flags: FlagDefinition[];
+  /** Total count of flags returned */
+  count: number;
+  /** Organization ID */
+  organization_id: string;
+  /** Application ID (present for SDK key auth) */
+  application_id?: string;
 }

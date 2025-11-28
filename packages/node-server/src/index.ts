@@ -16,6 +16,8 @@ export type {
   ErrorEvent,
   CacheEntry,
   FlagUpdateEvent,
+  FlagDefinition,
+  FlagListResponse,
 } from './types';
 
 // Re-export generated API types from the main SDK for advanced users

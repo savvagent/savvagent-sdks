@@ -76,19 +76,26 @@ No changes needed - use your existing SDK installation.
 ```typescript
 import { FlagClient } from '@savvagent/node-server';
 
+// Create a single SDK instance at application startup
 const client = new FlagClient({
-  apiKey: 'sdk_your_key',
+  apiKey: 'sdk_your_key',  // SDK keys use 'sdk_' prefix
   applicationId: 'your-app-id'
 });
 
+// Always provide user context for consistent rollout behavior
+const context = {
+  user_id: 'user-123',
+  environment: 'production'
+};
+
 // Get dynamic configuration
-const config = await client.getConfig('checkout-experience');
+const config = await client.getConfig('checkout-experience', context);
 if (config) {
   console.log('Primary color:', config.theme.primaryColor);
 }
 
 // Get variation details
-const variation = await client.getVariation('search-algorithm');
+const variation = await client.getVariation('search-algorithm', context);
 console.log('Variation:', variation.variation);
 console.log('Config:', variation.configuration);
 ```
@@ -118,16 +125,21 @@ Instead of just on/off, run A/B/n tests with different configurations for each v
 
 ### 3. Evaluation Response
 
-All SDKs now return:
+All SDKs now return the following response fields (aligned with the API):
+
 ```typescript
 {
-  key: string,          // Flag key
-  value: boolean,       // Enabled/disabled
-  configuration?: any,  // Dynamic config (Phase 1)
-  variation?: string,   // Variant identifier (Phase 2)
-  reason: string        // cached|evaluated|error
+  key: string,              // Flag key
+  enabled: boolean,         // Whether the flag is enabled for this context
+  scope?: string,           // "application" or "enterprise"
+  variation?: string,       // The allocated variation name (if A/B testing)
+  configuration?: any,      // Dynamic configuration attached to flag/variation
+  timestamp: number,        // Unix timestamp of evaluation
+  context?: any             // Echo of the evaluation context
 }
 ```
+
+See [SDK-DEVELOPER-GUIDE.md](./SDK-DEVELOPER-GUIDE.md) for the complete API response specification.
 
 ---
 
@@ -138,16 +150,23 @@ All SDKs now return:
 ```typescript
 import { FlagClient } from '@savvagent/node-server';
 
+// Create a single SDK instance at application startup
 const client = new FlagClient({
-  apiKey: process.env.SAVVAGENT_API_KEY,
+  apiKey: process.env.SAVVAGENT_API_KEY,  // SDK key (sdk_) or Server key (srv_)
   applicationId: 'my-app'
 });
 
-// 1. Get configuration for enabled flag
-const themeConfig = await client.getConfig('app-theme', {
+// Always provide user context for consistent rollout behavior
+const context = {
   user_id: 'user-123',
-  environment: 'production'
-});
+  environment: 'production',
+  attributes: {
+    plan: 'premium'
+  }
+};
+
+// 1. Get configuration for enabled flag
+const themeConfig = await client.getConfig('app-theme', context);
 
 if (themeConfig) {
   applyTheme({
@@ -942,6 +961,12 @@ See [MIGRATION-GUIDE.md](./MIGRATION-GUIDE.md) for detailed migration instructio
 - ✅ No breaking changes to existing API
 - ✅ New methods are additions, not replacements
 - ✅ Backward compatible with old API responses
+
+## Related Documentation
+
+- [SDK-DEVELOPER-GUIDE.md](./SDK-DEVELOPER-GUIDE.md) - Complete API specification and SDK architecture
+- [SDK-INTEGRATION.md](./SDK-INTEGRATION.md) - SDK integration guide
+- [MIGRATION-GUIDE.md](./MIGRATION-GUIDE.md) - Migration instructions
 
 ---
 

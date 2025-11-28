@@ -8,6 +8,8 @@ import {
   ConfigOverrideOptions,
   ConfigOverrideEntry,
   VariationOverrideEntry,
+  FlagDefinition,
+  FlagListResponse,
 } from './types';
 
 /**
@@ -35,9 +37,10 @@ export class FlagClient {
       timeout: config.timeout || 5000,
     };
 
-    // Validate API key
-    if (!this.config.apiKey || !this.config.apiKey.startsWith('sdk_')) {
-      throw new Error('Invalid API key. SDK keys must start with "sdk_"');
+    // Validate API key - server SDK accepts both SDK keys (sdk_) and Server keys (srv_)
+    // Per SDK Developer Guide: SDK keys are for client-side, Server keys are for server-side
+    if (!this.config.apiKey || (!this.config.apiKey.startsWith('sdk_') && !this.config.apiKey.startsWith('srv_'))) {
+      throw new Error('Invalid API key. API keys must start with "sdk_" (SDK key) or "srv_" (Server key)');
     }
 
     // Initialize services
@@ -129,7 +132,8 @@ export class FlagClient {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), this.config.timeout);
 
-      const response = await fetch(`${this.config.baseUrl}/api/evaluate/${flagKey}`, {
+      // Per SDK Developer Guide: POST /api/flags/{key}/evaluate
+      const response = await fetch(`${this.config.baseUrl}/api/flags/${flagKey}/evaluate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -462,5 +466,110 @@ export class FlagClient {
     }
 
     return result;
+  }
+
+  /**
+   * Get all flags for the application (and enterprise-scoped flags).
+   * Per SDK Developer Guide: GET /api/sdk/flags
+   *
+   * Use cases:
+   * - Local override UI: Display all available flags for developers to toggle
+   * - Offline mode: Pre-fetch flags for mobile/desktop apps
+   * - SDK initialization: Bootstrap SDK with all flag values on startup
+   * - DevTools integration: Show available flags in browser dev panels
+   *
+   * @param environment - Environment to evaluate enabled state for (default: 'development')
+   * @returns Promise<FlagDefinition[]> - List of flag definitions
+   *
+   * @example
+   * ```typescript
+   * // Fetch all flags for development
+   * const flags = await client.getAllFlags('development');
+   *
+   * // Bootstrap local cache
+   * flags.forEach(flag => {
+   *   console.log(`${flag.key}: ${flag.enabled}`);
+   * });
+   * ```
+   */
+  async getAllFlags(environment: string = 'development'): Promise<FlagDefinition[]> {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), this.config.timeout);
+
+      const response = await fetch(
+        `${this.config.baseUrl}/api/sdk/flags?environment=${encodeURIComponent(environment)}`,
+        {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${this.config.apiKey}`,
+          },
+          signal: controller.signal,
+        }
+      );
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch flags: ${response.status}`);
+      }
+
+      const data = (await response.json()) as FlagListResponse;
+
+      // Cache all flags
+      data.flags.forEach((flag) => {
+        this.cache.set(flag.key, flag.enabled, flag.key, flag.configuration);
+      });
+
+      return data.flags;
+    } catch (error) {
+      this.config.onError(error as Error);
+      return [];
+    }
+  }
+
+  /**
+   * Get only enterprise-scoped flags for the organization.
+   * Per SDK Developer Guide: GET /api/sdk/enterprise-flags
+   *
+   * Enterprise flags are shared across all applications in the organization.
+   *
+   * @param environment - Environment to evaluate enabled state for (default: 'development')
+   * @returns Promise<FlagDefinition[]> - List of enterprise flag definitions
+   *
+   * @example
+   * ```typescript
+   * // Fetch enterprise-only flags
+   * const enterpriseFlags = await client.getEnterpriseFlags('production');
+   * ```
+   */
+  async getEnterpriseFlags(environment: string = 'development'): Promise<FlagDefinition[]> {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), this.config.timeout);
+
+      const response = await fetch(
+        `${this.config.baseUrl}/api/sdk/enterprise-flags?environment=${encodeURIComponent(environment)}`,
+        {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${this.config.apiKey}`,
+          },
+          signal: controller.signal,
+        }
+      );
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch enterprise flags: ${response.status}`);
+      }
+
+      const data = (await response.json()) as FlagListResponse;
+      return data.flags;
+    } catch (error) {
+      this.config.onError(error as Error);
+      return [];
+    }
   }
 }

@@ -443,6 +443,12 @@ export class FlagClient {
 - `packages/typescript/src/telemetry.ts` - Telemetry service (integration point)
 - `../../savvagent-flags/docs/openapi.json` - Source OpenAPI spec
 
+## Related Documentation
+
+- [SDK-DEVELOPER-GUIDE.md](./SDK-DEVELOPER-GUIDE.md) - Official API specification
+- [SDK-INTEGRATION.md](./SDK-INTEGRATION.md) - SDK integration guide
+- [INTEGRATION-EXAMPLE.md](./INTEGRATION-EXAMPLE.md) - Before/after examples
+
 ## Further Reading
 
 - [SDK Type Sync Guide](../../savvagent-flags/docs/SDK-TYPE-SYNC.md)

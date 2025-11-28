@@ -211,8 +211,13 @@ Ensure you're using the `file:` protocol with the correct relative path:
 
 Then run `pnpm install` to create the symlink.
 
+## Related Documentation
+
+- [SDK-DEVELOPER-GUIDE.md](./SDK-DEVELOPER-GUIDE.md) - Official API specification
+- [SDK-INTEGRATION.md](./SDK-INTEGRATION.md) - SDK integration guide
+
 ## Support
 
-- GitHub Issues: https://github.com/yourusername/savvagent-sdks/issues
-- Documentation: https://github.com/yourusername/savvagent-sdks/tree/main/docs
-- Examples: https://github.com/yourusername/savvagent-sdks/tree/main/examples
+- GitHub Issues: https://github.com/savvagent/savvagent-sdks/issues
+- Documentation: https://github.com/savvagent/savvagent-sdks/tree/main/docs
+- Examples: https://github.com/savvagent/savvagent-sdks/tree/main/examples

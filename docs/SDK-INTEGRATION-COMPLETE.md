@@ -135,22 +135,27 @@ $ pnpm build
 
 ## New Capabilities
 
-SDK users can now access additional metadata from flag evaluations:
+SDK users can now access additional metadata from flag evaluations, aligned with the API response format defined in [SDK-DEVELOPER-GUIDE.md](./SDK-DEVELOPER-GUIDE.md):
 
 ```typescript
-const result = await client.evaluate('new-feature');
+// Always provide user context for consistent rollout behavior
+const result = await client.evaluate('new-feature', { user_id: 'user-123' });
 
-// NEW: Access scope (enterprise vs application)
-console.log(result.metadata?.scope);  // "application"
+// Access key and enabled status
+console.log(result.key);      // "new-feature"
+console.log(result.enabled);  // true
 
-// NEW: Access dynamic configuration
-console.log(result.metadata?.configuration);  // { theme: "dark" }
+// Access scope (enterprise vs application)
+console.log(result.scope);    // "application"
 
-// NEW: Access multi-variant assignment
-console.log(result.metadata?.variation);  // "variant-a"
+// Access dynamic configuration
+console.log(result.configuration);  // { theme: "dark" }
 
-// NEW: Access server timestamp
-console.log(result.metadata?.timestamp);  // 1699564800
+// Access multi-variant assignment
+console.log(result.variation);  // "variant-a"
+
+// Access server timestamp
+console.log(result.timestamp);  // 1699564800
 ```
 
 ## Type Export for Advanced Users
@@ -285,4 +290,11 @@ The TypeScript SDK now has complete type safety for all API interactions while m
 - **Automatic sync** - Types update when backend changes
 - **Advanced usage** - Direct access to API types for power users
 
-The SDK is production-ready with enhanced type safety! 🎉
+The SDK is production-ready with enhanced type safety!
+
+## Related Documentation
+
+- [SDK-DEVELOPER-GUIDE.md](./SDK-DEVELOPER-GUIDE.md) - Official API specification
+- [SDK-INTEGRATION.md](./SDK-INTEGRATION.md) - SDK integration guide
+- [USING-GENERATED-TYPES.md](./USING-GENERATED-TYPES.md) - Using generated types
+- [INTEGRATION-EXAMPLE.md](./INTEGRATION-EXAMPLE.md) - Before/after examples

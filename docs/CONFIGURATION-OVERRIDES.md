@@ -22,8 +22,9 @@ Configuration overrides allow you to test different flag configurations and vari
 ```typescript
 import { FlagClient } from '@savvagent/node-server';
 
+// Create a single SDK instance at application startup
 const client = new FlagClient({
-  apiKey: 'sdk_dev_abc123',
+  apiKey: 'sdk_dev_abc123',  // SDK keys use 'sdk_' prefix
 });
 
 // Override configuration completely
@@ -158,7 +159,7 @@ public class Example {
 import com.savvagent.sdk.*
 
 val config = SavvagentConfig(
-    sdkKey = "sdk_dev_abc123"
+    apiKey = "sdk_dev_abc123"  // SDK keys use 'sdk_' prefix
 )
 
 val client = SavvagentClient(config, context)
@@ -186,7 +187,7 @@ val config = client.getConfig("checkout-experience", userContext).getOrNull()
 ```swift
 import SavvagentSDK
 
-let config = SavvagentConfig(sdkKey: "sdk_dev_abc123")
+let config = SavvagentConfig(apiKey: "sdk_dev_abc123")  // SDK keys use 'sdk_' prefix
 let client = SavvagentClient(config: config)
 
 // Override configuration
@@ -576,11 +577,12 @@ client.clearAllOverrides();
 
 ---
 
-## Next Steps
+## Related Documentation
 
-- See [DYNAMIC-CONFIGURATION.md](./DYNAMIC-CONFIGURATION.md) for more on dynamic configs
-- See [MIGRATION-GUIDE.md](./MIGRATION-GUIDE.md) for upgrading to v2.0
-- See [CLIENT-SIDE-OVERRIDES.md](./CLIENT-SIDE-OVERRIDES.md) for browser-based overrides
+- [SDK-DEVELOPER-GUIDE.md](./SDK-DEVELOPER-GUIDE.md) - Official SDK development guide with API specification
+- [DYNAMIC-CONFIGURATION.md](./DYNAMIC-CONFIGURATION.md) - Dynamic configuration capabilities
+- [MIGRATION-GUIDE.md](./MIGRATION-GUIDE.md) - Upgrading to v2.0
+- [CLIENT-SIDE-OVERRIDES.md](./CLIENT-SIDE-OVERRIDES.md) - Browser-based overrides
 
 ---
 

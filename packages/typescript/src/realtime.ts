@@ -1,18 +1,43 @@
+import { fetchEventSource, EventSourceMessage } from '@microsoft/fetch-event-source';
 import { FlagUpdateEvent } from './types';
 
 /**
+ * Error class to signal that fetchEventSource should not retry
+ */
+class FatalError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'FatalError';
+  }
+}
+
+/**
+ * Error class to signal that fetchEventSource can retry
+ */
+class RetriableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RetriableError';
+  }
+}
+
+/**
  * Real-time updates service using Server-Sent Events (SSE)
+ * Uses @microsoft/fetch-event-source to support custom headers for authentication
+ * (native EventSource doesn't support custom headers)
  */
 export class RealtimeService {
   private baseUrl: string;
   private apiKey: string;
-  private eventSource: EventSource | null = null;
+  private abortController: AbortController | null = null;
   private reconnectAttempts: number = 0;
-  private maxReconnectAttempts: number = 10; // Increased from 5 to 10
+  private maxReconnectAttempts: number = 10;
   private reconnectDelay: number = 1000; // Start with 1 second
   private maxReconnectDelay: number = 30000; // Cap at 30 seconds
   private listeners: Map<string, Set<(event: FlagUpdateEvent) => void>> = new Map();
   private onConnectionChange?: (connected: boolean) => void;
+  private connected: boolean = false;
+  private authFailed: boolean = false; // Track auth failures to prevent reconnection attempts
 
   constructor(
     baseUrl: string,
@@ -25,77 +50,122 @@ export class RealtimeService {
   }
 
   /**
-   * Connect to SSE stream
+   * Connect to SSE stream using header-based authentication
+   * Per SDK Developer Guide: "Never pass API keys as query parameters"
    */
   connect(): void {
-    if (this.eventSource) {
+    if (this.abortController) {
       return; // Already connected
     }
 
-    // Build SSE URL with API key
-    const url = `${this.baseUrl}/api/flags/stream?apiKey=${encodeURIComponent(this.apiKey)}`;
-
-    try {
-      this.eventSource = new EventSource(url);
-
-      this.eventSource.onopen = () => {
-        console.log('[Savvagent] Real-time connection established');
-        this.reconnectAttempts = 0;
-        this.reconnectDelay = 1000;
-        this.onConnectionChange?.call(null, true);
-      };
-
-      this.eventSource.onerror = (error) => {
-        console.error('[Savvagent] SSE connection error:', error);
-        this.handleDisconnect();
-      };
-
-      // Listen to heartbeat events (keep-alive from server)
-      this.eventSource.addEventListener('heartbeat', () => {
-        // Heartbeat received - connection is alive
-        // No action needed, just prevents error logging
-      });
-
-      // Listen to all event types
-      this.eventSource.addEventListener('flag.updated', (e) => {
-        this.handleMessage('flag.updated', e);
-      });
-
-      this.eventSource.addEventListener('flag.deleted', (e) => {
-        this.handleMessage('flag.deleted', e);
-      });
-
-      this.eventSource.addEventListener('flag.created', (e) => {
-        this.handleMessage('flag.created', e);
-      });
-    } catch (error) {
-      console.error('[Savvagent] Failed to create EventSource:', error);
-      this.handleDisconnect();
+    // Don't attempt to connect if auth has already failed
+    if (this.authFailed) {
+      return;
     }
+
+    this.abortController = new AbortController();
+
+    // Build SSE URL - no credentials in URL per security best practices
+    const url = `${this.baseUrl}/api/flags/stream`;
+
+    fetchEventSource(url, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${this.apiKey}`,
+      },
+      signal: this.abortController.signal,
+      // Disable built-in retry behavior - we handle it ourselves
+      openWhenHidden: false,
+
+      onopen: async (response) => {
+        if (response.ok) {
+          console.log('[Savvagent] Real-time connection established');
+          this.reconnectAttempts = 0;
+          this.reconnectDelay = 1000;
+          this.connected = true;
+          this.onConnectionChange?.(true);
+        } else if (response.status === 401 || response.status === 403) {
+          // Auth failed - don't retry
+          this.authFailed = true;
+          console.error(`[Savvagent] SSE authentication failed (${response.status}). Check your API key. Reconnection disabled.`);
+          // Throwing FatalError prevents fetchEventSource from retrying
+          throw new FatalError(`SSE authentication failed: ${response.status}`);
+        } else {
+          console.error(`[Savvagent] SSE connection failed: ${response.status}`);
+          throw new RetriableError(`SSE connection failed: ${response.status}`);
+        }
+      },
+
+      onmessage: (event: EventSourceMessage) => {
+        this.handleMessage(event);
+      },
+
+      onerror: (err) => {
+        // If auth failed, don't retry
+        if (this.authFailed) {
+          throw err; // Stop retrying
+        }
+        console.error('[Savvagent] SSE connection error:', err);
+        this.handleDisconnect();
+        // Don't throw - let fetchEventSource retry (unless it's auth failure)
+      },
+
+      onclose: () => {
+        console.log('[Savvagent] SSE connection closed');
+        if (!this.authFailed) {
+          this.handleDisconnect();
+        }
+      },
+    }).catch((error) => {
+      // Connection was aborted or failed permanently
+      if (error.name !== 'AbortError' && !(error instanceof FatalError)) {
+        console.error('[Savvagent] SSE connection error:', error);
+        if (!this.authFailed) {
+          this.handleDisconnect();
+        }
+      }
+    });
   }
 
   /**
    * Handle incoming SSE messages
    */
-  private handleMessage(type: FlagUpdateEvent['type'], event: MessageEvent): void {
+  private handleMessage(event: EventSourceMessage): void {
+    // Handle heartbeat events
+    if (event.event === 'heartbeat') {
+      return;
+    }
+
+    // Handle connected event
+    if (event.event === 'connected') {
+      return;
+    }
+
+    // Handle flag events
+    const eventType = event.event as FlagUpdateEvent['type'];
+    if (!['flag.updated', 'flag.deleted', 'flag.created'].includes(eventType)) {
+      return;
+    }
+
     try {
       const data = JSON.parse(event.data);
       const updateEvent: FlagUpdateEvent = {
-        type,
+        type: eventType,
         flagKey: data.key,
         data,
       };
 
-      // Notify specific flag listeners
-      const flagListeners = this.listeners.get(updateEvent.flagKey);
-      if (flagListeners) {
-        flagListeners.forEach((listener) => listener(updateEvent));
-      }
-
-      // Notify wildcard listeners
+      // IMPORTANT: Notify wildcard listeners FIRST so cache is invalidated
+      // before specific listeners trigger re-evaluation
       const wildcardListeners = this.listeners.get('*');
       if (wildcardListeners) {
         wildcardListeners.forEach((listener) => listener(updateEvent));
+      }
+
+      // Then notify specific flag listeners (which may trigger re-fetch)
+      const flagListeners = this.listeners.get(updateEvent.flagKey);
+      if (flagListeners) {
+        flagListeners.forEach((listener) => listener(updateEvent));
       }
     } catch (error) {
       console.error('[Savvagent] Failed to parse SSE message:', error);
@@ -103,14 +173,21 @@ export class RealtimeService {
   }
 
   /**
-   * Handle disconnection and attempt reconnect
+   * Handle disconnection and attempt reconnect with exponential backoff
    */
   private handleDisconnect(): void {
-    this.onConnectionChange?.call(null, false);
+    this.connected = false;
+    this.onConnectionChange?.(false);
 
-    if (this.eventSource) {
-      this.eventSource.close();
-      this.eventSource = null;
+    if (this.abortController) {
+      this.abortController.abort();
+      this.abortController = null;
+    }
+
+    // Don't attempt reconnect if auth has failed
+    if (this.authFailed) {
+      console.warn('[Savvagent] Authentication failed. Reconnection disabled.');
+      return;
     }
 
     // Attempt reconnect with exponential backoff (capped at maxReconnectDelay)
@@ -157,18 +234,19 @@ export class RealtimeService {
    * Disconnect from SSE stream
    */
   disconnect(): void {
-    if (this.eventSource) {
-      this.eventSource.close();
-      this.eventSource = null;
-    }
     this.reconnectAttempts = this.maxReconnectAttempts; // Prevent reconnection
-    this.onConnectionChange?.call(null, false);
+    if (this.abortController) {
+      this.abortController.abort();
+      this.abortController = null;
+    }
+    this.connected = false;
+    this.onConnectionChange?.(false);
   }
 
   /**
    * Check if connected
    */
   isConnected(): boolean {
-    return this.eventSource !== null && this.eventSource.readyState === EventSource.OPEN;
+    return this.connected;
   }
 }

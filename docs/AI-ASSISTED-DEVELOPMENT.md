@@ -158,8 +158,8 @@ function App() {
   return (
     <SavvagentProvider
       config={{
-        apiKey: process.env.NEXT_PUBLIC_SAVVAGENT_KEY!,
-        enableRealtime: true,
+        apiKey: process.env.NEXT_PUBLIC_SAVVAGENT_KEY!,  // SDK keys use 'sdk_' prefix
+        enableRealtime: true,  // SSE for real-time flag updates
       }}
     >
       <FeatureComponent />
@@ -168,16 +168,18 @@ function App() {
 }
 
 function FeatureComponent() {
-  const { value: isEnabled, loading } = useFlag('new-feature', {
-    defaultValue: false,
+  // Always provide user context for consistent rollout behavior
+  const { enabled, loading } = useFlag('new-feature', {
+    defaultValue: false,  // Graceful degradation fallback
     context: {
-      user_id: currentUser.id,
+      user_id: currentUser.id,  // Required for sticky rollouts
+      environment: 'production',
       attributes: { plan: currentUser.plan },
     },
   });
 
   if (loading) return <Skeleton />;
-  return isEnabled ? <NewFeature /> : <LegacyFeature />;
+  return enabled ? <NewFeature /> : <LegacyFeature />;
 }
 ```
 
@@ -203,11 +205,13 @@ After AI generates Savvagent integration code, verify:
 
 - [ ] Correct package imported (`@savvagent/sdk`, `@savvagent/react`, etc.)
 - [ ] API key loaded from environment variable (not hardcoded)
+- [ ] API key uses correct prefix (`sdk_` for client-side, `srv_` for server-side)
 - [ ] Provider wraps app at root level (React/Vue/Svelte)
-- [ ] userId provided for sticky rollouts
-- [ ] Default values specified for critical flags
-- [ ] Error handling/fallbacks included
+- [ ] `user_id` or `anonymous_id` provided for sticky rollouts
+- [ ] Default values specified for critical flags (graceful degradation)
+- [ ] Error handling/fallbacks included (timeout, network errors)
 - [ ] Cleanup called on unmount (if applicable)
+- [ ] Single SDK instance created (not per-request)
 
 ## Keeping AI Context Updated
 
@@ -233,4 +237,5 @@ We'll update our AI-friendly documentation to address common issues.
 - **llms.txt**: [View on GitHub](https://github.com/savvagent/savvagent-sdks/blob/main/llms.txt)
 - **llms-full.txt**: [View on GitHub](https://github.com/savvagent/savvagent-sdks/blob/main/llms-full.txt)
 - **llms.txt Standard**: [llmstxt.org](https://llmstxt.org)
-- **SDK Documentation**: [docs/SDK-INTEGRATION.md](./SDK-INTEGRATION.md)
+- **SDK Developer Guide**: [docs/SDK-DEVELOPER-GUIDE.md](./SDK-DEVELOPER-GUIDE.md) - Complete API specification
+- **SDK Integration Guide**: [docs/SDK-INTEGRATION.md](./SDK-INTEGRATION.md)

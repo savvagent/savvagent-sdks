@@ -2,7 +2,7 @@
  * Server-side utilities for Next.js Server Components, Route Handlers, and Server Actions
  */
 
-import { FlagClient, FlagClientConfig, FlagContext } from '@savvagent/sdk';
+import { FlagClient, FlagClientConfig, FlagContext, FlagEvaluationResult } from '@savvagent/sdk';
 import { cookies, headers } from 'next/headers';
 
 // Global client instance for server-side usage
@@ -249,4 +249,139 @@ export async function evaluateForRequest(
 
   const client = getServerClient();
   return client.isEnabled(flagKey, requestContext);
+}
+
+/**
+ * Result of evaluating multiple flags
+ */
+export interface EvaluateMultipleResult {
+  /**
+   * Map of flag keys to their boolean values
+   */
+  values: Record<string, boolean>;
+  /**
+   * Map of flag keys to their detailed evaluation results
+   */
+  results: Record<string, FlagEvaluationResult>;
+  /**
+   * Map of flag keys to their errors (if any)
+   */
+  errors: Record<string, Error | null>;
+}
+
+/**
+ * Options for evaluating multiple flags
+ */
+export interface EvaluateMultipleOptions {
+  /**
+   * Default values for flags (keyed by flag key)
+   */
+  defaultValues?: Record<string, boolean>;
+}
+
+/**
+ * Evaluate multiple feature flags in a Server Component with a single call.
+ * This is more efficient than calling evaluate() multiple times and is the
+ * server-side equivalent of the useFlags hook.
+ *
+ * @param flagKeys - Array of flag keys to evaluate
+ * @param context - Optional context for targeting
+ * @param options - Optional configuration
+ * @returns Promise<EvaluateMultipleResult>
+ *
+ * @example
+ * ```tsx
+ * // Server Component
+ * import { evaluateMultiple } from '@savvagent/nextjs/server';
+ *
+ * export default async function Page() {
+ *   const { values } = await evaluateMultiple(
+ *     ['feature-a', 'feature-b', 'feature-c'],
+ *     { user_id: 'user-123' }
+ *   );
+ *
+ *   return (
+ *     <div>
+ *       {values['feature-a'] && <FeatureA />}
+ *       {values['feature-b'] && <FeatureB />}
+ *       {values['feature-c'] && <FeatureC />}
+ *     </div>
+ *   );
+ * }
+ * ```
+ */
+export async function evaluateMultiple(
+  flagKeys: string[],
+  context?: FlagContext,
+  options?: EvaluateMultipleOptions
+): Promise<EvaluateMultipleResult> {
+  const client = getServerClient();
+  const serverContext = await createServerContext(context);
+
+  const values: Record<string, boolean> = {};
+  const results: Record<string, FlagEvaluationResult> = {};
+  const errors: Record<string, Error | null> = {};
+
+  // Evaluate all flags in parallel
+  await Promise.all(
+    flagKeys.map(async (flagKey) => {
+      try {
+        const evalResult = await client.evaluate(flagKey, serverContext);
+        values[flagKey] = evalResult.value;
+        results[flagKey] = evalResult;
+        errors[flagKey] = null;
+      } catch (err) {
+        const error = err as Error;
+        values[flagKey] = options?.defaultValues?.[flagKey] ?? false;
+        results[flagKey] = {
+          key: flagKey,
+          value: values[flagKey],
+          reason: 'error',
+          metadata: {
+            timestamp: Date.now(),
+          },
+        };
+        errors[flagKey] = error;
+      }
+    })
+  );
+
+  return { values, results, errors };
+}
+
+/**
+ * Check multiple feature flags in a Server Component.
+ * Simplified version of evaluateMultiple that returns just the boolean values.
+ *
+ * @param flagKeys - Array of flag keys to evaluate
+ * @param context - Optional context for targeting
+ * @param defaultValues - Optional default values map
+ * @returns Promise<Record<string, boolean>>
+ *
+ * @example
+ * ```tsx
+ * // Server Component
+ * import { isEnabledMultiple } from '@savvagent/nextjs/server';
+ *
+ * export default async function Page() {
+ *   const flags = await isEnabledMultiple(
+ *     ['dark-mode', 'new-layout', 'beta-features'],
+ *     { user_id: 'user-123' }
+ *   );
+ *
+ *   return (
+ *     <div className={flags['dark-mode'] ? 'dark' : 'light'}>
+ *       {flags['new-layout'] ? <NewLayout /> : <OldLayout />}
+ *     </div>
+ *   );
+ * }
+ * ```
+ */
+export async function isEnabledMultiple(
+  flagKeys: string[],
+  context?: FlagContext,
+  defaultValues?: Record<string, boolean>
+): Promise<Record<string, boolean>> {
+  const { values } = await evaluateMultiple(flagKeys, context, { defaultValues });
+  return values;
 }

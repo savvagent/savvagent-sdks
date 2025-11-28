@@ -41,13 +41,23 @@ export {
   withFlag,
   trackError,
   evaluateForRequest,
+  evaluateMultiple,
+  isEnabledMultiple,
 } from './server';
 
-// Re-export types
+// Export server-specific types
+export type {
+  EvaluateMultipleResult,
+  EvaluateMultipleOptions,
+} from './server';
+
+// Re-export types from core SDK
 export type {
   FlagClientConfig,
   FlagContext,
   FlagEvaluationResult,
+  FlagDefinition,
+  FlagListResponse,
   EvaluationEvent,
   ErrorEvent,
   FlagUpdateEvent,
@@ -55,3 +65,6 @@ export type {
   ApiTypes,
   components,
 } from '@savvagent/sdk';
+
+// Re-export FlagClient for advanced use cases
+export { FlagClient } from '@savvagent/sdk';

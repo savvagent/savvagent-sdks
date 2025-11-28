@@ -74,6 +74,46 @@ Since the API doesn't support overrides, **all override logic must be implemente
 
 ---
 
+## Fetching All Flags
+
+Before setting up local overrides, you may want to fetch all available flags for your application. The SDK provides the `getAllFlags()` method for this purpose:
+
+```typescript
+// Fetch all flags for the current environment
+const flags = await client.getAllFlags('development');
+
+// Display in developer UI or console
+flags.forEach(flag => {
+  console.log(`${flag.key}: ${flag.enabled} (${flag.scope})`);
+});
+
+// Store in local cache for overrides
+const flagCache = new Map(flags.map(f => [f.key, f]));
+```
+
+**Response includes:**
+- `key`: Flag identifier
+- `enabled`: Current enabled state for the environment
+- `scope`: "application" or "enterprise"
+- `environments`: Full environment configuration
+- `variations`: Variation definitions (for A/B testing)
+- `configuration`: Dynamic configuration attached to the flag
+- `version`: Flag version (for cache invalidation)
+
+**Use cases:**
+- **Local Override UI**: Display all available flags for developers to toggle locally
+- **Offline Mode**: Pre-fetch flags for mobile/desktop apps that need to work offline
+- **SDK Initialization**: Bootstrap SDK with all flag values on startup
+- **DevTools Integration**: Show available flags in browser dev panels
+
+For enterprise-only flags, use `getEnterpriseFlags()`:
+
+```typescript
+const enterpriseFlags = await client.getEnterpriseFlags('production');
+```
+
+---
+
 ## SDK Override Patterns
 
 The SDKs should support multiple override mechanisms to accommodate different use cases.
@@ -83,8 +123,9 @@ The SDKs should support multiple override mechanisms to accommodate different us
 Developers can provide overrides during SDK initialization:
 
 ```typescript
+// Create a single SDK instance at application startup
 const client = new FlagClient({
-  sdkKey: 'sdk_dev_abc123',
+  apiKey: 'sdk_dev_abc123',    // SDK keys use 'sdk_' prefix
   applicationId: 'app-xyz',
   environment: 'development',
 
@@ -97,7 +138,8 @@ const client = new FlagClient({
 });
 
 // This flag will always return true, even if API says false
-await client.isEnabled('new-checkout'); // → true
+// Always provide user context for consistent rollout behavior
+await client.isEnabled('new-checkout', { user_id: 'user-123' }); // → true
 ```
 
 **Use cases:**
@@ -139,7 +181,7 @@ For web applications, overrides can be persisted in localStorage:
 ```typescript
 // Automatically persist overrides to localStorage
 const client = new FlagClient({
-  sdkKey: 'sdk_dev_abc123',
+  apiKey: 'sdk_dev_abc123',  // SDK keys use 'sdk_' prefix
   persistOverrides: true, // Enables localStorage persistence
 });
 
@@ -171,7 +213,7 @@ Enable flags via URL query parameters for easy testing:
 // https://app.example.com?flag:dark-mode=true&flag:beta-ui=false
 
 const client = new FlagClient({
-  sdkKey: 'sdk_dev_abc123',
+  apiKey: 'sdk_dev_abc123',  // SDK keys use 'sdk_' prefix
   enableQueryOverrides: true, // Reads from URL query params
 });
 
@@ -205,7 +247,7 @@ Override both the enabled state AND the configuration:
 
 ```typescript
 const client = new FlagClient({
-  sdkKey: 'sdk_dev_abc123',
+  apiKey: 'sdk_dev_abc123',  // SDK keys use 'sdk_' prefix
   overrides: {
     'checkout-experience': {
       enabled: true,
@@ -367,7 +409,7 @@ https://app.example.com?flag:checkout-experience:config={"theme":{"primaryColor"
 **SDK Parsing:**
 ```typescript
 const client = new FlagClient({
-  sdkKey: 'sdk_dev_abc123',
+  apiKey: 'sdk_dev_abc123',  // SDK keys use 'sdk_' prefix
   enableQueryOverrides: true,
 });
 
@@ -416,7 +458,8 @@ val config = mapOf(
         "fontSize" to 18
     )
 )
-FlagClient.setConfigOverride("checkout-experience", config)
+// Use instance method, not static
+client.setConfigOverride("checkout-experience", config)
 ```
 
 ---
@@ -1014,7 +1057,7 @@ client.setOverride('mobile-beta-ui', true);
 
 ```typescript
 const client = new FlagClient({
-  sdkKey: sdkKey,
+  apiKey: sdkKey,  // SDK keys use 'sdk_' prefix
   environment: process.env.NODE_ENV,
 
   // Only allow overrides in development
@@ -1173,7 +1216,7 @@ app.get('/api/beta-feature-data', async (req, res) => {
 
 ## Next Steps
 
-### Phase 1: Core SDK Support (Week 1)
+### Phase 1: Core SDK Support
 **Boolean Overrides:**
 1. Implement configuration-based overrides
 2. Add runtime override methods (`setOverride`, `clearOverride`)
@@ -1186,7 +1229,7 @@ app.get('/api/beta-feature-data', async (req, res) => {
 7. Add configuration validation
 8. Update SDK tests for config overrides
 
-### Phase 2: Persistence (Week 2)
+### Phase 2: Persistence
 **Boolean Overrides:**
 1. LocalStorage persistence (web)
 2. UserDefaults/SharedPreferences (mobile)
@@ -1199,7 +1242,7 @@ app.get('/api/beta-feature-data', async (req, res) => {
 7. Deep link config parsing (mobile)
 8. Configuration size limits enforcement
 
-### Phase 3: Developer UX (Week 3)
+### Phase 3: Developer UX
 **Boolean Overrides:**
 1. Developer console UI (web)
 2. In-app developer menu (mobile)
@@ -1212,7 +1255,7 @@ app.get('/api/beta-feature-data', async (req, res) => {
 7. Configuration preset manager
 8. Merge mode toggle UI
 
-### Phase 4: User Features (Week 4)
+### Phase 4: User Features
 **Boolean Overrides:**
 1. Beta program opt-in UI
 2. Feature preview catalog
@@ -1227,10 +1270,9 @@ app.get('/api/beta-feature-data', async (req, res) => {
 
 ## References
 
-- [SDK Reference](./SDK-REFERENCE.md) - Main SDK documentation
-- [API Reference](./API-REFERENCE.md) - API endpoint documentation
-- [Dynamic Configuration](./DYNAMIC-CONFIGURATION.md) - Dynamic configuration capabilities and roadmap
-- [User Getting Started](./USER-GETTING-STARTED.md) - End-user onboarding
+- [SDK-DEVELOPER-GUIDE.md](./SDK-DEVELOPER-GUIDE.md) - Official SDK development guide with API specification
+- [SDK-INTEGRATION.md](./SDK-INTEGRATION.md) - SDK integration guide
+- [Dynamic Configuration](./DYNAMIC-CONFIGURATION.md) - Dynamic configuration capabilities
 - Backend evaluation logic: `backend/src/api/flags.rs:338`
 
 ---

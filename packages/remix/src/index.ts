@@ -26,6 +26,7 @@ export {
   SavvagentProvider,
   useSavvagent,
   useFlag,
+  useFlags,
   useWithFlag,
   useUser,
   useTrackError,
@@ -33,8 +34,11 @@ export {
 
 export type {
   SavvagentProviderProps,
+  DefaultFlagContext,
   UseFlagOptions,
   UseFlagResult,
+  UseFlagsOptions,
+  UseFlagsResult,
 } from '@savvagent/react';
 
 // Re-export types from core SDK
@@ -45,6 +49,8 @@ export type {
   EvaluationEvent,
   ErrorEvent,
   FlagUpdateEvent,
+  FlagDefinition,
+  FlagListResponse,
   // Generated API types for advanced users
   ApiTypes,
   components,

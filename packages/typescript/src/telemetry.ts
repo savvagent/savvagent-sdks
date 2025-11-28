@@ -99,15 +99,25 @@ export class TelemetryService {
 
   /**
    * Send evaluation events to backend
+   * Per SDK Developer Guide: POST /api/telemetry/evaluations with { "evaluations": [...] }
    */
   private async sendEvaluations(events: EvaluationEvent[]): Promise<void> {
+    // Transform to API format per SDK Developer Guide
+    const evaluations = events.map((e) => ({
+      flag_key: e.flagKey,
+      result: e.result,
+      user_id: e.context?.user_id,
+      context: e.context,
+      timestamp: Math.floor(new Date(e.timestamp).getTime() / 1000),
+    }));
+
     const response = await fetch(`${this.baseUrl}/api/telemetry/evaluations`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${this.apiKey}`,
       },
-      body: JSON.stringify({ events }),
+      body: JSON.stringify({ evaluations }),
     });
 
     if (!response.ok) {
@@ -117,15 +127,27 @@ export class TelemetryService {
 
   /**
    * Send error events to backend
+   * Per SDK Developer Guide: POST /api/telemetry/errors with { "errors": [...] }
    */
   private async sendErrors(events: ErrorEvent[]): Promise<void> {
+    // Transform to API format per SDK Developer Guide
+    const errors = events.map((e) => ({
+      flag_key: e.flagKey,
+      flag_enabled: e.flagEnabled,
+      error_type: e.errorType,
+      error_message: e.errorMessage,
+      stack_trace: e.stackTrace,
+      context: e.context,
+      timestamp: Math.floor(new Date(e.timestamp).getTime() / 1000),
+    }));
+
     const response = await fetch(`${this.baseUrl}/api/telemetry/errors`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${this.apiKey}`,
       },
-      body: JSON.stringify({ events }),
+      body: JSON.stringify({ errors }),
     });
 
     if (!response.ok) {

@@ -364,3 +364,9 @@ pnpm --filter @savvagent/sdk build
 - ✅ Self-documenting code
 
 The generated types provide a strong contract between the backend and SDK, catching bugs early and improving maintainability.
+
+## Related Documentation
+
+- [SDK-DEVELOPER-GUIDE.md](./SDK-DEVELOPER-GUIDE.md) - Official API specification
+- [SDK-INTEGRATION.md](./SDK-INTEGRATION.md) - SDK integration guide
+- [USING-GENERATED-TYPES.md](./USING-GENERATED-TYPES.md) - Using generated types

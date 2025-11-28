@@ -5,6 +5,8 @@ import {
   FlagClientConfig,
   FlagContext,
   FlagEvaluationResult,
+  FlagDefinition,
+  FlagListResponse,
 } from './types';
 import { components } from './generated/api-types';
 
@@ -23,6 +25,9 @@ export class FlagClient {
   private anonymousId: string | null = null;
   private userId: string | null = null;
   private detectedLanguage: string | null = null;
+  private overrides: Map<string, boolean> = new Map();
+  private overrideListeners: Set<() => void> = new Set();
+  private authFailed: boolean = false; // Track auth failures to prevent request spam
 
   constructor(config: FlagClientConfig) {
     // Apply defaults
@@ -61,7 +66,8 @@ export class FlagClient {
     );
 
     // Initialize real-time updates
-    if (this.config.enableRealtime && typeof EventSource !== 'undefined') {
+    // Uses @microsoft/fetch-event-source for header-based authentication
+    if (this.config.enableRealtime && typeof fetch !== 'undefined') {
       this.realtime = new RealtimeService(
         this.config.baseUrl,
         this.config.apiKey,
@@ -197,7 +203,33 @@ export class FlagClient {
     const traceId = TelemetryService.generateTraceId();
 
     try {
-      // Check cache first
+      // Check local overrides first (highest priority)
+      if (this.overrides.has(flagKey)) {
+        const overrideValue = this.overrides.get(flagKey)!;
+        return {
+          key: flagKey,
+          value: overrideValue,
+          reason: 'default', // Using 'default' to indicate override
+          metadata: {
+            description: 'Local override active',
+          },
+        };
+      }
+
+      // If auth has failed, return default immediately to prevent request spam
+      if (this.authFailed) {
+        const defaultValue = this.config.defaults[flagKey] ?? false;
+        return {
+          key: flagKey,
+          value: defaultValue,
+          reason: 'error',
+          metadata: {
+            description: 'Authentication failed - using default value',
+          },
+        };
+      }
+
+      // Check cache second
       const cachedValue = this.cache.get(flagKey);
       if (cachedValue !== null) {
         return {
@@ -216,7 +248,12 @@ export class FlagClient {
         context: evaluationContext as any,
       };
 
-      // Fetch from API
+      // Fetch from API with timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => {
+        controller.abort();
+      }, 10000);
+
       const response = await fetch(`${this.config.baseUrl}/api/flags/${flagKey}/evaluate`, {
         method: 'POST',
         headers: {
@@ -224,9 +261,20 @@ export class FlagClient {
           Authorization: `Bearer ${this.config.apiKey}`,
         },
         body: JSON.stringify(requestBody),
+        signal: controller.signal,
       });
 
+      clearTimeout(timeoutId);
+
       if (!response.ok) {
+        // Handle auth errors specially - don't retry these
+        if (response.status === 401 || response.status === 403) {
+          this.authFailed = true;
+          // Disconnect realtime to prevent further auth failures
+          this.realtime?.disconnect();
+          console.error(`[Savvagent] Authentication failed (${response.status}). Check your API key. Further requests disabled.`);
+          throw new Error(`Authentication failed: ${response.status}`);
+        }
         throw new Error(`Flag evaluation failed: ${response.status}`);
       }
 
@@ -377,5 +425,251 @@ export class FlagClient {
     this.telemetry.stop();
     this.realtime?.disconnect();
     this.cache.clear();
+  }
+
+  // =====================
+  // Local Override Methods
+  // =====================
+
+  /**
+   * Set a local override for a flag.
+   * Overrides take precedence over server values and cache.
+   *
+   * @param flagKey - The flag key to override
+   * @param value - The override value (true/false)
+   *
+   * @example
+   * ```typescript
+   * // Force a flag to be enabled locally
+   * client.setOverride('new-feature', true);
+   * ```
+   */
+  setOverride(flagKey: string, value: boolean): void {
+    this.overrides.set(flagKey, value);
+    this.notifyOverrideListeners();
+  }
+
+  /**
+   * Clear a local override for a flag.
+   * The flag will return to using server/cached values.
+   *
+   * @param flagKey - The flag key to clear override for
+   */
+  clearOverride(flagKey: string): void {
+    this.overrides.delete(flagKey);
+    this.notifyOverrideListeners();
+  }
+
+  /**
+   * Clear all local overrides.
+   */
+  clearAllOverrides(): void {
+    this.overrides.clear();
+    this.notifyOverrideListeners();
+  }
+
+  /**
+   * Check if a flag has a local override.
+   *
+   * @param flagKey - The flag key to check
+   * @returns true if the flag has an override
+   */
+  hasOverride(flagKey: string): boolean {
+    return this.overrides.has(flagKey);
+  }
+
+  /**
+   * Get the override value for a flag.
+   *
+   * @param flagKey - The flag key to get override for
+   * @returns The override value, or undefined if not set
+   */
+  getOverride(flagKey: string): boolean | undefined {
+    return this.overrides.get(flagKey);
+  }
+
+  /**
+   * Get all current overrides.
+   *
+   * @returns Record of flag keys to override values
+   */
+  getOverrides(): Record<string, boolean> {
+    const result: Record<string, boolean> = {};
+    this.overrides.forEach((value, key) => {
+      result[key] = value;
+    });
+    return result;
+  }
+
+  /**
+   * Set multiple overrides at once.
+   *
+   * @param overrides - Record of flag keys to override values
+   */
+  setOverrides(overrides: Record<string, boolean>): void {
+    Object.entries(overrides).forEach(([key, value]) => {
+      this.overrides.set(key, value);
+    });
+    this.notifyOverrideListeners();
+  }
+
+  /**
+   * Subscribe to override changes.
+   * Useful for React components to re-render when overrides change.
+   *
+   * @param callback - Function to call when overrides change
+   * @returns Unsubscribe function
+   */
+  onOverrideChange(callback: () => void): () => void {
+    this.overrideListeners.add(callback);
+    return () => {
+      this.overrideListeners.delete(callback);
+    };
+  }
+
+  /**
+   * Notify all override listeners of a change.
+   */
+  private notifyOverrideListeners(): void {
+    this.overrideListeners.forEach((callback) => {
+      try {
+        callback();
+      } catch (e) {
+        console.error('[Savvagent] Override listener error:', e);
+      }
+    });
+  }
+
+  /**
+   * Get all flags for the application (and enterprise-scoped flags).
+   * Per SDK Developer Guide: GET /api/sdk/flags
+   *
+   * Use cases:
+   * - Local override UI: Display all available flags for developers to toggle
+   * - Offline mode: Pre-fetch flags for mobile/desktop apps
+   * - SDK initialization: Bootstrap SDK with all flag values on startup
+   * - DevTools integration: Show available flags in browser dev panels
+   *
+   * @param environment - Environment to evaluate enabled state for (default: 'development')
+   * @returns Promise<FlagDefinition[]> - List of flag definitions
+   *
+   * @example
+   * ```typescript
+   * // Fetch all flags for development
+   * const flags = await client.getAllFlags('development');
+   *
+   * // Bootstrap local cache
+   * flags.forEach(flag => {
+   *   console.log(`${flag.key}: ${flag.enabled}`);
+   * });
+   * ```
+   */
+  async getAllFlags(environment: string = 'development'): Promise<FlagDefinition[]> {
+    // If auth has failed, return empty immediately to prevent request spam
+    if (this.authFailed) {
+      return [];
+    }
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => {
+        controller.abort();
+      }, 10000);
+
+      const response = await fetch(
+        `${this.config.baseUrl}/api/sdk/flags?environment=${encodeURIComponent(environment)}`,
+        {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${this.config.apiKey}`,
+          },
+          signal: controller.signal,
+        }
+      );
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        // Handle auth errors specially - don't retry these
+        if (response.status === 401 || response.status === 403) {
+          this.authFailed = true;
+          this.realtime?.disconnect();
+          console.error(`[Savvagent] Authentication failed (${response.status}). Check your API key. Further requests disabled.`);
+          throw new Error(`Authentication failed: ${response.status}`);
+        }
+        throw new Error(`Failed to fetch flags: ${response.status}`);
+      }
+
+      const data: FlagListResponse = await response.json();
+
+      // Optionally cache all flags
+      data.flags.forEach((flag) => {
+        this.cache.set(flag.key, flag.enabled, flag.key);
+      });
+
+      return data.flags;
+    } catch (error) {
+      this.config.onError(error as Error);
+      return [];
+    }
+  }
+
+  /**
+   * Get only enterprise-scoped flags for the organization.
+   * Per SDK Developer Guide: GET /api/sdk/enterprise-flags
+   *
+   * Enterprise flags are shared across all applications in the organization.
+   *
+   * @param environment - Environment to evaluate enabled state for (default: 'development')
+   * @returns Promise<FlagDefinition[]> - List of enterprise flag definitions
+   *
+   * @example
+   * ```typescript
+   * // Fetch enterprise-only flags
+   * const enterpriseFlags = await client.getEnterpriseFlags('production');
+   * ```
+   */
+  async getEnterpriseFlags(environment: string = 'development'): Promise<FlagDefinition[]> {
+    // If auth has failed, return empty immediately to prevent request spam
+    if (this.authFailed) {
+      return [];
+    }
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => {
+        controller.abort();
+      }, 10000);
+
+      const response = await fetch(
+        `${this.config.baseUrl}/api/sdk/enterprise-flags?environment=${encodeURIComponent(environment)}`,
+        {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${this.config.apiKey}`,
+          },
+          signal: controller.signal,
+        }
+      );
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        // Handle auth errors specially - don't retry these
+        if (response.status === 401 || response.status === 403) {
+          this.authFailed = true;
+          this.realtime?.disconnect();
+          console.error(`[Savvagent] Authentication failed (${response.status}). Check your API key. Further requests disabled.`);
+          throw new Error(`Authentication failed: ${response.status}`);
+        }
+        throw new Error(`Failed to fetch enterprise flags: ${response.status}`);
+      }
+
+      const data: FlagListResponse = await response.json();
+      return data.flags;
+    } catch (error) {
+      this.config.onError(error as Error);
+      return [];
+    }
   }
 }
