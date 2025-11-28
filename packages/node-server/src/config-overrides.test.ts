@@ -1,13 +1,29 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { FlagClient } from './client';
 import { FlagClientConfig } from './types';
 
+// Mock EventSource
+global.EventSource = jest.fn(() => ({
+  addEventListener: jest.fn(),
+  removeEventListener: jest.fn(),
+  close: jest.fn(),
+  readyState: 0,
+  url: '',
+  withCredentials: false,
+  CONNECTING: 0,
+  OPEN: 1,
+  CLOSED: 2,
+  onopen: null,
+  onmessage: null,
+  onerror: null,
+  dispatchEvent: jest.fn(),
+})) as any;
+
 describe('Configuration Overrides', () => {
   let client: FlagClient;
-  let mockFetch: ReturnType<typeof vi.fn>;
+  let mockFetch: jest.Mock;
 
   beforeEach(() => {
-    mockFetch = vi.fn();
+    mockFetch = jest.fn();
     global.fetch = mockFetch;
 
     const config: FlagClientConfig = {

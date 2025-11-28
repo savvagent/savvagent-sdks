@@ -1,16 +1,32 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { FlagClient } from './client';
 import { FlagClientConfig } from './types';
 
 // Mock fetch globally
-global.fetch = vi.fn();
+global.fetch = jest.fn();
+
+// Mock EventSource
+global.EventSource = jest.fn(() => ({
+  addEventListener: jest.fn(),
+  removeEventListener: jest.fn(),
+  close: jest.fn(),
+  readyState: 0,
+  url: '',
+  withCredentials: false,
+  CONNECTING: 0,
+  OPEN: 1,
+  CLOSED: 2,
+  onopen: null,
+  onmessage: null,
+  onerror: null,
+  dispatchEvent: jest.fn(),
+})) as any;
 
 describe('Dynamic Configuration Tests', () => {
   let client: FlagClient;
-  let mockFetch: ReturnType<typeof vi.fn>;
+  let mockFetch: jest.Mock;
 
   beforeEach(() => {
-    mockFetch = global.fetch as ReturnType<typeof vi.fn>;
+    mockFetch = global.fetch as jest.Mock;
     mockFetch.mockClear();
 
     const config: FlagClientConfig = {

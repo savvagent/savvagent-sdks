@@ -18,8 +18,8 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsup src/index.tsx --format cjs,esm --dts --external solid-js",
-    "dev": "tsup src/index.tsx --format cjs,esm --dts --external solid-js --watch",
+    "build": "tsup",
+    "dev": "tsup --watch",
     "test": "vitest",
     "lint": "eslint src --ext .ts,.tsx",
     "format": "prettier --write \"src/**/*.{ts,tsx}\""
@@ -31,9 +31,15 @@
     "@savvagent/sdk": "workspace:*"
   },
   "devDependencies": {
-    "solid-js": "^1.8.0",
-    "tsup": "^8.0.0",
-    "typescript": "^5.4.0"
+    "@solidjs/testing-library": "0.8.10",
+    "@testing-library/jest-dom": "6.9.1",
+    "esbuild-plugin-solid": "0.6.0",
+    "jsdom": "27.2.0",
+    "solid-js": "^1.9.10",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vite-plugin-solid": "^2.11.10",
+    "vitest": "4.0.14"
   },
   "keywords": [
     "savvagent",

@@ -4,7 +4,9 @@
 
 import { FlagClient, FlagClientConfig, FlagContext } from '@savvagent/sdk';
 
-let serverClient: FlagClient | null = null;
+// Module-level variable for the singleton client
+// Exported for testing purposes only - do not use in production code
+export let serverClient: FlagClient | null = null;
 
 /**
  * Initialize the server-side Savvagent client.

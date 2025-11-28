@@ -23,16 +23,14 @@ describe('FlagCache', () => {
       expect(cache.get('test-flag')).toBe(false);
     });
 
-    it('should store different types of values', () => {
-      cache.set('boolean-flag', true);
-      cache.set('string-flag', 'value');
-      cache.set('number-flag', 42);
-      cache.set('object-flag', { key: 'value' });
+    it('should store multiple boolean values', () => {
+      cache.set('boolean-flag-1', true);
+      cache.set('boolean-flag-2', false);
+      cache.set('boolean-flag-3', true);
 
-      expect(cache.get('boolean-flag')).toBe(true);
-      expect(cache.get('string-flag')).toBe('value');
-      expect(cache.get('number-flag')).toBe(42);
-      expect(cache.get('object-flag')).toEqual({ key: 'value' });
+      expect(cache.get('boolean-flag-1')).toBe(true);
+      expect(cache.get('boolean-flag-2')).toBe(false);
+      expect(cache.get('boolean-flag-3')).toBe(true);
     });
   });
 
@@ -87,7 +85,7 @@ describe('FlagCache', () => {
     it('should clear all cached values', () => {
       cache.set('flag-1', true);
       cache.set('flag-2', false);
-      cache.set('flag-3', 'value');
+      cache.set('flag-3', true);
 
       cache.clear();
 
@@ -98,19 +96,16 @@ describe('FlagCache', () => {
   });
 
   describe('Edge cases', () => {
-    it('should handle null values', () => {
-      cache.set('null-flag', null);
-      // Depending on implementation, might treat null specially
-      const value = cache.get('null-flag');
-      // Either returns null (not cached) or the cached null value
-      expect(value === null || value === undefined).toBe(true);
+    it('should handle boolean false values', () => {
+      cache.set('false-flag', false);
+      const value = cache.get('false-flag');
+      expect(value).toBe(false);
     });
 
-    it('should handle undefined values', () => {
-      cache.set('undefined-flag', undefined);
-      const value = cache.get('undefined-flag');
-      // Similar to null handling
-      expect(value === null || value === undefined).toBe(true);
+    it('should handle boolean true values', () => {
+      cache.set('true-flag', true);
+      const value = cache.get('true-flag');
+      expect(value).toBe(true);
     });
 
     it('should handle empty string keys', () => {
@@ -134,24 +129,22 @@ describe('FlagCache', () => {
   describe('Size and memory', () => {
     it('should handle large number of entries', () => {
       for (let i = 0; i < 1000; i++) {
-        cache.set(`flag-${i}`, i);
+        cache.set(`flag-${i}`, i % 2 === 0);
       }
 
-      expect(cache.get('flag-0')).toBe(0);
-      expect(cache.get('flag-500')).toBe(500);
-      expect(cache.get('flag-999')).toBe(999);
+      expect(cache.get('flag-0')).toBe(true);
+      expect(cache.get('flag-500')).toBe(true);
+      expect(cache.get('flag-999')).toBe(false);
     });
 
-    it('should handle large values', () => {
-      const largeObject = {
-        data: new Array(1000).fill('x').join(''),
-        nested: {
-          array: new Array(100).fill(42),
-        },
-      };
+    it('should handle multiple cached flags', () => {
+      for (let i = 0; i < 100; i++) {
+        cache.set(`flag-${i}`, true);
+      }
 
-      cache.set('large-flag', largeObject);
-      expect(cache.get('large-flag')).toEqual(largeObject);
+      expect(cache.get('flag-0')).toBe(true);
+      expect(cache.get('flag-50')).toBe(true);
+      expect(cache.get('flag-99')).toBe(true);
     });
   });
 });

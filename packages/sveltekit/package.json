@@ -38,10 +38,11 @@
     "@savvagent/svelte": "workspace:*"
   },
   "devDependencies": {
-    "@sveltejs/kit": "^2.5.0",
-    "svelte": "^5.0.0",
-    "tsup": "^8.0.0",
-    "typescript": "^5.4.0"
+    "@sveltejs/kit": "^2.49.0",
+    "svelte": "^5.45.2",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "4.0.14"
   },
   "keywords": [
     "savvagent",

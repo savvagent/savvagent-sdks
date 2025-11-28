@@ -104,3 +104,44 @@ coverage/
 .changeset/*.md
 !.changeset/README.md
 !.changeset/config.json
+
+# ===========================================
+# Framework-specific (Examples & SDKs)
+# ===========================================
+
+# Angular
+.angular/
+
+# Next.js
+.next/
+out/
+next-env.d.ts
+
+# SvelteKit
+.svelte-kit/
+
+# Vite
+.vite/
+
+# Astro
+.astro/
+
+# Parcel
+.parcel-cache/
+
+# Nuxt
+.nuxt/
+.output/
+
+# Remix
+.remix/
+
+# Solid
+.solid/
+
+# ===========================================
+# Lock files (keep only pnpm-lock.yaml at root)
+# ===========================================
+examples/**/package-lock.json
+examples/**/yarn.lock
+examples/**/pnpm-lock.yaml

@@ -10,7 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@savvagent/sdk": "workspace:*"
+    "@savvagent/svelte": "workspace:*"
   },
   "devDependencies": {
     "@sveltejs/adapter-auto": "^3.0.0",

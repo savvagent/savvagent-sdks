@@ -20,7 +20,7 @@
     "sync:types": "openapi-typescript ../savvagent-flags/docs/openapi.json -o packages/typescript/src/generated/api-types.ts"
   },
   "devDependencies": {
-    "@changesets/cli": "^2.27.1",
+    "@changesets/cli": "^2.29.8",
     "openapi-typescript": "^7.10.1"
   },
   "engines": {

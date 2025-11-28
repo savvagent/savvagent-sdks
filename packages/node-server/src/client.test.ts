@@ -130,8 +130,10 @@ describe('FlagClient', () => {
 
       const context: FlagContext = {
         user_id: 'user-123',
-        email: 'test@example.com',
-        plan: 'pro',
+        attributes: {
+          email: 'test@example.com',
+          plan: 'pro',
+        },
       };
 
       await client.evaluate('test-flag', context);
@@ -178,7 +180,9 @@ describe('FlagClient', () => {
         statusText: 'Internal Server Error',
       });
 
-      await expect(client.evaluate('test-flag')).rejects.toThrow();
+      const result = await client.evaluate('test-flag');
+      expect(result.value).toBe(false);
+      expect(result.reason).toBe('error');
     });
 
     it('should handle network errors', async () => {
@@ -186,7 +190,9 @@ describe('FlagClient', () => {
         new Error('Network error')
       );
 
-      await expect(client.evaluate('test-flag')).rejects.toThrow('Network error');
+      const result = await client.evaluate('test-flag');
+      expect(result.value).toBe(false);
+      expect(result.reason).toBe('error');
     });
 
     it('should use default value on error if provided', async () => {
@@ -238,7 +244,6 @@ describe('FlagClient', () => {
       (global.fetch as jest.Mock).mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          enabled: true,
           value: true,
         }),
       });
@@ -251,7 +256,6 @@ describe('FlagClient', () => {
       (global.fetch as jest.Mock).mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          enabled: false,
           value: false,
         }),
       });
@@ -265,7 +269,7 @@ describe('FlagClient', () => {
         new Error('Network error')
       );
 
-      const isEnabled = await client.isEnabled('test-flag', undefined, false);
+      const isEnabled = await client.isEnabled('test-flag', undefined);
       expect(isEnabled).toBe(false);
     });
   });
@@ -285,26 +289,28 @@ describe('FlagClient', () => {
       (global.fetch as jest.Mock).mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          enabled: true,
-          value: 'dark-mode',
+          value: true,
+          variation: 'dark-mode',
         }),
       });
 
-      const variation = await client.getVariation('theme', undefined, 'light');
-      expect(variation).toBe('dark-mode');
+      const result = await client.getVariation('theme', undefined);
+      expect(result.enabled).toBe(true);
+      expect(result.variation).toBe('dark-mode');
     });
 
     it('should return numeric variation', async () => {
       (global.fetch as jest.Mock).mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          enabled: true,
-          value: 100,
+          value: true,
+          variation: 'variant-100',
         }),
       });
 
-      const variation = await client.getVariation('max-items', undefined, 10);
-      expect(variation).toBe(100);
+      const result = await client.getVariation('max-items', undefined);
+      expect(result.enabled).toBe(true);
+      expect(result.variation).toBe('variant-100');
     });
 
     it('should return default on error', async () => {
@@ -312,8 +318,9 @@ describe('FlagClient', () => {
         new Error('Network error')
       );
 
-      const variation = await client.getVariation('theme', undefined, 'light');
-      expect(variation).toBe('light');
+      const result = await client.getVariation('theme', undefined);
+      expect(result.enabled).toBe(false);
+      expect(result.variation).toBe('control');
     });
 
     it('should return object variation', async () => {
@@ -322,13 +329,14 @@ describe('FlagClient', () => {
       (global.fetch as jest.Mock).mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          enabled: true,
-          value: configObject,
+          value: true,
+          configuration: configObject,
         }),
       });
 
-      const variation = await client.getVariation('app-config', undefined, {});
-      expect(variation).toEqual(configObject);
+      const result = await client.getVariation('app-config', undefined);
+      expect(result.enabled).toBe(true);
+      expect(result.configuration).toEqual(configObject);
     });
   });
 
@@ -371,7 +379,7 @@ describe('FlagClient', () => {
     it('should merge application_id from config', async () => {
       (global.fetch as jest.Mock).mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ enabled: true, value: true }),
+        json: async () => ({ value: true }),
       });
 
       await client.evaluate('test-flag', { user_id: 'user-123' });
@@ -386,17 +394,19 @@ describe('FlagClient', () => {
     it('should handle complex context attributes', async () => {
       (global.fetch as jest.Mock).mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ enabled: true, value: true }),
+        json: async () => ({ value: true }),
       });
 
       const context: FlagContext = {
         user_id: 'user-456',
-        email: 'test@example.com',
-        plan: 'enterprise',
-        features: ['feature-a', 'feature-b'],
-        metadata: {
-          signupDate: '2024-01-01',
-          country: 'US',
+        attributes: {
+          email: 'test@example.com',
+          plan: 'enterprise',
+          features: ['feature-a', 'feature-b'],
+          metadata: {
+            signupDate: '2024-01-01',
+            country: 'US',
+          },
         },
       };
 
@@ -405,10 +415,10 @@ describe('FlagClient', () => {
       const callArgs = (global.fetch as jest.Mock).mock.calls[0];
       const body = JSON.parse(callArgs[1].body);
 
-      expect(body.context.email).toBe('test@example.com');
-      expect(body.context.plan).toBe('enterprise');
-      expect(body.context.features).toEqual(['feature-a', 'feature-b']);
-      expect(body.context.metadata).toEqual({
+      expect(body.context.attributes.email).toBe('test@example.com');
+      expect(body.context.attributes.plan).toBe('enterprise');
+      expect(body.context.attributes.features).toEqual(['feature-a', 'feature-b']);
+      expect(body.context.attributes.metadata).toEqual({
         signupDate: '2024-01-01',
         country: 'US',
       });

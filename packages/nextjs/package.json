@@ -44,15 +44,19 @@
     "react": ">=18.0.0"
   },
   "dependencies": {
-    "@savvagent/sdk": "workspace:*",
-    "@savvagent/react": "workspace:*"
+    "@savvagent/react": "workspace:*",
+    "@savvagent/sdk": "workspace:*"
   },
   "devDependencies": {
-    "@types/react": "^18.3.3",
-    "next": "^14.2.0",
+    "@types/jest": "^29.5.12",
+    "@types/react": "^18.3.27",
+    "jest": "^29.7.0",
+    "jest-environment-jsdom": "^29.7.0",
+    "next": "^14.2.33",
     "react": "^18.3.1",
-    "tsup": "^8.0.0",
-    "typescript": "^5.4.0"
+    "ts-jest": "^29.1.2",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3"
   },
   "keywords": [
     "savvagent",
