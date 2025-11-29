@@ -1,14 +1,15 @@
 # @savvagent/mcp-sdk
 
-Model Context Protocol (MCP) SDK for Savvagent integrations. This is the base framework for building custom MCP servers that integrate Savvagent with observability tools like Sentry, DynaTrace, Splunk, and more.
+Model Context Protocol (MCP) SDK for Savvagent integrations. This is the base framework for building MCP servers using **StreamableHTTP transport** and JSON-RPC 2.0, allowing Savvagent to query observability data from tools like Sentry, Datadog, Splunk, and more.
 
 ## What is MCP?
 
-MCP (Model Context Protocol) is Savvagent's integration framework that:
-- Receives flag evaluation and error events from Savvagent
-- Sends events to external observability tools (Sentry, DynaTrace, etc.)
-- Queries error data from external systems
-- Correlates errors with flag states for AI-powered detection
+MCP (Model Context Protocol) is a standardized protocol for AI systems to interact with external data sources and tools:
+
+- **StreamableHTTP Transport**: Single HTTP endpoint (`POST /mcp`) handles all JSON-RPC requests
+- **Pull-based architecture**: Savvagent queries your server for data on-demand
+- **Bearer Token Auth**: Simple, secure authentication using `Authorization: Bearer <token>`
+- **Tool-based interface**: Define tools that Savvagent can call
 
 ## Installation
 
@@ -18,200 +19,276 @@ npm install @savvagent/mcp-sdk
 
 ## Quick Start
 
-### Implementing a Custom MCP Server
+### Creating an MCP Server with Bearer Token Auth
 
 ```typescript
-import { MCPServer, FlagEvaluation, FlagError, ErrorQuery, ExternalError } from '@savvagent/mcp-sdk';
-
-class MyCustomMCPServer extends MCPServer {
-  private client: any; // Your observability tool client
-
-  async initialize(): Promise<void> {
-    // Initialize connection to your observability tool
-    this.client = createClient(this.config.config);
-    this.initialized = true;
-  }
-
-  async onFlagEvaluation(evaluation: FlagEvaluation): Promise<void> {
-    // Send flag evaluation as breadcrumb/context
-    await this.client.addBreadcrumb({
-      category: 'feature-flag',
-      message: `Flag ${evaluation.flagKey} evaluated to ${evaluation.result}`,
-      data: evaluation,
-    });
-  }
-
-  async onFlagError(error: FlagError): Promise<void> {
-    // Capture error with flag context
-    await this.client.captureError({
-      message: error.errorMessage,
-      tags: {
-        flag_key: error.flagKey,
-        flag_enabled: error.flagEnabled,
-      },
-      extra: error.context,
-    });
-  }
-
-  async queryErrors(query: ErrorQuery): Promise<ExternalError[]> {
-    // Query errors from your observability tool
-    const errors = await this.client.searchErrors({
-      start: query.startTime,
-      end: query.endTime,
-    });
-
-    return errors.map(e => ({
-      id: e.id,
-      errorType: e.type,
-      errorMessage: e.message,
-      timestamp: e.timestamp,
-      count: e.count,
-      tags: e.tags,
-    }));
-  }
-}
-```
-
-### Setting up Webhook Handler
-
-```typescript
-import { MCPWebhookHandler } from '@savvagent/mcp-sdk';
+import { MCPServer, createHttpHandler } from '@savvagent/mcp-sdk';
 import express from 'express';
 
-const app = express();
-const webhookHandler = new MCPWebhookHandler();
-
-// Initialize your MCP server
-const mcpServer = new MyCustomMCPServer(config);
-await mcpServer.initialize();
-
-// Register the server
-webhookHandler.registerServer('integration-id', mcpServer);
-
-// Handle webhooks from Savvagent
-app.post('/webhook/savvagent', express.json(), async (req, res) => {
-  try {
-    await webhookHandler.handleWebhook(req.body);
-    res.status(200).json({ success: true });
-  } catch (error) {
-    console.error('Webhook error:', error);
-    res.status(500).json({ error: error.message });
-  }
+// Create server
+const server = new MCPServer({
+  name: 'my-mcp-server',
+  version: '1.0.0',
 });
 
-app.listen(3000);
+// Register tools
+server.registerTool(
+  'get_service_status',
+  'Get the current status of monitored services',
+  {
+    type: 'object',
+    properties: {
+      service_name: {
+        type: 'string',
+        description: 'Name of the service to check',
+      },
+    },
+    required: ['service_name'],
+  },
+  async (args) => {
+    // Your implementation here
+    return { status: 'healthy', service: args.service_name };
+  }
+);
+
+// Start HTTP server with Bearer token authentication
+const app = express();
+app.use(express.json());
+
+// MCP endpoint with auth (StreamableHTTP)
+app.post('/mcp', createHttpHandler(server, {
+  auth: { token: process.env.MCP_AUTH_TOKEN! }
+}));
+
+// Health check endpoint (no auth required)
+app.get('/health', async (req, res) => {
+  const health = await server.healthCheck();
+  res.json(health);
+});
+
+app.listen(3000, () => console.log('MCP server running on port 3000'));
 ```
 
-### Using MCP Client
+### Testing with cURL
 
-```typescript
-import { MCPClient } from '@savvagent/mcp-sdk';
+```bash
+# List available tools (with Bearer token)
+curl -X POST http://localhost:3000/mcp \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your-secret-token" \
+  -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
 
-const client = new MCPClient({
-  apiUrl: 'https://api.savvagent.com',
-  apiKey: 'your-api-key',
-  organizationId: 'your-org-id',
-});
-
-// Query evaluations
-const evaluations = await client.queryEvaluations({
-  organizationId: 'your-org-id',
-  flagId: 'flag-id',
-  startTime: new Date('2024-01-01'),
-  endTime: new Date(),
-});
-
-// Send external errors for correlation
-await client.sendExternalErrors([
-  {
-    id: 'sentry-error-1',
-    errorType: 'TypeError',
-    errorMessage: 'Cannot read property of undefined',
-    timestamp: new Date().toISOString(),
-    count: 42,
-  },
-]);
+# Call a tool
+curl -X POST http://localhost:3000/mcp \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your-secret-token" \
+  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"get_service_status","arguments":{"service_name":"api"}},"id":2}'
 ```
 
 ## Core Concepts
 
+### StreamableHTTP Transport
+
+MCP uses a single HTTP endpoint that handles all JSON-RPC requests:
+
+```
+POST /mcp HTTP/1.1
+Host: your-server.example.com
+Content-Type: application/json
+Authorization: Bearer <your-token>
+
+{"jsonrpc": "2.0", "method": "tools/list", "id": 1}
+```
+
 ### MCPServer
 
-Abstract base class for implementing MCP integrations. You must implement:
+The main class for building MCP servers. Register tools that Savvagent can call:
 
-- `initialize()` - Connect to external service
-- `onFlagEvaluation(evaluation)` - Handle flag evaluation events
-- `onFlagError(error)` - Handle error events
-- `queryErrors(query)` - Query errors from external service
+```typescript
+import { MCPServer } from '@savvagent/mcp-sdk';
 
-Optional methods to override:
-- `correlateErrors()` - Custom correlation logic
-- `healthCheck()` - Custom health checks
-- `shutdown()` - Cleanup logic
+const server = new MCPServer({
+  name: 'my-server',
+  version: '1.0.0',
+});
 
-### MCPWebhookHandler
+// Register a tool
+server.registerTool(
+  'tool_name',           // Tool name (snake_case)
+  'Tool description',    // Description for the AI
+  {                      // Input schema (JSON Schema)
+    type: 'object',
+    properties: {
+      param1: { type: 'string', description: 'Parameter description' },
+    },
+    required: ['param1'],
+  },
+  async (args) => {      // Handler function
+    return { result: 'success' };
+  }
+);
+```
 
-Handles incoming webhooks from Savvagent and routes them to registered MCP servers.
+### JSON-RPC 2.0 Protocol
 
-### MCPClient
+MCP uses JSON-RPC 2.0 with these methods:
 
-API client for communicating with Savvagent backend.
+| Method | Description |
+|--------|-------------|
+| `initialize` | Initialize the connection (optional) |
+| `tools/list` | List available tools and their schemas |
+| `tools/call` | Call a tool with arguments |
+
+### Authentication
+
+#### Built-in Bearer Token Auth
+
+```typescript
+import { createHttpHandler } from '@savvagent/mcp-sdk';
+
+// With authentication
+app.post('/mcp', createHttpHandler(server, {
+  auth: {
+    token: process.env.MCP_AUTH_TOKEN!,
+    skipPaths: ['/health'] // Optional: paths to skip auth
+  }
+}));
+```
+
+#### Standalone Auth Middleware
+
+For more control over authentication:
+
+```typescript
+import { createAuthMiddleware, createHttpHandler } from '@savvagent/mcp-sdk';
+
+const authMiddleware = createAuthMiddleware({
+  token: process.env.MCP_AUTH_TOKEN!,
+  skipPaths: ['/health']
+});
+
+app.use('/mcp', authMiddleware);
+app.post('/mcp', createHttpHandler(server));
+```
+
+### Transport Options
+
+#### HTTP/HTTPS (Recommended)
+
+```typescript
+import { createHttpHandler } from '@savvagent/mcp-sdk';
+import express from 'express';
+
+const app = express();
+app.use(express.json());
+
+// Mount on /mcp (StreamableHTTP standard)
+app.post('/mcp', createHttpHandler(server, {
+  auth: { token: process.env.MCP_AUTH_TOKEN! }
+}));
+```
+
+#### Stdio
+
+```typescript
+import { createStdioHandler } from '@savvagent/mcp-sdk';
+
+// Reads JSON-RPC from stdin, writes responses to stdout
+createStdioHandler(server);
+```
 
 ## Type Definitions
 
-### FlagEvaluation
+### MCPServerConfig
 
 ```typescript
-interface FlagEvaluation {
-  id: string;
-  organizationId: string;
-  flagId: string;
-  flagKey: string;
-  result: boolean;
-  context?: Record<string, any>;
-  durationMs?: number;
-  traceId?: string;
-  timestamp: string;
+interface MCPServerConfig {
+  name: string;      // Server name
+  version: string;   // Server version
+  options?: Record<string, any>;
 }
 ```
 
-### FlagError
+### AuthConfig
 
 ```typescript
-interface FlagError {
-  id: string;
-  organizationId: string;
-  flagId: string;
-  flagKey: string;
-  flagEnabled: boolean;
-  errorType: string;
-  errorMessage: string;
-  stackTrace?: string;
-  context?: Record<string, any>;
-  traceId?: string;
-  timestamp: string;
+interface AuthConfig {
+  token: string;           // Bearer token for authentication
+  skipPaths?: string[];    // Paths to skip authentication
 }
 ```
 
-### ExternalError
+### MCPTool
 
 ```typescript
-interface ExternalError {
-  id: string;
-  errorType: string;
-  errorMessage: string;
-  stackTrace?: string;
-  timestamp: string;
-  count?: number;
-  tags?: Record<string, string>;
-  metadata?: Record<string, any>;
+interface MCPTool {
+  name: string;                    // Tool name
+  description: string;             // Tool description
+  inputSchema: ToolInputSchema;    // JSON Schema for inputs
 }
+```
+
+### ToolInputSchema
+
+```typescript
+interface ToolInputSchema {
+  type: 'object';
+  properties?: Record<string, JsonSchemaProperty>;
+  required?: string[];
+  additionalProperties?: boolean;
+}
+```
+
+### JsonRpcRequest
+
+```typescript
+interface JsonRpcRequest {
+  jsonrpc: '2.0';
+  method: string;
+  params?: Record<string, any>;
+  id: number | string;
+}
+```
+
+### Error Codes
+
+```typescript
+const MCPErrorCodes = {
+  PARSE_ERROR: -32700,        // Invalid JSON
+  INVALID_REQUEST: -32600,    // Missing required fields
+  METHOD_NOT_FOUND: -32601,   // Unknown method
+  INVALID_PARAMS: -32602,     // Parameter validation failed
+  INTERNAL_ERROR: -32603,     // Server-side error
+  UNAUTHORIZED: -32001,       // Invalid credentials
+  RATE_LIMITED: -32002,       // Too many requests
+  RESOURCE_NOT_FOUND: -32003, // Data doesn't exist
+};
+```
+
+## Helper Functions
+
+```typescript
+import {
+  createSuccessResponse,
+  createErrorResponse,
+  createToolResponse,
+  isErrorResponse,
+  createAuthMiddleware,
+} from '@savvagent/mcp-sdk';
+
+// Create JSON-RPC responses
+const success = createSuccessResponse(1, { data: 'result' });
+const error = createErrorResponse(1, -32600, 'Invalid request');
+
+// Create tool call responses
+const toolResult = createToolResponse({ status: 'ok' });
+const toolError = createToolResponse({ error: 'Failed' }, true);
 ```
 
 ## Official MCP Integrations
 
-- [@savvagent/mcp-sentry](../mcp-sentry) - Sentry integration
-- @savvagent/mcp-dynatrace - DynaTrace integration (coming soon)
+- [@savvagent/mcp-sentry](../mcp-sentry) - Sentry error tracking integration
+- @savvagent/mcp-datadog - Datadog integration (coming soon)
 - @savvagent/mcp-splunk - Splunk integration (coming soon)
 
 ## Development

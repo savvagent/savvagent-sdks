@@ -1,171 +1,155 @@
 /**
- * Example Sentry MCP Integration Server
+ * Example Sentry MCP Server
  *
- * This example shows how to set up a complete Sentry MCP integration server
- * that receives events from Savvagent and forwards them to Sentry.
+ * This example shows how to set up a Sentry MCP server that Savvagent
+ * can query for error data using StreamableHTTP transport with Bearer token auth.
  *
  * Usage:
  *   npm install express
- *   ts-node example-server.ts
+ *   MCP_AUTH_TOKEN=xxx SENTRY_AUTH_TOKEN=xxx SENTRY_ORG=xxx SENTRY_PROJECT=xxx ts-node example-server.ts
+ *
+ * Test with curl:
+ *   # List available tools (with Bearer token)
+ *   curl -X POST http://localhost:3000/mcp \
+ *     -H "Content-Type: application/json" \
+ *     -H "Authorization: Bearer your-secret-token" \
+ *     -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
+ *
+ *   # Get recent errors
+ *   curl -X POST http://localhost:3000/mcp \
+ *     -H "Content-Type: application/json" \
+ *     -H "Authorization: Bearer your-secret-token" \
+ *     -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"get_errors","arguments":{"time_range":"24h"}},"id":2}'
  */
 
 import express from 'express';
+import { createHttpHandler } from '@savvagent/mcp-sdk';
 import { SentryMCPServer } from './src/sentry-server';
-import { MCPWebhookHandler } from '@savvagent/mcp-sdk';
 
-// Configuration
+// Configuration from environment variables
 const CONFIG = {
   port: process.env.PORT || 3000,
-  savvagentApiUrl: process.env.SAVVAGENT_API_URL || 'http://localhost:8080',
 
-  // Organization and integration IDs (from Savvagent)
-  organizationId: process.env.ORG_ID || 'your-org-id',
-  integrationId: process.env.INTEGRATION_ID || 'your-integration-id',
+  // MCP Server config
+  serverName: 'sentry-mcp-server',
+  serverVersion: '1.0.0',
+
+  // MCP authentication token (for Savvagent to authenticate with this server)
+  mcpAuthToken: process.env.MCP_AUTH_TOKEN || '',
 
   // Sentry configuration
   sentry: {
-    dsn: process.env.SENTRY_DSN || 'https://xxx@sentry.io/xxx',
-    authToken: process.env.SENTRY_AUTH_TOKEN || 'your-auth-token',
-    organization: process.env.SENTRY_ORG || 'your-org-slug',
-    project: process.env.SENTRY_PROJECT || 'your-project-slug',
-    environment: process.env.SENTRY_ENVIRONMENT || 'production',
+    authToken: process.env.SENTRY_AUTH_TOKEN || '',
+    organization: process.env.SENTRY_ORG || '',
+    project: process.env.SENTRY_PROJECT || '',
+    environment: process.env.SENTRY_ENVIRONMENT,
   },
 };
 
 async function main() {
-  console.log('🚀 Starting Sentry MCP Integration Server...');
+  // Validate required config
+  if (!CONFIG.mcpAuthToken) {
+    console.error('Missing required environment variable:');
+    console.error('  MCP_AUTH_TOKEN - Bearer token for MCP authentication');
+    process.exit(1);
+  }
+
+  if (!CONFIG.sentry.authToken || !CONFIG.sentry.organization || !CONFIG.sentry.project) {
+    console.error('Missing required Sentry environment variables:');
+    console.error('  SENTRY_AUTH_TOKEN - Sentry API authentication token');
+    console.error('  SENTRY_ORG        - Sentry organization slug');
+    console.error('  SENTRY_PROJECT    - Sentry project slug');
+    process.exit(1);
+  }
+
+  console.log('Starting Sentry MCP Server...');
 
   const app = express();
   app.use(express.json());
 
   // Initialize Sentry MCP Server
-  const sentryServer = new SentryMCPServer({
-    organizationId: CONFIG.organizationId,
-    integrationId: CONFIG.integrationId,
-    serverType: 'sentry',
-    config: CONFIG.sentry,
-    enabled: true,
-  });
+  const sentryServer = new SentryMCPServer(
+    {
+      name: CONFIG.serverName,
+      version: CONFIG.serverVersion,
+    },
+    CONFIG.sentry
+  );
 
   try {
     await sentryServer.initialize();
-    console.log('✅ Sentry MCP Server initialized');
+    console.log('Sentry MCP Server initialized');
   } catch (error) {
-    console.error('❌ Failed to initialize Sentry MCP Server:', error);
+    console.error('Failed to initialize Sentry MCP Server:', error);
     process.exit(1);
   }
 
-  // Initialize webhook handler
-  const webhookHandler = new MCPWebhookHandler();
-  webhookHandler.registerServer(CONFIG.integrationId, sentryServer);
-  console.log('✅ Webhook handler registered');
+  // MCP JSON-RPC endpoint with Bearer token authentication (StreamableHTTP)
+  app.post('/mcp', createHttpHandler(sentryServer, {
+    auth: { token: CONFIG.mcpAuthToken }
+  }));
 
-  // Health check endpoint
+  // Health check endpoint (no auth required)
   app.get('/health', async (req, res) => {
     const health = await sentryServer.healthCheck();
-    res.status(health.healthy ? 200 : 503).json({
-      status: health.healthy ? 'healthy' : 'unhealthy',
-      message: health.message,
-      timestamp: health.lastCheck,
-      integration: {
-        organizationId: CONFIG.organizationId,
-        integrationId: CONFIG.integrationId,
-      },
-    });
+    res.status(health.status === 'ok' ? 200 : 503).json(health);
   });
 
-  // Webhook endpoint for Savvagent events
-  app.post('/webhook/savvagent', async (req, res) => {
-    try {
-      console.log(`📥 Received webhook: ${req.body.eventType}`);
-      await webhookHandler.handleWebhook(req.body);
-      res.status(200).json({ success: true });
-    } catch (error: any) {
-      console.error('❌ Webhook error:', error.message);
-      res.status(500).json({
-        success: false,
-        error: error.message
-      });
-    }
-  });
-
-  // Query errors endpoint (for testing)
-  app.get('/api/errors', async (req, res) => {
-    try {
-      const errors = await sentryServer.queryErrors({
-        organizationId: CONFIG.organizationId,
-        startTime: new Date(Date.now() - 24 * 60 * 60 * 1000), // Last 24 hours
-        endTime: new Date(),
-        limit: 50,
-      });
-
-      res.json({
-        count: errors.length,
-        errors: errors.map(e => ({
-          id: e.id,
-          type: e.errorType,
-          message: e.errorMessage,
-          timestamp: e.timestamp,
-          count: e.count,
-        })),
-      });
-    } catch (error: any) {
-      console.error('❌ Error querying Sentry:', error.message);
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  // Root endpoint
+  // Server info endpoint (no auth required)
   app.get('/', (req, res) => {
     res.json({
-      name: 'Savvagent Sentry MCP Integration Server',
-      version: '1.0.0',
-      status: 'running',
+      name: CONFIG.serverName,
+      version: CONFIG.serverVersion,
+      protocol: 'MCP StreamableHTTP + JSON-RPC 2.0',
+      tools: sentryServer.getTools().map((t) => t.name),
       endpoints: {
+        mcp: 'POST /mcp',
         health: 'GET /health',
-        webhook: 'POST /webhook/savvagent',
-        errors: 'GET /api/errors',
       },
       config: {
-        organization: CONFIG.organizationId,
-        integration: CONFIG.integrationId,
-        sentryOrg: CONFIG.sentry.organization,
-        sentryProject: CONFIG.sentry.project,
+        organization: CONFIG.sentry.organization,
+        project: CONFIG.sentry.project,
+        environment: CONFIG.sentry.environment || 'all',
       },
     });
   });
 
   // Start server
   app.listen(CONFIG.port, () => {
-    console.log(`\n✨ Sentry MCP Server running on port ${CONFIG.port}`);
-    console.log(`\n📝 Configuration:`);
-    console.log(`   Organization ID: ${CONFIG.organizationId}`);
-    console.log(`   Integration ID:  ${CONFIG.integrationId}`);
-    console.log(`   Sentry Org:      ${CONFIG.sentry.organization}`);
-    console.log(`   Sentry Project:  ${CONFIG.sentry.project}`);
-    console.log(`\n🔗 Endpoints:`);
-    console.log(`   Health:   http://localhost:${CONFIG.port}/health`);
-    console.log(`   Webhook:  http://localhost:${CONFIG.port}/webhook/savvagent`);
-    console.log(`   Errors:   http://localhost:${CONFIG.port}/api/errors`);
-    console.log(`\n📚 Documentation: https://savvagent.com/docs/integrations/sentry`);
+    console.log(`\nSentry MCP Server running on port ${CONFIG.port}`);
+    console.log(`\nConfiguration:`);
+    console.log(`  Organization: ${CONFIG.sentry.organization}`);
+    console.log(`  Project:      ${CONFIG.sentry.project}`);
+    console.log(`  Environment:  ${CONFIG.sentry.environment || 'all'}`);
+    console.log(`\nAvailable Tools:`);
+    sentryServer.getTools().forEach((tool) => {
+      console.log(`  - ${tool.name}: ${tool.description}`);
+    });
+    console.log(`\nEndpoints:`);
+    console.log(`  MCP:    http://localhost:${CONFIG.port}/mcp`);
+    console.log(`  Health: http://localhost:${CONFIG.port}/health`);
+    console.log(`\nTest with:`);
+    console.log(`  curl -X POST http://localhost:${CONFIG.port}/mcp \\`);
+    console.log(`    -H "Content-Type: application/json" \\`);
+    console.log(`    -H "Authorization: Bearer YOUR_MCP_AUTH_TOKEN" \\`);
+    console.log(`    -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'`);
   });
 
   // Graceful shutdown
   process.on('SIGTERM', async () => {
-    console.log('\n🛑 Received SIGTERM, shutting down gracefully...');
+    console.log('\nShutting down...');
     await sentryServer.shutdown();
     process.exit(0);
   });
 
   process.on('SIGINT', async () => {
-    console.log('\n🛑 Received SIGINT, shutting down gracefully...');
+    console.log('\nShutting down...');
     await sentryServer.shutdown();
     process.exit(0);
   });
 }
 
-// Run the server
 main().catch((error) => {
-  console.error('💥 Fatal error:', error);
+  console.error('Fatal error:', error);
   process.exit(1);
 });

@@ -65,7 +65,6 @@
   },
   "dependencies": {
     "@savvagent/mcp-sdk": "workspace:*",
-    "@sentry/node": "^7.120.4",
     "axios": "^1.13.2"
   },
   "engines": {
