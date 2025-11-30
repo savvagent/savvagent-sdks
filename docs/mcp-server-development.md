@@ -13,6 +13,7 @@ This guide provides comprehensive documentation for building MCP (Model Context 
 7. [Deployment](#7-deployment)
 8. [Examples](#8-examples)
 9. [Troubleshooting](#9-troubleshooting)
+10. [Available Integrations](#10-available-integrations)
 
 ---
 
@@ -1849,6 +1850,51 @@ When adding an MCP integration in Savvagent, you'll provide:
 | Server URL | Your MCP endpoint | `https://mcp.example.com/mcp` |
 | Auth Type | Bearer Token | Bearer |
 | Token | Your secret token | `abc123...` |
+
+---
+
+## 10. Available Integrations
+
+Savvagent provides pre-built MCP server packages for popular observability and incident management tools:
+
+### Observability & APM
+
+| Package | Description | Tools |
+|---------|-------------|-------|
+| [`@savvagent/mcp-sentry`](../packages/mcp-sentry) | Sentry error tracking integration | `get_errors`, `get_error_details`, `search_errors`, `get_service_health` |
+| [`@savvagent/mcp-datadog`](../packages/mcp-datadog) | Datadog APM and monitoring | `get_errors`, `get_metrics`, `get_traces`, `get_logs`, `get_monitors`, `get_service_health`, `get_events` |
+| [`@savvagent/mcp-splunk`](../packages/mcp-splunk) | Splunk log analysis | `search_logs`, `get_errors`, `get_log_patterns`, `get_anomalies`, `get_saved_searches`, `run_saved_search`, `get_alerts`, `get_service_health` |
+| [`@savvagent/mcp-dynatrace`](../packages/mcp-dynatrace) | Dynatrace full-stack monitoring | `get_problems`, `get_problem_details`, `get_services`, `get_service_metrics`, `get_hosts`, `get_logs`, `get_synthetic_monitors`, `get_service_health`, `get_events` |
+| [`@savvagent/mcp-newrelic`](../packages/mcp-newrelic) | New Relic APM and NRQL | `get_errors`, `run_nrql`, `get_apm_metrics`, `get_applications`, `get_alerts`, `get_transactions`, `get_infrastructure`, `get_synthetics`, `get_service_health` |
+
+### Incident Management
+
+| Package | Description | Tools |
+|---------|-------------|-------|
+| [`@savvagent/mcp-pagerduty`](../packages/mcp-pagerduty) | PagerDuty incident management | `get_incidents`, `get_incident_details`, `get_services`, `get_on_call`, `get_schedules`, `get_escalation_policies`, `get_users`, `get_analytics`, `create_incident`, `update_incident`, `get_alerts` |
+
+### Base SDK
+
+| Package | Description |
+|---------|-------------|
+| [`@savvagent/mcp-sdk`](../packages/mcp-sdk) | Core SDK for building custom MCP servers with StreamableHTTP transport and Bearer token authentication |
+
+### Using Pre-built Integrations
+
+```bash
+# Install a specific integration
+npm install @savvagent/mcp-datadog
+
+# Or with pnpm
+pnpm add @savvagent/mcp-datadog
+```
+
+Each package includes:
+- TypeScript types and full type safety
+- Pre-configured tools following MCP best practices
+- Example server with Bearer token authentication
+- Comprehensive test suite
+- Documentation and usage examples
 
 ---
 

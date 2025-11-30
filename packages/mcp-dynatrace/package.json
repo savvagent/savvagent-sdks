@@ -1,0 +1,74 @@
+{
+  "name": "@savvagent/mcp-dynatrace",
+  "version": "1.0.0",
+  "description": "Savvagent Dynatrace MCP integration - Connect feature flags with Dynatrace APM and monitoring",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
+    "example": "ts-node example-server.ts",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "lint": "eslint src --ext .ts",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "savvagent",
+    "dynatrace",
+    "mcp",
+    "apm",
+    "monitoring",
+    "observability",
+    "typescript"
+  ],
+  "author": "Rob Hicks",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/savvagent/savvagent-sdks",
+    "directory": "packages/mcp-dynatrace"
+  },
+  "bugs": {
+    "url": "https://github.com/savvagent/savvagent-sdks/issues"
+  },
+  "homepage": "https://github.com/savvagent/savvagent-sdks/tree/main/packages/mcp-dynatrace#readme",
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.25",
+    "@types/jest": "^29.5.14",
+    "@types/node": "^20.19.25",
+    "@typescript-eslint/eslint-plugin": "^6.21.0",
+    "@typescript-eslint/parser": "^6.21.0",
+    "eslint": "^8.57.1",
+    "express": "^4.21.2",
+    "jest": "^29.7.0",
+    "prettier": "^3.7.2",
+    "ts-jest": "^29.4.5",
+    "ts-node": "^10.9.2",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@savvagent/mcp-sdk": "workspace:*",
+    "axios": "^1.13.2"
+  },
+  "engines": {
+    "node": ">=16"
+  }
+}
