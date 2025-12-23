@@ -157,10 +157,12 @@ class FlagClient:
                 self._track_evaluation(flag_key, cached_entry.value, context, start_time)
                 return result
 
-            # Prepare context
+            # Prepare context - inject environment from config if not provided
             eval_context = context or FlagContext()
             if not eval_context.application_id and self._config.application_id:
                 eval_context.application_id = self._config.application_id
+            if not eval_context.environment:
+                eval_context.environment = self._config.environment
 
             # Call API - Per SDK Developer Guide: POST /api/flags/{key}/evaluate
             response = self._client.post(
@@ -353,6 +355,28 @@ class FlagClient:
             flag_key: The flag key to invalidate, or None for all flags.
         """
         self._cache.invalidate(flag_key)
+
+    def set_environment(self, environment: str) -> None:
+        """
+        Set the environment for flag evaluation.
+
+        Useful for dynamically switching environments (e.g., dev tools).
+
+        Args:
+            environment: The environment name (e.g., "development", "staging", "production", "beta")
+        """
+        self._config.environment = environment
+        # Clear cache when environment changes since flag values may differ
+        self._cache.clear()
+
+    def get_environment(self) -> str:
+        """
+        Get the current environment.
+
+        Returns:
+            The current environment name.
+        """
+        return self._config.environment
 
     def close(self) -> None:
         """Clean up resources."""

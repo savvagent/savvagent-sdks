@@ -451,6 +451,23 @@ export class SavvagentService implements OnDestroy {
     this.client?.setAnonymousId(id);
   }
 
+  /**
+   * Set the environment for flag evaluation.
+   * Useful for dynamically switching environments (e.g., dev tools).
+   *
+   * @param environment - The environment name (e.g., "development", "staging", "production")
+   */
+  setEnvironment(environment: string): void {
+    this.client?.setEnvironment(environment);
+  }
+
+  /**
+   * Get the current environment.
+   */
+  getEnvironment(): string {
+    return this.client?.getEnvironment() || 'production';
+  }
+
   // =====================
   // Local Override Methods
   // =====================

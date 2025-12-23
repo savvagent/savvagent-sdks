@@ -123,6 +123,43 @@ export function setDefaultContext(ctx: DefaultFlagContext): void {
 }
 
 /**
+ * Set the environment for flag evaluation.
+ * Useful for dynamically switching environments (e.g., dev tools).
+ *
+ * @param environment - The environment name (e.g., "development", "staging", "production")
+ *
+ * @example
+ * ```ts
+ * import { setEnvironment } from '@savvagent/svelte';
+ *
+ * // Switch to staging environment
+ * setEnvironment('staging');
+ * ```
+ */
+export function setEnvironment(environment: string): void {
+  const client = getSavvagent();
+  client.setEnvironment(environment);
+}
+
+/**
+ * Get the current environment.
+ *
+ * @returns The current environment name
+ *
+ * @example
+ * ```ts
+ * import { getEnvironment } from '@savvagent/svelte';
+ *
+ * const env = getEnvironment();
+ * console.log(`Current environment: ${env}`);
+ * ```
+ */
+export function getEnvironment(): string {
+  const client = getSavvagent();
+  return client.getEnvironment();
+}
+
+/**
  * Get the Savvagent client instance.
  *
  * @returns The FlagClient instance

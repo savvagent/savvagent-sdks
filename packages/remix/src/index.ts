@@ -19,6 +19,8 @@ export {
   withFlag,
   trackError,
   evaluateForRequest,
+  setEnvironment,
+  getEnvironment,
 } from './server';
 
 // Client-side exports (re-export from React SDK)
@@ -30,6 +32,7 @@ export {
   useWithFlag,
   useUser,
   useTrackError,
+  useEnvironment,
 } from '@savvagent/react';
 
 export type {

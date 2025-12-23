@@ -14,6 +14,7 @@ export {
   useWithFlag,
   useUser,
   useTrackError,
+  useEnvironment,
   // Re-export FlagClient for advanced use cases
   FlagClient,
 } from '@savvagent/react';

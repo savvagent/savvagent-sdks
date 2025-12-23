@@ -1,6 +1,6 @@
 {
   "name": "@savvagent/mcp-datadog",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Savvagent Datadog MCP integration - Connect feature flags with Datadog APM and monitoring",
   "main": "dist/index.js",
   "module": "dist/index.mjs",

@@ -1,6 +1,6 @@
 {
   "name": "@savvagent/angular",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Angular SDK for Savvagent feature flags",
   "author": "Savvagent",
   "license": "MIT",

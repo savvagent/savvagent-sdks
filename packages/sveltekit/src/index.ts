@@ -16,6 +16,8 @@ export {
   createFlag,
   createUserIdStore,
   trackError as trackErrorClient,
+  setEnvironment,
+  getEnvironment,
 } from '@savvagent/svelte';
 
 export type {

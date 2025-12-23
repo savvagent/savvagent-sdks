@@ -159,6 +159,9 @@ interface FlagClientConfig {
   /** Base URL for the Savvagent API (default: production) */
   baseUrl?: string;
 
+  /** Environment for flag evaluation (default: 'production') */
+  environment?: string;
+
   /** Enable real-time flag updates via SSE (default: true) */
   enableRealtime?: boolean;
 
@@ -182,6 +185,7 @@ interface FlagClientConfig {
 const client = new FlagClient({
   apiKey: 'sdk_dev_abc123',
   baseUrl: 'https://api.savvagent.com',
+  environment: 'staging', // Use staging environment flags
   enableRealtime: true,
   cacheTtl: 30000, // 30 seconds
   enableTelemetry: true,
@@ -195,6 +199,47 @@ const client = new FlagClient({
   },
 });
 ```
+
+### Environment Configuration
+
+The `environment` option controls which environment's flag values are used during evaluation. Common values include:
+
+- `'production'` (default) - Production environment
+- `'staging'` - Staging/pre-production environment
+- `'development'` - Local development environment
+- `'beta'` - Beta testing environment
+
+```typescript
+// Production app
+const client = new FlagClient({
+  apiKey: 'sdk_prod_...',
+  environment: 'production',
+});
+
+// Staging/QA app
+const client = new FlagClient({
+  apiKey: 'sdk_staging_...',
+  environment: 'staging',
+});
+
+// Development
+const client = new FlagClient({
+  apiKey: 'sdk_dev_...',
+  environment: 'development',
+});
+```
+
+You can also change the environment at runtime:
+
+```typescript
+// Switch to beta environment
+client.setEnvironment('beta');
+
+// Get current environment
+console.log(client.getEnvironment()); // 'beta'
+```
+
+Note: Changing the environment clears the cache since flag values may differ between environments.
 
 ## Framework Integration
 
@@ -408,6 +453,10 @@ const client = new FlagClient({
 - `withFlag(flagKey, callback, context?)`: Execute code conditionally
 - `trackError(flagKey, error, context?)`: Manually track an error
 - `subscribe(flagKey, callback)`: Subscribe to flag updates
+- `setEnvironment(environment)`: Set the environment for flag evaluation
+- `getEnvironment()`: Get the current environment
+- `setUserId(userId)`: Set the user ID for targeted rollouts
+- `getUserId()`: Get the current user ID
 - `getCachedFlags()`: Get all cached flag keys
 - `clearCache()`: Clear the flag cache
 - `isRealtimeConnected()`: Check real-time connection status

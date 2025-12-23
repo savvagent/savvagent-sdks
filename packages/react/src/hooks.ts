@@ -351,6 +351,51 @@ export function useTrackError(flagKey: string, context?: FlagContext) {
   );
 }
 
+/**
+ * Hook to manage the environment for flag evaluation.
+ *
+ * @returns Environment management functions
+ *
+ * @example
+ * ```tsx
+ * function EnvironmentSwitcher() {
+ *   const { environment, setEnvironment } = useEnvironment();
+ *
+ *   return (
+ *     <select value={environment} onChange={(e) => setEnvironment(e.target.value)}>
+ *       <option value="development">Development</option>
+ *       <option value="staging">Staging</option>
+ *       <option value="production">Production</option>
+ *     </select>
+ *   );
+ * }
+ * ```
+ */
+export function useEnvironment() {
+  const { client } = useSavvagent();
+  const [environment, setEnvironmentState] = useState<string>(
+    client?.getEnvironment() || 'production'
+  );
+
+  const setEnvironment = useCallback(
+    (env: string) => {
+      client?.setEnvironment(env);
+      setEnvironmentState(env);
+    },
+    [client]
+  );
+
+  const getEnvironment = useCallback(() => {
+    return client?.getEnvironment() || 'production';
+  }, [client]);
+
+  return {
+    environment,
+    setEnvironment,
+    getEnvironment,
+  };
+}
+
 export interface UseFlagsOptions {
   /**
    * Context for flag evaluation (user_id, attributes, etc.)

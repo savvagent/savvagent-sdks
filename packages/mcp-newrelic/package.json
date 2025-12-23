@@ -1,6 +1,6 @@
 {
   "name": "@savvagent/mcp-newrelic",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Savvagent New Relic MCP integration - Connect feature flags with New Relic APM and monitoring",
   "main": "dist/index.js",
   "module": "dist/index.mjs",

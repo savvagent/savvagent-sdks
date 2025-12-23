@@ -1,6 +1,6 @@
 {
   "name": "@savvagent/mcp-sentry",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Savvagent Sentry MCP integration - Connect feature flags with Sentry error tracking",
   "main": "dist/index.js",
   "module": "dist/index.mjs",

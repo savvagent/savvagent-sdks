@@ -1,6 +1,6 @@
 {
   "name": "@savvagent/sdk",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Savvagent TypeScript/JavaScript SDK for feature flags with AI-powered error detection",
   "main": "dist/index.js",
   "module": "dist/index.mjs",

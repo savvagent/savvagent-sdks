@@ -1,6 +1,6 @@
 {
   "name": "@savvagent/mcp-sdk",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Savvagent MCP (Model Context Protocol) SDK - Base framework for building MCP integrations",
   "main": "dist/index.js",
   "module": "dist/index.mjs",

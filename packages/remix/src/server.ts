@@ -235,3 +235,45 @@ export async function evaluateForRequest(
   const requestContext = getRequestContext(request, context);
   return isEnabled(flagKey, requestContext);
 }
+
+/**
+ * Set the environment for flag evaluation on the server.
+ * Useful for dynamically switching environments.
+ *
+ * @param environment - The environment name (e.g., "development", "staging", "production")
+ *
+ * @example
+ * ```tsx
+ * import { setEnvironment } from '@savvagent/remix';
+ *
+ * // In a loader or action
+ * export async function loader() {
+ *   setEnvironment('staging');
+ *   // ...
+ * }
+ * ```
+ */
+export function setEnvironment(environment: string): void {
+  const client = getRemixClient();
+  client.setEnvironment(environment);
+}
+
+/**
+ * Get the current environment on the server.
+ *
+ * @returns The current environment name
+ *
+ * @example
+ * ```tsx
+ * import { getEnvironment } from '@savvagent/remix';
+ *
+ * export async function loader() {
+ *   const env = getEnvironment();
+ *   return json({ environment: env });
+ * }
+ * ```
+ */
+export function getEnvironment(): string {
+  const client = getRemixClient();
+  return client.getEnvironment();
+}

@@ -29,6 +29,9 @@ class FlagClientConfig:
     base_url: str = "https://api.savvagent.com"
     """Base URL for the Savvagent API."""
 
+    environment: str = "production"
+    """Environment for flag evaluation (e.g., "development", "staging", "production", "beta")."""
+
     enable_realtime: bool = True
     """Enable real-time flag updates via SSE."""
 

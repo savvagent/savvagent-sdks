@@ -1,6 +1,6 @@
 {
   "name": "@savvagent/mcp-dynatrace",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Savvagent Dynatrace MCP integration - Connect feature flags with Dynatrace APM and monitoring",
   "main": "dist/index.js",
   "module": "dist/index.mjs",

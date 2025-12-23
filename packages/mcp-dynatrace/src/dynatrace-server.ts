@@ -148,7 +148,7 @@ export class DynatraceMCPServer extends MCPServer {
         },
         required: ['service_id'],
       },
-      async (args) => this.getServiceMetrics(args)
+      async (args) => this.getServiceMetrics(args as { service_id: string; metrics?: string; time_range?: string })
     );
 
     // get_hosts - Get monitored hosts
@@ -199,7 +199,7 @@ export class DynatraceMCPServer extends MCPServer {
         },
         required: ['query'],
       },
-      async (args) => this.getLogs(args)
+      async (args) => this.getLogs(args as { query: string; time_range?: string; limit?: number })
     );
 
     // get_synthetic_monitors - Get synthetic monitors

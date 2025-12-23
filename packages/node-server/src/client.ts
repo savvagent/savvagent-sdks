@@ -29,6 +29,7 @@ export class FlagClient {
       apiKey: config.apiKey,
       applicationId: config.applicationId || '',
       baseUrl: config.baseUrl || 'https://api.savvagent.com',
+      environment: config.environment || 'production',
       enableRealtime: config.enableRealtime ?? true,
       cacheTtl: config.cacheTtl || 60000,
       enableTelemetry: config.enableTelemetry ?? true,
@@ -122,10 +123,11 @@ export class FlagClient {
         return result;
       }
 
-      // Prepare context
+      // Prepare context - inject environment from config if not provided
       const evalContext: FlagContext = {
         ...context,
         application_id: context?.application_id || this.config.applicationId,
+        environment: context?.environment || this.config.environment,
       };
 
       // Call API
@@ -295,6 +297,24 @@ export class FlagClient {
       context,
       timestamp: new Date().toISOString(),
     });
+  }
+
+  /**
+   * Set the environment for flag evaluation.
+   * Useful for dynamically switching environments (e.g., dev tools).
+   * @param environment - The environment name (e.g., "development", "staging", "production", "beta")
+   */
+  setEnvironment(environment: string): void {
+    this.config.environment = environment;
+    // Clear cache when environment changes since flag values may differ
+    this.cache.clear();
+  }
+
+  /**
+   * Get the current environment.
+   */
+  getEnvironment(): string {
+    return this.config.environment;
   }
 
   /**

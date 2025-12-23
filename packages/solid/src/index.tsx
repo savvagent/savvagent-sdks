@@ -668,6 +668,57 @@ export function createUser(): CreateUserReturn {
   };
 }
 
+export interface CreateEnvironmentReturn {
+  /** Current environment as a reactive signal */
+  environment: Accessor<string>;
+  /** Set the environment */
+  setEnvironment: (env: string) => void;
+  /** Get the current environment from client */
+  getEnvironment: () => string;
+}
+
+/**
+ * Create signals for environment management.
+ *
+ * @returns Environment management functions and reactive signal
+ *
+ * @example
+ * ```tsx
+ * import { createEnvironment } from '@savvagent/solid';
+ *
+ * function EnvironmentSwitcher() {
+ *   const { environment, setEnvironment } = createEnvironment();
+ *
+ *   return (
+ *     <select value={environment()} onChange={(e) => setEnvironment(e.target.value)}>
+ *       <option value="development">Development</option>
+ *       <option value="staging">Staging</option>
+ *       <option value="production">Production</option>
+ *     </select>
+ *   );
+ * }
+ * ```
+ */
+export function createEnvironment(): CreateEnvironmentReturn {
+  const { client } = useSavvagent();
+  const [environment, setEnvironmentSignal] = createSignal<string>(client.getEnvironment());
+
+  const setEnvironment = (env: string) => {
+    client.setEnvironment(env);
+    setEnvironmentSignal(env);
+  };
+
+  const getEnvironment = () => {
+    return client.getEnvironment();
+  };
+
+  return {
+    environment,
+    setEnvironment,
+    getEnvironment,
+  };
+}
+
 /**
  * Legacy function - use createUser() instead.
  * Create signals for user identification.

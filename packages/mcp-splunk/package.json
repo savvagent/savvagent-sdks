@@ -1,6 +1,6 @@
 {
   "name": "@savvagent/mcp-splunk",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Savvagent Splunk MCP integration - Connect feature flags with Splunk log analytics and monitoring",
   "main": "dist/index.js",
   "module": "dist/index.mjs",

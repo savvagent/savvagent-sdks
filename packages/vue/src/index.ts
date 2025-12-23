@@ -573,6 +573,46 @@ export function useUser() {
 }
 
 /**
+ * Composable to manage the environment for flag evaluation.
+ *
+ * @returns Environment management functions
+ *
+ * @example
+ * ```vue
+ * <script setup>
+ * import { useEnvironment } from '@savvagent/vue';
+ *
+ * const { environment, setEnvironment } = useEnvironment();
+ * </script>
+ *
+ * <template>
+ *   <select :value="environment" @change="setEnvironment($event.target.value)">
+ *     <option value="development">Development</option>
+ *     <option value="staging">Staging</option>
+ *     <option value="production">Production</option>
+ *   </select>
+ * </template>
+ * ```
+ */
+export function useEnvironment() {
+  const { client } = useSavvagent();
+  const environment = ref<string>(client.getEnvironment());
+
+  const setEnvironment = (env: string) => {
+    client.setEnvironment(env);
+    environment.value = env;
+  };
+
+  const getEnvironment = () => client.getEnvironment();
+
+  return {
+    environment,
+    setEnvironment,
+    getEnvironment,
+  };
+}
+
+/**
  * Composable to track errors with flag context.
  *
  * @param flagKey - The flag key associated with errors

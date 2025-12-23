@@ -35,6 +35,7 @@ export class FlagClient {
       apiKey: config.apiKey,
       applicationId: config.applicationId || '',
       baseUrl: config.baseUrl || 'http://localhost:8080',
+      environment: config.environment || 'production',
       enableRealtime: config.enableRealtime ?? true,
       cacheTtl: config.cacheTtl || 60000,
       enableTelemetry: config.enableTelemetry ?? true,
@@ -150,6 +151,24 @@ export class FlagClient {
   }
 
   /**
+   * Set the environment for flag evaluation
+   * Useful for dynamically switching environments (e.g., dev tools)
+   * @param environment - The environment name (e.g., "development", "staging", "production", "beta")
+   */
+  setEnvironment(environment: string): void {
+    this.config.environment = environment;
+    // Clear cache when environment changes since flag values may differ
+    this.cache.clear();
+  }
+
+  /**
+   * Get the current environment
+   */
+  getEnvironment(): string {
+    return this.config.environment;
+  }
+
+  /**
    * Get the current anonymous ID
    */
   getAnonymousId(): string {
@@ -164,7 +183,7 @@ export class FlagClient {
     const context: FlagContext = {
       user_id: this.userId || undefined,
       anonymous_id: this.anonymousId || undefined,
-      environment: 'production', // TODO: Make configurable
+      environment: this.config.environment,
       ...overrides,
     };
 

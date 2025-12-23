@@ -18,6 +18,7 @@ export {
   useWithFlag,
   useUser,
   useTrackError,
+  useEnvironment,
 } from './hooks';
 export type {
   UseFlagOptions,

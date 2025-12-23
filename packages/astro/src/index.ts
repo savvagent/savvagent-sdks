@@ -243,6 +243,46 @@ export function trackError(
 }
 
 /**
+ * Set the environment for flag evaluation.
+ * Useful for dynamically switching environments.
+ *
+ * @param environment - The environment name (e.g., "development", "staging", "production")
+ *
+ * @example
+ * ```astro
+ * ---
+ * import { setEnvironment } from '@savvagent/astro';
+ *
+ * setEnvironment('staging');
+ * ---
+ * ```
+ */
+export function setEnvironment(environment: string): void {
+  const client = getSavvagent();
+  client.setEnvironment(environment);
+}
+
+/**
+ * Get the current environment.
+ *
+ * @returns The current environment name
+ *
+ * @example
+ * ```astro
+ * ---
+ * import { getEnvironment } from '@savvagent/astro';
+ *
+ * const env = getEnvironment();
+ * ---
+ * <p>Environment: {env}</p>
+ * ```
+ */
+export function getEnvironment(): string {
+  const client = getSavvagent();
+  return client.getEnvironment();
+}
+
+/**
  * Helper to evaluate flags with automatic request context extraction.
  *
  * @param request - Astro Request

@@ -18,6 +18,8 @@ export interface FlagClientConfig {
   applicationId?: string;
   /** Base URL for the Savvagent API (default: production URL) */
   baseUrl?: string;
+  /** Environment for flag evaluation (e.g., "development", "staging", "production", "beta"). Default: "production" */
+  environment?: string;
   /** Enable real-time flag updates via SSE (default: true) */
   enableRealtime?: boolean;
   /** Cache TTL in milliseconds (default: 60000 = 1 minute) */
