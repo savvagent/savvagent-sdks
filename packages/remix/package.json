@@ -1,6 +1,6 @@
 {
   "name": "@savvagent/remix",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Remix SDK for Savvagent feature flags",
   "author": "Savvagent",
   "license": "MIT",

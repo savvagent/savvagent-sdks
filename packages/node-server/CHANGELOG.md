@@ -1,5 +1,11 @@
 # @savvagent/node-server
 
+## 1.1.0
+
+### Minor Changes
+
+- Add environment support with setEnvironment/getEnvironment methods across all SDKs for dynamic environment switching at runtime.
+
 ## 1.0.1
 
 ### Patch Changes

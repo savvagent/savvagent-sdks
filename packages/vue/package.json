@@ -1,6 +1,6 @@
 {
   "name": "@savvagent/vue",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Vue SDK for Savvagent feature flags with Composition API",
   "author": "Savvagent",
   "license": "MIT",

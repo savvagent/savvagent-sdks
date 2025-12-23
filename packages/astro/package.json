@@ -1,6 +1,6 @@
 {
   "name": "@savvagent/astro",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Astro integration for Savvagent feature flags",
   "author": "Savvagent",
   "license": "MIT",

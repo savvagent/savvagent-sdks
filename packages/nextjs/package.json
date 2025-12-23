@@ -1,6 +1,6 @@
 {
   "name": "@savvagent/nextjs",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Next.js SDK for Savvagent feature flags with App Router support",
   "author": "Savvagent",
   "license": "MIT",
