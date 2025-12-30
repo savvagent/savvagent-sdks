@@ -118,9 +118,9 @@ export function FlagOverridePanel() {
     client.clearAllOverrides();
   };
 
-  // Check if a flag is overridden
+  // Check if a flag is overridden - use reactive overrides() signal
   const isOverridden = (flagKey: string): boolean => {
-    return client.hasOverride(flagKey);
+    return flagKey in overrides();
   };
 
   // Get effective value (override or server)

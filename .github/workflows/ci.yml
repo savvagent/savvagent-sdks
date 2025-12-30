@@ -37,3 +37,71 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+  e2e:
+    name: E2E Tests (${{ matrix.app }})
+    runs-on: ubuntu-latest
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        app:
+          - react-app
+          - nextjs-app
+          - angular-app
+          - vue-app
+          - svelte-app
+          - sveltekit-app
+          - astro-app
+          - remix-app
+          - solid-app
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 8
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build packages
+        run: pnpm build
+
+      - name: Install Playwright browsers
+        run: cd examples && npx playwright install --with-deps chromium
+
+      - name: Run E2E tests for ${{ matrix.app }}
+        run: cd examples && pnpm test:e2e:${{ matrix.app }}
+        env:
+          SAVVAGENT_API_URL: https://beta-api.savvagent.com
+          SAVVAGENT_SDK_KEY: ${{ secrets.SAVVAGENT_SDK_KEY }}
+          VITE_SAVVAGENT_API_URL: https://beta-api.savvagent.com
+          VITE_SAVVAGENT_SDK_KEY: ${{ secrets.SAVVAGENT_SDK_KEY }}
+          NEXT_PUBLIC_SAVVAGENT_API_URL: https://beta-api.savvagent.com
+          NEXT_PUBLIC_SAVVAGENT_SDK_KEY: ${{ secrets.SAVVAGENT_SDK_KEY }}
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ matrix.app }}
+          path: examples/playwright-report/
+          retention-days: 30
+
+      - name: Upload test screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-screenshots-${{ matrix.app }}
+          path: examples/test-results/
+          retention-days: 7

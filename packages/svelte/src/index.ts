@@ -81,6 +81,10 @@ export function initSavvagent(
       clientInstance = new FlagClient(config.config);
       if (config.defaultContext) {
         defaultContext = mapDefaultContext(config.defaultContext);
+        // Set the user ID on the client from defaultContext for createUserIdStore() to pick up
+        if (config.defaultContext.userId) {
+          clientInstance.setUserId(config.defaultContext.userId);
+        }
       }
     } else {
       clientInstance = new FlagClient(config);
@@ -88,6 +92,10 @@ export function initSavvagent(
 
     if (contextOverride) {
       defaultContext = mapDefaultContext(contextOverride);
+      // Set the user ID on the client from contextOverride for createUserIdStore() to pick up
+      if (contextOverride.userId) {
+        clientInstance.setUserId(contextOverride.userId);
+      }
     }
   }
   return clientInstance;

@@ -48,8 +48,8 @@ export function FeatureDemo() {
   // Hook for error tracking - per SDK Developer Guide telemetry
   const trackError = useTrackError('new-feature');
 
-  // Hook for user management
-  const { setUserId, getUserId } = useUser();
+  // Hook for user management - userId is reactive state
+  const { userId, setUserId } = useUser();
 
   // Example error handler demonstrating error tracking
   const handleRiskyAction = async () => {
@@ -151,7 +151,7 @@ export function FeatureDemo() {
 
           <div className="user-section">
             <h3>User Management</h3>
-            <p>Current User ID: <code>{getUserId() || 'Not set'}</code></p>
+            <p>Current User ID: <code>{userId || 'Not set'}</code></p>
             <button onClick={() => setUserId('user-' + Date.now())} className="btn">
               Set Random User ID
             </button>

@@ -1,6 +1,6 @@
 {
   "name": "sveltekit-example",
-  "version": "0.0.1",
+  "version": "0.0.3",
   "private": true,
   "description": "Example SvelteKit app using Savvagent SDK",
   "type": "module",

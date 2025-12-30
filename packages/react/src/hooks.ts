@@ -260,14 +260,14 @@ export function useWithFlag(
 }
 
 /**
- * Hook to get user identification methods.
+ * Hook to get user identification methods with reactive state.
  *
- * @returns User ID management functions
+ * @returns User ID state and management functions
  *
  * @example
  * ```tsx
  * function AuthHandler() {
- *   const { setUserId, getUserId } = useUser();
+ *   const { userId, setUserId } = useUser();
  *
  *   useEffect(() => {
  *     if (user) {
@@ -277,16 +277,27 @@ export function useWithFlag(
  *     }
  *   }, [user]);
  *
- *   return null;
+ *   return <div>User: {userId || 'Not logged in'}</div>;
  * }
  * ```
  */
 export function useUser() {
   const { client } = useSavvagent();
+  const [userId, setUserIdState] = useState<string | null>(() => client?.getUserId() || null);
+  const [anonymousId, setAnonymousIdState] = useState<string | null>(() => client?.getAnonymousId() || null);
+
+  // Sync state with client on mount
+  useEffect(() => {
+    if (client) {
+      setUserIdState(client.getUserId());
+      setAnonymousIdState(client.getAnonymousId());
+    }
+  }, [client]);
 
   const setUserId = useCallback(
-    (userId: string | null) => {
-      client?.setUserId(userId);
+    (newUserId: string | null) => {
+      client?.setUserId(newUserId);
+      setUserIdState(newUserId);
     },
     [client]
   );
@@ -302,11 +313,14 @@ export function useUser() {
   const setAnonymousId = useCallback(
     (id: string) => {
       client?.setAnonymousId(id);
+      setAnonymousIdState(id);
     },
     [client]
   );
 
   return {
+    userId,
+    anonymousId,
     setUserId,
     getUserId,
     getAnonymousId,

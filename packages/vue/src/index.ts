@@ -54,6 +54,8 @@ export interface SavvagentPluginOptions {
   config: FlagClientConfig;
   /** Default context values applied to all flag evaluations */
   defaultContext?: DefaultFlagContext;
+  /** Initial flag overrides to apply on mount (e.g., from localStorage) */
+  initialOverrides?: Record<string, boolean>;
 }
 
 /**
@@ -102,10 +104,21 @@ export const SavvagentPlugin = {
     // Support both old format (just config) and new format (options object)
     const config = 'config' in options ? options.config : options;
     const defaultContext = 'defaultContext' in options ? options.defaultContext : undefined;
+    const initialOverrides = 'initialOverrides' in options ? options.initialOverrides : undefined;
 
     const client = new FlagClient(config);
     const normalizedContext = ref<FlagContext>(normalizeContext(defaultContext));
     const isReady = ref(true);
+
+    // Initialize userId from defaultContext if provided
+    if (defaultContext?.userId) {
+      client.setUserId(defaultContext.userId);
+    }
+
+    // Apply initial overrides if provided
+    if (initialOverrides && Object.keys(initialOverrides).length > 0) {
+      client.setOverrides(initialOverrides);
+    }
 
     app.provide(SavvagentClientKey, client);
     app.provide(SavvagentDefaultContextKey, normalizedContext);
@@ -543,32 +556,44 @@ export function useWithFlag(
 }
 
 /**
- * Composable to manage user identification.
+ * Composable to manage user identification with reactive state.
  *
- * @returns User ID management functions
+ * @returns User ID state and management functions
  *
  * @example
  * ```vue
  * <script setup>
  * import { useUser } from '@savvagent/vue';
- * import { watch } from 'vue';
  *
- * const { setUserId } = useUser();
- *
- * watch(currentUser, (user) => {
- *   setUserId(user?.id || null);
- * });
+ * const { userId, setUserId } = useUser();
  * </script>
+ *
+ * <template>
+ *   <p>User: {{ userId || 'Not set' }}</p>
+ *   <button @click="setUserId('user-123')">Set User</button>
+ * </template>
  * ```
  */
 export function useUser() {
   const { client } = useSavvagent();
 
+  // Reactive refs for userId and anonymousId
+  const userId = ref<string | null>(client.getUserId());
+  const anonymousId = ref<string | null>(client.getAnonymousId());
+
   return {
-    setUserId: (userId: string | null) => client.setUserId(userId),
+    userId,
+    anonymousId,
+    setUserId: (newUserId: string | null) => {
+      client.setUserId(newUserId);
+      userId.value = newUserId;
+    },
     getUserId: () => client.getUserId(),
     getAnonymousId: () => client.getAnonymousId(),
-    setAnonymousId: (id: string) => client.setAnonymousId(id),
+    setAnonymousId: (id: string) => {
+      client.setAnonymousId(id);
+      anonymousId.value = id;
+    },
   };
 }
 

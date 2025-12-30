@@ -4,6 +4,26 @@ import { SavvagentProvider } from '@savvagent/nextjs/client';
 import type { FlagClientConfig, DefaultFlagContext } from '@savvagent/nextjs/client';
 import './globals.css';
 
+// Storage key for local overrides (must match FlagOverridePanel)
+const OVERRIDE_STORAGE_KEY = 'savvagent_local_overrides';
+
+/**
+ * Load overrides from localStorage for initial SDK configuration.
+ * This ensures overrides are applied before any components render.
+ */
+function loadInitialOverrides(): Record<string, boolean> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const stored = localStorage.getItem(OVERRIDE_STORAGE_KEY);
+    if (stored) {
+      return JSON.parse(stored) as Record<string, boolean>;
+    }
+  } catch (e) {
+    console.warn('[App] Failed to load initial overrides:', e);
+  }
+  return {};
+}
+
 /**
  * Root Layout with SavvagentProvider
  * Per SDK Developer Guide: Initialize once, create a single SDK instance at application startup
@@ -13,6 +33,8 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  // Load overrides synchronously before render to avoid race conditions
+  const initialOverrides = loadInitialOverrides();
   // Per SDK Developer Guide: FlagClientConfig with proper authentication
   const config: FlagClientConfig = {
     // SDK API key (starts with sdk_) - safe to embed in client-side code
@@ -62,7 +84,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <SavvagentProvider config={config} defaultContext={defaultContext}>
+        <SavvagentProvider config={config} defaultContext={defaultContext} initialOverrides={initialOverrides}>
           {children}
         </SavvagentProvider>
       </body>

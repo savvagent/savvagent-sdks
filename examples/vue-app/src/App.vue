@@ -33,8 +33,8 @@ const { values, loading, results } = useFlags(
 // Hook for error tracking - per SDK Developer Guide telemetry
 const trackError = useTrackError('new-feature');
 
-// Hook for user management
-const { setUserId, getUserId } = useUser();
+// Hook for user management - userId is reactive
+const { userId, setUserId } = useUser();
 
 // Example error handler demonstrating error tracking
 const handleRiskyAction = async () => {
@@ -150,7 +150,7 @@ const isOverridden = (flagKey: string): boolean => {
 
       <div class="user-section">
         <h3>User Management</h3>
-        <p>Current User ID: <code>{{ getUserId() || 'Not set' }}</code></p>
+        <p>Current User ID: <code>{{ userId || 'Not set' }}</code></p>
         <button @click="setRandomUserId" class="btn">
           Set Random User ID
         </button>

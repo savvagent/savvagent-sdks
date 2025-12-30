@@ -1,6 +1,6 @@
 [project]
 name = "savvagent"
-version = "1.0.0"
+version = "1.1.0"
 description = "Savvagent Python Server SDK for feature flags with AI-powered error detection"
 readme = "README.md"
 license = { text = "MIT" }

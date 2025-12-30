@@ -28,6 +28,12 @@ export interface FlagClientConfig {
   defaultLanguage?: string;
   /** Disable automatic browser language detection (default: false) */
   disableLanguageDetection?: boolean;
+  /** Number of retry attempts for transient failures (default: 3) */
+  retryAttempts?: number;
+  /** Base delay between retries in milliseconds (default: 1000) */
+  retryDelay?: number;
+  /** Retry backoff strategy: 'linear' or 'exponential' (default: 'exponential') */
+  retryBackoff?: 'linear' | 'exponential';
 }
 
 /**

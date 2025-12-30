@@ -41,6 +41,8 @@ export interface SavvagentProviderProps {
   children: React.ReactNode;
   /** Default context values applied to all flag evaluations */
   defaultContext?: DefaultFlagContext;
+  /** Initial flag overrides to apply on mount (e.g., from localStorage) */
+  initialOverrides?: Record<string, boolean>;
 }
 
 /**
@@ -62,7 +64,7 @@ export interface SavvagentProviderProps {
  * </SavvagentProvider>
  * ```
  */
-export function SavvagentProvider({ config, children, defaultContext }: SavvagentProviderProps) {
+export function SavvagentProvider({ config, children, defaultContext, initialOverrides }: SavvagentProviderProps) {
   const [isReady, setIsReady] = useState(false);
   const clientRef = useRef<FlagClient | null>(null);
 
@@ -96,6 +98,19 @@ export function SavvagentProvider({ config, children, defaultContext }: Savvagen
     // Initialize client
     try {
       clientRef.current = new FlagClient(config);
+
+      // Initialize userId from defaultContext if provided
+      // Per SDK Developer Guide: User ID should be set for consistent rollout behavior
+      if (defaultContext?.userId) {
+        clientRef.current.setUserId(defaultContext.userId);
+      }
+
+      // Apply initial overrides if provided (e.g., loaded from localStorage)
+      // This ensures overrides are applied before any flag evaluations occur
+      if (initialOverrides && Object.keys(initialOverrides).length > 0) {
+        clientRef.current.setOverrides(initialOverrides);
+      }
+
       setIsReady(true);
     } catch (error) {
       console.error('[Savvagent] Failed to initialize client:', error);
@@ -109,7 +124,7 @@ export function SavvagentProvider({ config, children, defaultContext }: Savvagen
         clientRef.current = null;
       }
     };
-  }, [config.apiKey, config.baseUrl]); // Re-initialize if key/url changes
+  }, [config.apiKey, config.baseUrl, defaultContext?.userId]); // Re-initialize if key/url/userId changes
 
   // Memoize the context value to prevent unnecessary re-renders of all consumers
   // Only re-creates when isReady or normalizedDefaultContext actually change

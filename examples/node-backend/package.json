@@ -1,6 +1,6 @@
 {
   "name": "node-backend-example",
-  "version": "0.0.1",
+  "version": "0.0.3",
   "private": true,
   "description": "Example Node.js backend using Savvagent SDK",
   "type": "module",

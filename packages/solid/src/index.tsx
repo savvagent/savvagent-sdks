@@ -107,6 +107,11 @@ export function SavvagentProvider(props: SavvagentProviderProps) {
     attributes: props.defaultContext?.attributes,
   }));
 
+  // Set the user ID on the client from defaultContext for createUser() to pick up
+  if (props.defaultContext?.userId) {
+    client.setUserId(props.defaultContext.userId);
+  }
+
   onCleanup(() => {
     client.close();
   });

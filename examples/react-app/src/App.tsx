@@ -48,8 +48,8 @@ function FeatureDemo() {
   // Hook for error tracking - per SDK Developer Guide telemetry
   const trackError = useTrackError('new-feature');
 
-  // Hook for user management
-  const { setUserId, getUserId } = useUser();
+  // Hook for user management - userId is reactive state
+  const { userId, setUserId } = useUser();
 
   // Example error handler demonstrating error tracking
   const handleRiskyAction = async () => {
@@ -151,7 +151,7 @@ function FeatureDemo() {
 
           <div className="user-section">
             <h3>User Management</h3>
-            <p>Current User ID: <code>{getUserId() || 'Not set'}</code></p>
+            <p>Current User ID: <code>{userId || 'Not set'}</code></p>
             <button onClick={() => setUserId('user-' + Date.now())} className="btn">
               Set Random User ID
             </button>
@@ -165,11 +165,32 @@ function FeatureDemo() {
   );
 }
 
+// Storage key for local overrides (must match FlagOverridePanel)
+const OVERRIDE_STORAGE_KEY = 'savvagent_local_overrides';
+
+/**
+ * Load overrides from localStorage for initial SDK configuration.
+ * This ensures overrides are applied before any components render.
+ */
+function loadInitialOverrides(): Record<string, boolean> {
+  try {
+    const stored = localStorage.getItem(OVERRIDE_STORAGE_KEY);
+    if (stored) {
+      return JSON.parse(stored) as Record<string, boolean>;
+    }
+  } catch (e) {
+    console.warn('[App] Failed to load initial overrides:', e);
+  }
+  return {};
+}
+
 /**
  * Main App Component
  * Per SDK Developer Guide: Initialize once, create a single SDK instance at application startup
  */
 function App() {
+  // Load overrides synchronously before render to avoid race conditions
+  const initialOverrides = loadInitialOverrides();
   // Per SDK Developer Guide: FlagClientConfig with proper authentication
   const config: FlagClientConfig = {
     // SDK API key (starts with sdk_) - safe to embed in client-side code
@@ -218,7 +239,7 @@ function App() {
   };
 
   return (
-    <SavvagentProvider config={config} defaultContext={defaultContext}>
+    <SavvagentProvider config={config} defaultContext={defaultContext} initialOverrides={initialOverrides}>
       <FeatureDemo />
       <FlagOverridePanel />
     </SavvagentProvider>

@@ -156,7 +156,7 @@ function FeatureDemo() {
 
           <div class="user-section">
             <h3>User Management</h3>
-            <p>Current User ID: <code>{user.getUserId() || 'Not set'}</code></p>
+            <p>Current User ID: <code>{user.userId() || 'Not set'}</code></p>
             <button onClick={() => user.setUserId('user-' + Date.now())} class="btn">
               Set Random User ID
             </button>

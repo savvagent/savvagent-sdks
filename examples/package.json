@@ -1,0 +1,24 @@
+{
+  "name": "savvagent-examples",
+  "private": true,
+  "scripts": {
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:debug": "playwright test --debug",
+    "test:e2e:report": "playwright show-report",
+    "test:e2e:update-snapshots": "playwright test --update-snapshots",
+    "test:e2e:react-app": "PLAYWRIGHT_PROJECT=react-app playwright test --project=react-app",
+    "test:e2e:nextjs-app": "PLAYWRIGHT_PROJECT=nextjs-app playwright test --project=nextjs-app",
+    "test:e2e:angular-app": "PLAYWRIGHT_PROJECT=angular-app playwright test --project=angular-app",
+    "test:e2e:vue-app": "PLAYWRIGHT_PROJECT=vue-app playwright test --project=vue-app",
+    "test:e2e:svelte-app": "PLAYWRIGHT_PROJECT=svelte-app playwright test --project=svelte-app",
+    "test:e2e:sveltekit-app": "PLAYWRIGHT_PROJECT=sveltekit-app playwright test --project=sveltekit-app",
+    "test:e2e:astro-app": "PLAYWRIGHT_PROJECT=astro-app playwright test --project=astro-app",
+    "test:e2e:remix-app": "PLAYWRIGHT_PROJECT=remix-app playwright test --project=remix-app",
+    "test:e2e:solid-app": "PLAYWRIGHT_PROJECT=solid-app playwright test --project=solid-app"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.40.0",
+    "dotenv": "^16.3.1"
+  }
+}

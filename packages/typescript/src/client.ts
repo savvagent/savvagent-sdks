@@ -43,6 +43,9 @@ export class FlagClient {
       onError: config.onError || ((error) => console.error('[Savvagent]', error)),
       defaultLanguage: config.defaultLanguage || '',
       disableLanguageDetection: config.disableLanguageDetection ?? false,
+      retryAttempts: config.retryAttempts ?? 3,
+      retryDelay: config.retryDelay ?? 1000,
+      retryBackoff: config.retryBackoff ?? 'exponential',
     };
 
     // Auto-detect browser language if not disabled
@@ -201,6 +204,115 @@ export class FlagClient {
   }
 
   /**
+   * Check if an error is retryable (transient failure)
+   * @param error - The error to check
+   * @param status - HTTP status code (if available)
+   */
+  private isRetryableError(error: Error, status?: number): boolean {
+    // Don't retry auth errors
+    if (status === 401 || status === 403) {
+      return false;
+    }
+    // Don't retry client errors (4xx) except for 408 (Request Timeout) and 429 (Too Many Requests)
+    if (status && status >= 400 && status < 500 && status !== 408 && status !== 429) {
+      return false;
+    }
+    // Retry server errors (5xx)
+    if (status && status >= 500) {
+      return true;
+    }
+    // Retry network errors and timeouts
+    if (error.name === 'AbortError' || error.name === 'TypeError' || error.message.includes('network')) {
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Calculate delay for retry attempt
+   * @param attempt - Current attempt number (1-based)
+   */
+  private getRetryDelay(attempt: number): number {
+    const baseDelay = this.config.retryDelay;
+    if (this.config.retryBackoff === 'linear') {
+      return baseDelay * attempt;
+    }
+    // Exponential backoff with jitter
+    const exponentialDelay = baseDelay * Math.pow(2, attempt - 1);
+    const jitter = Math.random() * 0.3 * exponentialDelay; // Add up to 30% jitter
+    return exponentialDelay + jitter;
+  }
+
+  /**
+   * Execute a fetch request with retry logic
+   * @param requestFn - Function that returns a fetch promise
+   * @param operationName - Name of the operation for logging
+   */
+  private async fetchWithRetry(
+    requestFn: () => Promise<Response>,
+    operationName: string
+  ): Promise<Response> {
+    let lastError: Error | null = null;
+    let lastStatus: number | undefined;
+
+    for (let attempt = 1; attempt <= this.config.retryAttempts; attempt++) {
+      try {
+        const response = await requestFn();
+
+        // Handle auth errors immediately - don't retry
+        if (response.status === 401 || response.status === 403) {
+          this.authFailed = true;
+          this.realtime?.disconnect();
+          console.error(`[Savvagent] Authentication failed (${response.status}). Check your API key. Further requests disabled.`);
+          throw new Error(`Authentication failed: ${response.status}`);
+        }
+
+        // If successful, return response
+        if (response.ok) {
+          return response;
+        }
+
+        // Check if we should retry this status code
+        lastStatus = response.status;
+        lastError = new Error(`${operationName} failed: ${response.status}`);
+
+        if (!this.isRetryableError(lastError, response.status)) {
+          throw lastError;
+        }
+
+        // Log retry attempt
+        if (attempt < this.config.retryAttempts) {
+          const delay = this.getRetryDelay(attempt);
+          console.warn(`[Savvagent] ${operationName} failed (${response.status}), retrying in ${Math.round(delay)}ms (attempt ${attempt}/${this.config.retryAttempts})`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      } catch (error) {
+        lastError = error as Error;
+
+        // Don't retry auth errors
+        if (lastError.message.includes('Authentication failed')) {
+          throw lastError;
+        }
+
+        // Check if error is retryable
+        if (!this.isRetryableError(lastError, lastStatus)) {
+          throw lastError;
+        }
+
+        // Log retry attempt
+        if (attempt < this.config.retryAttempts) {
+          const delay = this.getRetryDelay(attempt);
+          console.warn(`[Savvagent] ${operationName} error: ${lastError.message}, retrying in ${Math.round(delay)}ms (attempt ${attempt}/${this.config.retryAttempts})`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
+    }
+
+    // All retries exhausted
+    throw lastError || new Error(`${operationName} failed after ${this.config.retryAttempts} attempts`);
+  }
+
+  /**
    * Check if a feature flag is enabled
    * @param flagKey - The flag key to evaluate
    * @param context - Optional context for targeting
@@ -267,35 +379,28 @@ export class FlagClient {
         context: evaluationContext as any,
       };
 
-      // Fetch from API with timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => {
-        controller.abort();
-      }, 10000);
+      // Fetch from API with retry logic
+      const response = await this.fetchWithRetry(
+        () => {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => {
+            controller.abort();
+          }, 10000);
 
-      const response = await fetch(`${this.config.baseUrl}/api/flags/${flagKey}/evaluate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${this.config.apiKey}`,
+          return fetch(`${this.config.baseUrl}/api/flags/${flagKey}/evaluate`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${this.config.apiKey}`,
+            },
+            body: JSON.stringify(requestBody),
+            signal: controller.signal,
+          }).finally(() => {
+            clearTimeout(timeoutId);
+          });
         },
-        body: JSON.stringify(requestBody),
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        // Handle auth errors specially - don't retry these
-        if (response.status === 401 || response.status === 403) {
-          this.authFailed = true;
-          // Disconnect realtime to prevent further auth failures
-          this.realtime?.disconnect();
-          console.error(`[Savvagent] Authentication failed (${response.status}). Check your API key. Further requests disabled.`);
-          throw new Error(`Authentication failed: ${response.status}`);
-        }
-        throw new Error(`Flag evaluation failed: ${response.status}`);
-      }
+        `Flag evaluation (${flagKey})`
+      );
 
       // Parse response with type safety
       const data: ApiEvaluateResponse = await response.json();
@@ -590,34 +695,28 @@ export class FlagClient {
     }
 
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => {
-        controller.abort();
-      }, 10000);
+      const response = await this.fetchWithRetry(
+        () => {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => {
+            controller.abort();
+          }, 10000);
 
-      const response = await fetch(
-        `${this.config.baseUrl}/api/sdk/flags?environment=${encodeURIComponent(environment)}`,
-        {
-          method: 'GET',
-          headers: {
-            Authorization: `Bearer ${this.config.apiKey}`,
-          },
-          signal: controller.signal,
-        }
+          return fetch(
+            `${this.config.baseUrl}/api/sdk/flags?environment=${encodeURIComponent(environment)}`,
+            {
+              method: 'GET',
+              headers: {
+                Authorization: `Bearer ${this.config.apiKey}`,
+              },
+              signal: controller.signal,
+            }
+          ).finally(() => {
+            clearTimeout(timeoutId);
+          });
+        },
+        'Get all flags'
       );
-
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        // Handle auth errors specially - don't retry these
-        if (response.status === 401 || response.status === 403) {
-          this.authFailed = true;
-          this.realtime?.disconnect();
-          console.error(`[Savvagent] Authentication failed (${response.status}). Check your API key. Further requests disabled.`);
-          throw new Error(`Authentication failed: ${response.status}`);
-        }
-        throw new Error(`Failed to fetch flags: ${response.status}`);
-      }
 
       const data: FlagListResponse = await response.json();
 
@@ -655,34 +754,28 @@ export class FlagClient {
     }
 
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => {
-        controller.abort();
-      }, 10000);
+      const response = await this.fetchWithRetry(
+        () => {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => {
+            controller.abort();
+          }, 10000);
 
-      const response = await fetch(
-        `${this.config.baseUrl}/api/sdk/enterprise-flags?environment=${encodeURIComponent(environment)}`,
-        {
-          method: 'GET',
-          headers: {
-            Authorization: `Bearer ${this.config.apiKey}`,
-          },
-          signal: controller.signal,
-        }
+          return fetch(
+            `${this.config.baseUrl}/api/sdk/enterprise-flags?environment=${encodeURIComponent(environment)}`,
+            {
+              method: 'GET',
+              headers: {
+                Authorization: `Bearer ${this.config.apiKey}`,
+              },
+              signal: controller.signal,
+            }
+          ).finally(() => {
+            clearTimeout(timeoutId);
+          });
+        },
+        'Get enterprise flags'
       );
-
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        // Handle auth errors specially - don't retry these
-        if (response.status === 401 || response.status === 403) {
-          this.authFailed = true;
-          this.realtime?.disconnect();
-          console.error(`[Savvagent] Authentication failed (${response.status}). Check your API key. Further requests disabled.`);
-          throw new Error(`Authentication failed: ${response.status}`);
-        }
-        throw new Error(`Failed to fetch enterprise flags: ${response.status}`);
-      }
 
       const data: FlagListResponse = await response.json();
       return data.flags;

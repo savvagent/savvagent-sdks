@@ -78,7 +78,8 @@
   }
 
   function isOverridden(flagKey: string): boolean {
-    return overridesStore?.has(flagKey) ?? false;
+    // Use reactive overrides state instead of overridesStore.has()
+    return flagKey in overrides;
   }
 
   function getEffectiveValue(flag: FlagDefinition): boolean {

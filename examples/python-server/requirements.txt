@@ -1,0 +1,15 @@
+# Savvagent SDK - install from local package:
+#   pip install -e ../../packages/python-server
+# Or when published to PyPI:
+#   pip install savvagent
+
+# FastAPI example dependencies
+fastapi>=0.100.0
+uvicorn[standard]>=0.23.0
+pydantic>=2.0.0
+
+# Flask example dependencies
+flask>=3.0.0
+
+# Development dependencies
+python-dotenv>=1.0.0
