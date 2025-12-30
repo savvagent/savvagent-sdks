@@ -196,7 +196,7 @@ describe('FlagClient', () => {
     });
 
     it('should use default value on error if provided', async () => {
-      const clientWithDefaults = new FlagClient({
+      const _clientWithDefaults = new FlagClient({
         apiKey: 'sdk_test_key',
         enableRealtime: false,
         enableTelemetry: false,
@@ -215,7 +215,7 @@ describe('FlagClient', () => {
     });
 
     it('should handle timeout', async () => {
-      const client = new FlagClient({
+      const _client = new FlagClient({
         apiKey: 'sdk_test_key',
         enableRealtime: false,
         timeout: 100,
