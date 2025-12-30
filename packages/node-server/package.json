@@ -61,6 +61,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "@savvagent/sdk": "workspace:*",
     "eventsource": "^2.0.2"
   },
   "engines": {

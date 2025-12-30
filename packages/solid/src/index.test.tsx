@@ -6,7 +6,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@solidjs/testing-library';
-import { createSignal } from 'solid-js';
+import { createSignal as _createSignal } from 'solid-js';
 import {
   SavvagentProvider,
   useSavvagent,
@@ -33,13 +33,13 @@ const createMockClient = () => {
       reason: 'MATCH',
       timestamp: Date.now(),
     } as FlagEvaluationResult),
-    subscribe: vi.fn((flagKey: string, callback: () => void) => {
+    subscribe: vi.fn((_flagKey: string, _callback: () => void) => {
       return () => {};
     }),
-    onOverrideChange: vi.fn((callback: () => void) => {
+    onOverrideChange: vi.fn((_callback: () => void) => {
       return () => {};
     }),
-    withFlag: vi.fn(async (flagKey: string, callback: () => void | Promise<void>, context?: FlagContext) => {
+    withFlag: vi.fn(async (_flagKey: string, callback: () => void | Promise<void>, _context?: FlagContext) => {
       await callback();
     }),
     setUserId: vi.fn((id: string | null) => {
@@ -56,7 +56,7 @@ const createMockClient = () => {
 };
 
 // Mock module
-let mockClientInstance = createMockClient();
+const mockClientInstance = createMockClient();
 
 vi.mock('@savvagent/sdk', () => {
   return {
@@ -172,7 +172,7 @@ describe('Savvagent Solid SDK', () => {
   describe('useSavvagent', () => {
     it('should return context value when used within provider', () => {
       const TestComponent = () => {
-        const { client, isReady, defaultContext } = useSavvagent();
+        const { client, isReady, defaultContext: _defaultContext } = useSavvagent();
         return (
           <div>
             <div data-testid="has-client">{client ? 'yes' : 'no'}</div>

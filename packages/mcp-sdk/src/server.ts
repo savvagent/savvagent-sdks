@@ -6,6 +6,7 @@
  * Authentication is done via Bearer token in the Authorization header.
  */
 
+import * as readline from 'readline';
 import {
   JsonRpcRequest,
   JsonRpcResponse,
@@ -14,7 +15,6 @@ import {
   MCPTool,
   ToolDefinition,
   ToolHandler,
-  ToolCallResult,
   InitializeParams,
   InitializeResult,
   ToolsListResult,
@@ -400,8 +400,6 @@ export function createAuthMiddleware(config: AuthConfig) {
  * @param server - MCP server instance
  */
 export function createStdioHandler(server: MCPServer) {
-  const readline = require('readline');
-
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,

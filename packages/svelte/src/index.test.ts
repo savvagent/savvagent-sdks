@@ -5,7 +5,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { get } from 'svelte/store';
-import type { FlagContext, FlagEvaluationResult, FlagDefinition } from '@savvagent/sdk';
+import type { FlagContext } from '@savvagent/sdk';
 
 // Create mock client instance
 const mockClientInstance = {
@@ -200,8 +200,8 @@ describe('Svelte SDK - Flag Stores', () => {
 
       const store = createFlagStore('my-flag');
 
-      let finalValue: any;
-      const unsubscribe = store.subscribe(v => { finalValue = v; });
+      let _finalValue: any;
+      const unsubscribe = store.subscribe(v => { _finalValue = v; });
 
       await waitForAsync();
 
@@ -402,8 +402,8 @@ describe('Svelte SDK - All Flags Store', () => {
   it('should call getAllFlags with environment', async () => {
     const store = createAllFlagsStore('production');
 
-    let value: any;
-    const unsubscribe = store.subscribe(v => { value = v; });
+    let _value: any;
+    const unsubscribe = store.subscribe(v => { _value = v; });
 
     await waitForAsync();
 
@@ -414,8 +414,8 @@ describe('Svelte SDK - All Flags Store', () => {
   it('should use default environment', async () => {
     const store = createAllFlagsStore();
 
-    let value: any;
-    const unsubscribe = store.subscribe(v => { value = v; });
+    let _value: any;
+    const unsubscribe = store.subscribe(v => { _value = v; });
 
     await waitForAsync();
 

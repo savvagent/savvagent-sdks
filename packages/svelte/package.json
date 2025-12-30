@@ -31,6 +31,9 @@
     "@savvagent/sdk": "workspace:*"
   },
   "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^7.18.0",
+    "@typescript-eslint/parser": "^7.18.0",
+    "eslint": "^8.57.0",
     "svelte": "^5.45.2",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",
