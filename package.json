@@ -11,7 +11,7 @@
   "author": "Savvagent",
   "scripts": {
     "build": "pnpm -r --filter='./packages/*' run build",
-    "test": "pnpm -r run test",
+    "test": "pnpm -r --filter='./packages/*' run test",
     "lint": "pnpm -r --filter='./packages/*' run lint",
     "format": "pnpm -r run format",
     "changeset": "changeset",

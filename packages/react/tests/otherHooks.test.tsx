@@ -268,9 +268,13 @@ describe('useUser', () => {
     const TestComponent = () => {
       const { setUserId, getUserId, getAnonymousId, setAnonymousId } = useUser();
 
-      // These should not throw
-      setUserId('user-id');
-      setAnonymousId('anon-id');
+      // Call setters in useEffect to avoid infinite re-render loop
+      useEffect(() => {
+        // These should not throw when client is null
+        setUserId('user-id');
+        setAnonymousId('anon-id');
+      }, [setUserId, setAnonymousId]);
+
       const userId = getUserId();
       const anonId = getAnonymousId();
 
@@ -298,6 +302,19 @@ describe('useUser', () => {
 describe('useTrackError', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // Reset FlagClient mock to default implementation (undo any mockImplementationOnce)
+    (FlagClient as jest.Mock).mockImplementation(() => ({
+      close: mockClose,
+      evaluate: mockEvaluate,
+      subscribe: mockSubscribe,
+      onOverrideChange: mockOnOverrideChange,
+      withFlag: mockWithFlag,
+      setUserId: mockSetUserId,
+      getUserId: mockGetUserId,
+      getAnonymousId: mockGetAnonymousId,
+      setAnonymousId: mockSetAnonymousId,
+      trackError: mockTrackError,
+    }));
   });
 
   it('should track error with flag key', async () => {
