@@ -23,8 +23,7 @@ global.EventSource = jest.fn(() => ({
 
 describe('FlagClient', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
-    (global.fetch as jest.Mock).mockClear();
+    jest.resetAllMocks();
   });
 
   describe('Constructor', () => {

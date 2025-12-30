@@ -188,9 +188,9 @@ describe('Configuration Overrides', () => {
     }).toThrow();
   });
 
-  it('should apply overrides to cached results', async () => {
-    // Mock API response
-    mockFetch.mockResolvedValueOnce({
+  it('should apply overrides and merge with fetched configuration', async () => {
+    // Mock API response - use mockResolvedValue since cache is invalidated on override
+    mockFetch.mockResolvedValue({
       ok: true,
       json: async () => ({
         value: true,
@@ -198,19 +198,20 @@ describe('Configuration Overrides', () => {
       }),
     });
 
-    // First call caches the result
-    await client.evaluate('test-flag');
+    // First call fetches the result
+    const firstResult = await client.evaluate('test-flag');
+    expect(firstResult.value).toBe(true);
+    expect(firstResult.configuration).toEqual({ original: 'value' });
 
-    // Set override after caching
+    // Set override - this invalidates cache, so next call will fetch again
     client.setConfigOverride('test-flag', { overridden: 'value' }, { merge: true });
 
-    // Second call should use cache but apply override
+    // Second call fetches again (cache was invalidated) and applies override
     const result = await client.evaluate('test-flag');
 
     expect(result.configuration).toEqual({
       original: 'value',
       overridden: 'value',
     });
-    expect(result.reason).toBe('cached');
   });
 });
