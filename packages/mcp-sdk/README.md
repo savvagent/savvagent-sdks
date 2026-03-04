@@ -319,4 +319,4 @@ MIT
 
 ## Support
 
-For questions and support, visit [savvagent.com/docs](https://savvagent.com/docs) or open an issue on GitHub.
+For questions and support, visit [savvagent.com/docs](https://flags-docs.savvagent.com) or open an issue on GitHub.

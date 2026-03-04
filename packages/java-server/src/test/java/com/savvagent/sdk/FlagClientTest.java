@@ -229,7 +229,7 @@ class FlagClientTest {
     @Test
     void testConfigBuilder() {
         FlagClientConfig config = FlagClientConfig.builder()
-                .apiUrl("https://beta.savvagent.com")
+                .apiUrl("https://flags-beta.savvagent.com")
                 .sdkKey("custom-key")
                 .environment("staging")
                 .enableWebSocket(false)
@@ -237,7 +237,7 @@ class FlagClientTest {
                 .timeout(60000)
                 .build();
 
-        assertEquals("https://beta.savvagent.com", config.getApiUrl());
+        assertEquals("https://flags-beta.savvagent.com", config.getApiUrl());
         assertEquals("custom-key", config.getSdkKey());
         assertEquals("staging", config.getEnvironment());
         assertFalse(config.isEnableWebSocket());

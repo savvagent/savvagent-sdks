@@ -402,7 +402,7 @@ class MainActivity : AppCompatActivity() {
         client = SavvagentClient(
             config = SavvagentConfig(
                 sdkKey = BuildConfig.SAVVAGENT_API_KEY,
-                apiUrl = "https://api.savvagent.com"
+                apiUrl = "https://flags-api.savvagent.com"
             ),
             context = this
         )
@@ -465,7 +465,7 @@ class ViewController: UIViewController {
     init() {
         let config = SavvagentConfig(
             sdkKey: Bundle.main.infoDictionary?["SAVVAGENT_API_KEY"] as! String,
-            apiUrl: "https://api.savvagent.com"
+            apiUrl: "https://flags-api.savvagent.com"
         )
         client = SavvagentClient(config: config)
         super.init(nibName: nil, bundle: nil)

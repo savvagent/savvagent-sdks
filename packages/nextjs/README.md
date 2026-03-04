@@ -462,7 +462,7 @@ NEXT_PUBLIC_SAVVAGENT_API_KEY=sdk_...
 
 # Optional
 SAVVAGENT_APP_ID=your-app-id
-SAVVAGENT_BASE_URL=https://api.savvagent.com
+SAVVAGENT_BASE_URL=https://flags-api.savvagent.com
 ```
 
 ## TypeScript Support

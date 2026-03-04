@@ -260,7 +260,7 @@ Server-Sent Events stream for real-time flag change notifications.
 // Using @microsoft/fetch-event-source (recommended)
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 
-await fetchEventSource('https://api.savvagent.com/api/flags/stream', {
+await fetchEventSource('https://flags-api.savvagent.com/api/flags/stream', {
   method: 'GET',
   headers: {
     'Authorization': `Bearer ${sdkKey}`,

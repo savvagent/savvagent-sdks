@@ -29,7 +29,7 @@ import { FlagClient } from '@savvagent/typescript';
 // Initialize the client
 const client = new FlagClient({
   apiKey: 'sdk_dev_your_api_key_here',
-  baseUrl: 'https://api.savvagent.com', // Optional: defaults to production
+  baseUrl: 'https://flags-api.savvagent.com', // Optional: defaults to production
   enableRealtime: true,
   enableTelemetry: true,
 });
@@ -184,7 +184,7 @@ interface FlagClientConfig {
 ```typescript
 const client = new FlagClient({
   apiKey: 'sdk_dev_abc123',
-  baseUrl: 'https://api.savvagent.com',
+  baseUrl: 'https://flags-api.savvagent.com',
   environment: 'staging', // Use staging environment flags
   enableRealtime: true,
   cacheTtl: 30000, // 30 seconds
@@ -487,6 +487,6 @@ MIT
 
 ## Support
 
-- Documentation: https://docs.savvagent.com
+- Documentation: https://flags-docs.savvagent.com
 - Issues: https://github.com/yourusername/savvagent/issues
 - Email: support@savvagent.com

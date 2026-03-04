@@ -14,7 +14,7 @@ def async_config() -> FlagClientConfig:
     return FlagClientConfig(
         api_key="sdk_test_key_12345",
         application_id="test-app",
-        base_url="https://api.savvagent.com",
+        base_url="https://flags-api.savvagent.com",
         enable_realtime=False,
         enable_telemetry=False,
         cache_ttl=60,
@@ -53,7 +53,7 @@ class TestAsyncFlagEvaluation:
     @respx.mock
     async def test_evaluate_enabled_flag(self, async_config: FlagClientConfig) -> None:
         """Test evaluating an enabled flag."""
-        respx.post("https://api.savvagent.com/api/flags/test-flag/evaluate").mock(
+        respx.post("https://flags-api.savvagent.com/api/flags/test-flag/evaluate").mock(
             return_value=httpx.Response(
                 200,
                 json={"value": True, "flagId": "flag_123"},
@@ -71,7 +71,7 @@ class TestAsyncFlagEvaluation:
     @respx.mock
     async def test_evaluate_disabled_flag(self, async_config: FlagClientConfig) -> None:
         """Test evaluating a disabled flag."""
-        respx.post("https://api.savvagent.com/api/flags/test-flag/evaluate").mock(
+        respx.post("https://flags-api.savvagent.com/api/flags/test-flag/evaluate").mock(
             return_value=httpx.Response(
                 200,
                 json={"value": False, "flagId": "flag_123"},
@@ -88,7 +88,7 @@ class TestAsyncFlagEvaluation:
     @respx.mock
     async def test_is_enabled_convenience(self, async_config: FlagClientConfig) -> None:
         """Test is_enabled convenience method."""
-        respx.post("https://api.savvagent.com/api/flags/test-flag/evaluate").mock(
+        respx.post("https://flags-api.savvagent.com/api/flags/test-flag/evaluate").mock(
             return_value=httpx.Response(200, json={"value": True})
         )
 
@@ -99,7 +99,7 @@ class TestAsyncFlagEvaluation:
     @respx.mock
     async def test_evaluate_with_context(self, async_config: FlagClientConfig) -> None:
         """Test evaluation with context."""
-        respx.post("https://api.savvagent.com/api/flags/test-flag/evaluate").mock(
+        respx.post("https://flags-api.savvagent.com/api/flags/test-flag/evaluate").mock(
             return_value=httpx.Response(200, json={"value": True})
         )
 
@@ -113,7 +113,7 @@ class TestAsyncFlagEvaluation:
     @respx.mock
     async def test_evaluate_caching(self, async_config: FlagClientConfig) -> None:
         """Test that evaluations are cached."""
-        respx.post("https://api.savvagent.com/api/flags/test-flag/evaluate").mock(
+        respx.post("https://flags-api.savvagent.com/api/flags/test-flag/evaluate").mock(
             return_value=httpx.Response(200, json={"value": True})
         )
 
@@ -133,7 +133,7 @@ class TestAsyncFlagEvaluation:
         self, async_config: FlagClientConfig
     ) -> None:
         """Test that API errors return default value."""
-        respx.post("https://api.savvagent.com/api/flags/test-flag/evaluate").mock(
+        respx.post("https://flags-api.savvagent.com/api/flags/test-flag/evaluate").mock(
             return_value=httpx.Response(500, json={"error": "Internal error"})
         )
 
@@ -151,7 +151,7 @@ class TestAsyncDynamicConfiguration:
     @respx.mock
     async def test_get_config_enabled(self, async_config: FlagClientConfig) -> None:
         """Test getting configuration for enabled flag."""
-        respx.post("https://api.savvagent.com/api/flags/config-flag/evaluate").mock(
+        respx.post("https://flags-api.savvagent.com/api/flags/config-flag/evaluate").mock(
             return_value=httpx.Response(
                 200,
                 json={
@@ -172,7 +172,7 @@ class TestAsyncDynamicConfiguration:
         self, async_config: FlagClientConfig
     ) -> None:
         """Test that disabled flag returns default configuration."""
-        respx.post("https://api.savvagent.com/api/flags/config-flag/evaluate").mock(
+        respx.post("https://flags-api.savvagent.com/api/flags/config-flag/evaluate").mock(
             return_value=httpx.Response(
                 200,
                 json={"value": False, "configuration": {"theme": "dark"}},
@@ -192,7 +192,7 @@ class TestAsyncVariations:
     @respx.mock
     async def test_get_variation(self, async_config: FlagClientConfig) -> None:
         """Test getting variation details."""
-        respx.post("https://api.savvagent.com/api/flags/experiment/evaluate").mock(
+        respx.post("https://flags-api.savvagent.com/api/flags/experiment/evaluate").mock(
             return_value=httpx.Response(
                 200,
                 json={
@@ -218,7 +218,7 @@ class TestAsyncOverrides:
     @respx.mock
     async def test_config_override(self, async_config: FlagClientConfig) -> None:
         """Test setting a configuration override."""
-        respx.post("https://api.savvagent.com/api/flags/test-flag/evaluate").mock(
+        respx.post("https://flags-api.savvagent.com/api/flags/test-flag/evaluate").mock(
             return_value=httpx.Response(
                 200,
                 json={"value": True, "configuration": {"original": True}},
@@ -236,7 +236,7 @@ class TestAsyncOverrides:
     @respx.mock
     async def test_variation_override(self, async_config: FlagClientConfig) -> None:
         """Test setting a variation override."""
-        respx.post("https://api.savvagent.com/api/flags/experiment/evaluate").mock(
+        respx.post("https://flags-api.savvagent.com/api/flags/experiment/evaluate").mock(
             return_value=httpx.Response(
                 200,
                 json={"value": True, "variation": "control"},
@@ -258,7 +258,7 @@ class TestAsyncBulkOperations:
     @respx.mock
     async def test_get_all_flags(self, async_config: FlagClientConfig) -> None:
         """Test getting all flags."""
-        respx.get("https://api.savvagent.com/api/sdk/flags").mock(
+        respx.get("https://flags-api.savvagent.com/api/sdk/flags").mock(
             return_value=httpx.Response(
                 200,
                 json={
@@ -287,7 +287,7 @@ class TestAsyncCacheManagement:
     @respx.mock
     async def test_invalidate_cache(self, async_config: FlagClientConfig) -> None:
         """Test cache invalidation."""
-        respx.post("https://api.savvagent.com/api/flags/test-flag/evaluate").mock(
+        respx.post("https://flags-api.savvagent.com/api/flags/test-flag/evaluate").mock(
             return_value=httpx.Response(200, json={"value": True})
         )
 

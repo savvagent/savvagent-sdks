@@ -72,7 +72,7 @@ func main() {
 config := savvagent.Config{
     APIKey:          "sdk_your_api_key_here",
     ApplicationID:   "your-app-id",
-    BaseURL:         "https://api.savvagent.com", // optional
+    BaseURL:         "https://flags-api.savvagent.com", // optional
     EnableRealtime:  true,                         // default: true
     CacheTTL:        60 * time.Second,            // default: 60 seconds
     EnableTelemetry: true,                         // default: true
@@ -389,6 +389,6 @@ MIT
 
 ## Support
 
-- Documentation: https://docs.savvagent.com
+- Documentation: https://flags-docs.savvagent.com
 - Issues: https://github.com/savvagent/savvagent-sdks/issues
 - Email: support@savvagent.com

@@ -28,7 +28,7 @@ export class FlagClient {
     this.config = {
       apiKey: config.apiKey,
       applicationId: config.applicationId || '',
-      baseUrl: config.baseUrl || 'https://api.savvagent.com',
+      baseUrl: config.baseUrl || 'https://flags-api.savvagent.com',
       environment: config.environment || 'production',
       enableRealtime: config.enableRealtime ?? true,
       cacheTtl: config.cacheTtl || 60000,

@@ -27,7 +27,7 @@ This is an example iOS application demonstrating how to integrate and use the Sa
 2. Update the SDK key in `SavvagentExampleApp.swift`:
    ```swift
    let config = SavvagentConfig(
-       apiUrl: "https://beta.savvagent.com",
+       apiUrl: "https://flags-beta.savvagent.com",
        sdkKey: "your-sdk-key",  // Replace with your SDK key
        environment: "production"
    )
@@ -95,7 +95,7 @@ You can add more feature flags by:
 ## Learn More
 
 - [iOS SDK Documentation](../../packages/ios-sdk/README.md)
-- [Savvagent Documentation](https://docs.savvagent.com)
+- [Savvagent Documentation](https://flags-docs.savvagent.com)
 - [SwiftUI Guide](https://developer.apple.com/tutorials/swiftui)
 
 ## License

@@ -93,7 +93,7 @@ import { FlagClient } from '@savvagent/sdk';
 // Initialize the client
 const client = new FlagClient({
   apiKey: 'sdk_your_api_key_here',
-  baseUrl: 'https://api.savvagent.com',
+  baseUrl: 'https://flags-api.savvagent.com',
   enableRealtime: true,
   enableTelemetry: true,
 });
@@ -272,7 +272,7 @@ import (
 func main() {
     client, err := savvagent.NewClient(savvagent.Config{
         APIKey:  "sdk_your_api_key",
-        BaseURL: "https://api.savvagent.com",
+        BaseURL: "https://flags-api.savvagent.com",
     })
     if err != nil {
         log.Fatal(err)
@@ -303,7 +303,7 @@ public class Example {
     public static void main(String[] args) {
         FlagClient client = FlagClient.builder()
             .apiKey("sdk_your_api_key")
-            .baseUrl("https://api.savvagent.com")
+            .baseUrl("https://flags-api.savvagent.com")
             .build();
 
         FlagContext context = FlagContext.builder()
@@ -331,7 +331,7 @@ use savvagent::{FlagClient, FlagContext};
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = FlagClient::new(
         "sdk_your_api_key",
-        "https://api.savvagent.com",
+        "https://flags-api.savvagent.com",
     )?;
 
     let context = FlagContext::new()
@@ -356,7 +356,7 @@ import SavvagentSDK
 // Initialize
 let client = try FlagClient(
     apiKey: "sdk_your_api_key",
-    baseURL: "https://api.savvagent.com"
+    baseURL: "https://flags-api.savvagent.com"
 )
 
 // Check flag
@@ -393,7 +393,7 @@ import com.savvagent.sdk.FlagContext
 // Initialize
 val client = FlagClient(
     apiKey = "sdk_your_api_key",
-    baseUrl = "https://api.savvagent.com"
+    baseUrl = "https://flags-api.savvagent.com"
 )
 
 // Check flag
@@ -434,7 +434,7 @@ interface FlagClientConfig {
   apiKey: string;              // SDK key (starts with sdk_)
 
   // Optional - API
-  baseUrl?: string;            // API URL (default: https://api.savvagent.com)
+  baseUrl?: string;            // API URL (default: https://flags-api.savvagent.com)
   timeout?: number;            // Request timeout in ms (default: 5000)
 
   // Optional - Caching
@@ -785,7 +785,7 @@ const client = new FlagClient({
 ```typescript
 const client = new FlagClient({
   apiKey: process.env.SAVVAGENT_SDK_KEY!,
-  baseUrl: 'https://api.savvagent.com',
+  baseUrl: 'https://flags-api.savvagent.com',
   cache: { enabled: true, ttl: 60000 },
   enableTelemetry: true,
 });
@@ -796,7 +796,7 @@ const client = new FlagClient({
 ```bash
 # .env
 SAVVAGENT_SDK_KEY=sdk_prod_xxx
-SAVVAGENT_API_URL=https://api.savvagent.com
+SAVVAGENT_API_URL=https://flags-api.savvagent.com
 
 # .env.local (client-side)
 NEXT_PUBLIC_SAVVAGENT_SDK_KEY=sdk_prod_xxx
@@ -844,6 +844,6 @@ VITE_SAVVAGENT_SDK_KEY=sdk_prod_xxx
 
 ## Support
 
-- **Documentation**: https://docs.savvagent.com
+- **Documentation**: https://flags-docs.savvagent.com
 - **GitHub Issues**: https://github.com/savvagent/savvagent-sdks/issues
 - **Email**: support@savvagent.com

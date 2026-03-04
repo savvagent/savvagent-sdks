@@ -27,7 +27,7 @@ import { FlagClient } from '@savvagent/sdk';
 // Create a single SDK instance at application startup (recommended)
 // Per SDK Developer Guide: Initialize once, create a single SDK instance
 const savvagent = new FlagClient({
-  baseUrl: 'https://api.savvagent.com',
+  baseUrl: 'https://flags-api.savvagent.com',
   apiKey: 'sdk_your_key_here', // SDK keys start with 'sdk_' prefix
   applicationId: 'your-app-id', // For application-scoped flags
   enableRealtime: true, // Enable SSE for real-time updates
@@ -81,7 +81,7 @@ interface FlagClientConfig {
   apiKey: string;              // SDK key (sdk_) or Server key (srv_) from dashboard
 
   // Optional
-  baseUrl?: string;            // Your Savvagent API URL (default: https://api.savvagent.com)
+  baseUrl?: string;            // Your Savvagent API URL (default: https://flags-api.savvagent.com)
   applicationId?: string;      // Application ID for hierarchical flag lookup
 
   // Caching
@@ -275,7 +275,7 @@ import { FlagClient } from '@savvagent/sdk';
 
 const client = new FlagClient({
   apiKey: 'sdk_your_key',
-  baseUrl: 'https://api.savvagent.com',
+  baseUrl: 'https://flags-api.savvagent.com',
   enableRealtime: true, // Enable SSE connection
 });
 
@@ -472,11 +472,11 @@ Never hardcode API keys:
 
 ```bash
 # .env
-SAVVAGENT_API_URL=https://api.savvagent.com
+SAVVAGENT_API_URL=https://flags-api.savvagent.com
 SAVVAGENT_SDK_KEY=sdk_prod_xxx  # SDK keys use sdk_ prefix
 
 # .env.local (for frontend)
-NEXT_PUBLIC_SAVVAGENT_API_URL=https://api.savvagent.com
+NEXT_PUBLIC_SAVVAGENT_API_URL=https://flags-api.savvagent.com
 NEXT_PUBLIC_SAVVAGENT_SDK_KEY=sdk_prod_xxx
 ```
 
@@ -550,7 +550,7 @@ const client = new FlagClient({
 ```typescript
 const client = new FlagClient({
   apiKey: 'sdk_staging_xxx',
-  baseUrl: 'https://staging-api.savvagent.com',
+  baseUrl: 'https://flags-api.savvagent.com',
   cacheTtl: 60000, // 1 minute
   enableRealtime: true,
   enableTelemetry: true,
@@ -562,7 +562,7 @@ const client = new FlagClient({
 ```typescript
 const client = new FlagClient({
   apiKey: 'sdk_prod_xxx',
-  baseUrl: 'https://api.savvagent.com',
+  baseUrl: 'https://flags-api.savvagent.com',
   cacheTtl: 300000, // 5 minutes (per SDK Developer Guide)
   enableRealtime: true, // Enable SSE for instant updates
   enableTelemetry: true,
@@ -635,6 +635,6 @@ See [SDK-DEVELOPER-GUIDE.md](./SDK-DEVELOPER-GUIDE.md) for complete API document
 
 ## Support
 
-- Documentation: https://docs.savvagent.com
+- Documentation: https://flags-docs.savvagent.com
 - GitHub Issues: https://github.com/yourusername/savvagent-sdks/issues
 - Examples: https://github.com/yourusername/savvagent-sdks/tree/main/examples

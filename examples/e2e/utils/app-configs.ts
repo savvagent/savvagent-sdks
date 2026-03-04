@@ -103,10 +103,10 @@ export const APP_CONFIGS: Record<string, AppConfig> = {
 };
 
 export const BETA_ENV = {
-  SAVVAGENT_API_URL: 'https://api-beta.savvagent.com',
+  SAVVAGENT_API_URL: 'https://flags-api-beta.savvagent.com',
   SAVVAGENT_SDK_KEY: 'sdk_dev_ca6aeb1de1308034e5fcb23db66cb35f',
-  VITE_SAVVAGENT_API_URL: 'https://api-beta.savvagent.com',
+  VITE_SAVVAGENT_API_URL: 'https://flags-api-beta.savvagent.com',
   VITE_SAVVAGENT_SDK_KEY: 'sdk_dev_ca6aeb1de1308034e5fcb23db66cb35f',
-  NEXT_PUBLIC_SAVVAGENT_API_URL: 'https://api-beta.savvagent.com',
+  NEXT_PUBLIC_SAVVAGENT_API_URL: 'https://flags-api-beta.savvagent.com',
   NEXT_PUBLIC_SAVVAGENT_SDK_KEY: 'sdk_dev_ca6aeb1de1308034e5fcb23db66cb35f',
 };

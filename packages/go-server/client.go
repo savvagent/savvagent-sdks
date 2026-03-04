@@ -30,7 +30,7 @@ func NewClient(config Config) (*FlagClient, error) {
 
 	// Apply defaults
 	if config.BaseURL == "" {
-		config.BaseURL = "https://api.savvagent.com"
+		config.BaseURL = "https://flags-api.savvagent.com"
 	}
 	if config.CacheTTL == 0 {
 		config.CacheTTL = 60 * time.Second

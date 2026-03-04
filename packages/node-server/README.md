@@ -52,7 +52,7 @@ const isEnabled = await client.isEnabled('new-feature', {
 const client = new FlagClient({
   apiKey: 'sdk_your_api_key_here',
   applicationId: 'your-app-id',
-  baseUrl: 'https://api.savvagent.com', // optional
+  baseUrl: 'https://flags-api.savvagent.com', // optional
   enableRealtime: true, // default: true
   cacheTtl: 60000, // default: 60 seconds
   enableTelemetry: true, // default: true
@@ -281,6 +281,6 @@ MIT
 
 ## Support
 
-- Documentation: https://docs.savvagent.com
+- Documentation: https://flags-docs.savvagent.com
 - Issues: https://github.com/savvagent/savvagent-sdks/issues
 - Email: support@savvagent.com

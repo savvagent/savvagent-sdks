@@ -279,5 +279,5 @@ MIT
 
 ## Support
 
-- Documentation: [savvagent.com/docs/integrations/sentry](https://savvagent.com/docs/integrations/sentry)
+- Documentation: [savvagent.com/docs/integrations/sentry](https://flags-docs.savvagent.com/integrations/sentry)
 - Issues: [GitHub Issues](https://github.com/savvagent/savvagent-sdks/issues)

@@ -3,7 +3,7 @@ import { FlagClient, FlagClientConfig, FlagContext } from '@savvagent/sdk';
 
 /**
  * Default context values that apply to all flag evaluations
- * Per SDK Developer Guide: https://docs.savvagent.com/sdk-developer-guide
+ * Per SDK Developer Guide: https://flags-docs.savvagent.com/sdk-developer-guide
  */
 export interface DefaultFlagContext {
   /** Application ID for application-scoped flags */

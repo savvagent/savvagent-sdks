@@ -13,7 +13,7 @@ class FlagClientConfig:
     """
     Configuration for initializing the FlagClient.
 
-    Per SDK Developer Guide: https://docs.savvagent.com/sdk-developer-guide
+    Per SDK Developer Guide: https://flags-docs.savvagent.com/sdk-developer-guide
     """
 
     api_key: str
@@ -26,7 +26,7 @@ class FlagClientConfig:
     application_id: str | None = None
     """Application ID for application-scoped flags (omit for enterprise flags only)."""
 
-    base_url: str = "https://api.savvagent.com"
+    base_url: str = "https://flags-api.savvagent.com"
     """Base URL for the Savvagent API."""
 
     environment: str = "production"
@@ -56,7 +56,7 @@ class FlagContext:
     """
     Context passed to flag evaluation.
 
-    Per SDK Developer Guide: https://docs.savvagent.com/sdk-developer-guide
+    Per SDK Developer Guide: https://flags-docs.savvagent.com/sdk-developer-guide
     """
 
     user_id: str | None = None

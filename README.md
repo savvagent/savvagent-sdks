@@ -1,6 +1,6 @@
 # Savvagent SDKs
 
-Official SDKs, MCP servers, and example applications for [Savvagent](https://www.savvagent.com) - the AI-powered feature flag platform that prevents production incidents.
+Official SDKs, MCP servers, and example applications for [Savvagent](https://flags.savvagent.com) - the AI-powered feature flag platform that prevents production incidents.
 
 ## Packages
 
@@ -89,7 +89,7 @@ yarn add @savvagent/sdk
 import { SavvagentClient } from '@savvagent/sdk';
 
 const client = new SavvagentClient({
-  apiUrl: 'https://api.savvagent.com',
+  apiUrl: 'https://flags-api.savvagent.com',
   sdkKey: 'your-sdk-key',
   environment: 'production',
 });
@@ -338,8 +338,8 @@ MIT License - see [LICENSE](./LICENSE) for details
 
 ## Related Projects
 
-- **[Savvagent Platform](https://www.savvagent.com)** - The main platform repository
-- **[Savvagent Docs](https://www.savvagent.com/docs)** - Official documentation
+- **[Savvagent Platform](https://flags.savvagent.com)** - The main platform repository
+- **[Savvagent Docs](https://flags.savvagent.com/docs)** - Official documentation
 
 ## Packages Status
 

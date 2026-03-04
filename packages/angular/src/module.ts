@@ -14,7 +14,7 @@ import { SavvagentService, SavvagentConfig, SAVVAGENT_CONFIG } from './service';
  *     SavvagentModule.forRoot({
  *       config: {
  *         apiKey: 'sdk_your_api_key',
- *         baseUrl: 'https://api.savvagent.com'
+ *         baseUrl: 'https://flags-api.savvagent.com'
  *       },
  *       defaultContext: {
  *         applicationId: 'my-app',

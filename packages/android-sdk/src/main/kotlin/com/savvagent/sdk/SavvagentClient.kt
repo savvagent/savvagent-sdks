@@ -17,7 +17,7 @@ import java.util.concurrent.TimeUnit
  * Configuration for the Savvagent SDK client
  */
 data class SavvagentConfig(
-    val apiUrl: String = "https://beta.savvagent.com",
+    val apiUrl: String = "https://flags-beta.savvagent.com",
     val sdkKey: String,
     val environment: String = "production",
     val pollingInterval: Long = 60_000L, // milliseconds

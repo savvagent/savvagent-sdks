@@ -22,7 +22,7 @@ class SavvagentClientTest {
     fun testConfigDefaults() {
         val config = SavvagentConfig(sdkKey = "test-key")
 
-        assertEquals("https://beta.savvagent.com", config.apiUrl)
+        assertEquals("https://flags-beta.savvagent.com", config.apiUrl)
         assertEquals("production", config.environment)
         assertEquals(60_000L, config.pollingInterval)
         assertTrue(config.enableWebSocket)
@@ -33,7 +33,7 @@ class SavvagentClientTest {
     @Test
     fun testConfigCustomValues() {
         val config = SavvagentConfig(
-            apiUrl = "https://staging.savvagent.com",
+            apiUrl = "https://flags.savvagent.com",
             sdkKey = "staging-key",
             environment = "staging",
             pollingInterval = 120_000L,
@@ -42,7 +42,7 @@ class SavvagentClientTest {
             enableLogging = true
         )
 
-        assertEquals("https://staging.savvagent.com", config.apiUrl)
+        assertEquals("https://flags.savvagent.com", config.apiUrl)
         assertEquals("staging-key", config.sdkKey)
         assertEquals("staging", config.environment)
         assertEquals(120_000L, config.pollingInterval)

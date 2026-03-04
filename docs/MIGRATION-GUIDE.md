@@ -528,7 +528,7 @@ it('shows new feature with configuration', async () => {
 describe('Dynamic Configuration', () => {
   it('uses configuration from API', async () => {
     // Mock API response with configuration
-    nock('https://api.savvagent.com')
+    nock('https://flags-api.savvagent.com')
       .post('/api/evaluate/feature-x')
       .reply(200, {
         value: true,

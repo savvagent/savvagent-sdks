@@ -1,6 +1,6 @@
 # Savvagent iOS SDK
 
-The official iOS SDK for [Savvagent](https://www.savvagent.com) - the AI-powered feature flag platform that prevents production incidents.
+The official iOS SDK for [Savvagent](https://flags.savvagent.com) - the AI-powered feature flag platform that prevents production incidents.
 
 ## Features
 
@@ -56,7 +56,7 @@ import SavvagentSDK
 
 // Configure the SDK
 let config = SavvagentConfig(
-    apiUrl: "https://beta.savvagent.com",
+    apiUrl: "https://flags-beta.savvagent.com",
     sdkKey: "your-sdk-key",
     environment: "production"
 )
@@ -198,7 +198,7 @@ class ViewController: UIViewController {
 
 ```swift
 let config = SavvagentConfig(
-    apiUrl: "https://beta.savvagent.com",
+    apiUrl: "https://flags-beta.savvagent.com",
     sdkKey: "your-sdk-key",
     environment: "production",
     pollingInterval: 60,        // Poll every 60 seconds
@@ -346,14 +346,14 @@ See the [iOS example app](../../examples/ios-app) for a complete implementation.
 
 ## Documentation
 
-- [API Reference](https://docs.savvagent.com/ios-sdk)
-- [Integration Guide](https://docs.savvagent.com/guides/ios)
-- [Migration Guide](https://docs.savvagent.com/migration/ios)
+- [API Reference](https://flags-docs.savvagent.com/ios-sdk)
+- [Integration Guide](https://flags-docs.savvagent.com/guides/ios)
+- [Migration Guide](https://flags-docs.savvagent.com/migration/ios)
 
 ## Support
 
 - [GitHub Issues](https://github.com/savvagent/savvagent-sdks/issues)
-- [Documentation](https://docs.savvagent.com)
+- [Documentation](https://flags-docs.savvagent.com)
 - [Email](mailto:support@savvagent.com)
 
 ## License

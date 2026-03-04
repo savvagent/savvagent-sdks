@@ -49,7 +49,7 @@ class FeatureFlagsViewModel(application: Application) : AndroidViewModel(applica
 
     init {
         val config = SavvagentConfig(
-            apiUrl = "https://beta.savvagent.com",
+            apiUrl = "https://flags-beta.savvagent.com",
             sdkKey = "demo-sdk-key",
             environment = "development",
             enableLogging = true

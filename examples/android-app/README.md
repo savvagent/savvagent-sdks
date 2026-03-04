@@ -29,7 +29,7 @@ This is an example Android application demonstrating how to integrate and use th
 2. Update the SDK key in `FeatureFlagsViewModel.kt`:
    ```kotlin
    val config = SavvagentConfig(
-       apiUrl = "https://beta.savvagent.com",
+       apiUrl = "https://flags-beta.savvagent.com",
        sdkKey = "your-sdk-key",  // Replace with your SDK key
        environment = "production"
    )
@@ -135,7 +135,7 @@ The app follows modern Android development best practices:
 ## Learn More
 
 - [Android SDK Documentation](../../packages/android-sdk/README.md)
-- [Savvagent Documentation](https://docs.savvagent.com)
+- [Savvagent Documentation](https://flags-docs.savvagent.com)
 - [Jetpack Compose Guide](https://developer.android.com/jetpack/compose)
 
 ## License

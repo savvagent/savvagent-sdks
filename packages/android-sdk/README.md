@@ -1,6 +1,6 @@
 # Savvagent Android SDK
 
-The official Android SDK for [Savvagent](https://www.savvagent.com) - the AI-powered feature flag platform that prevents production incidents.
+The official Android SDK for [Savvagent](https://flags.savvagent.com) - the AI-powered feature flag platform that prevents production incidents.
 
 ## Features
 
@@ -60,7 +60,7 @@ import kotlinx.coroutines.launch
 
 // Configure the SDK
 val config = SavvagentConfig(
-    apiUrl = "https://beta.savvagent.com",
+    apiUrl = "https://flags-beta.savvagent.com",
     sdkKey = "your-sdk-key",
     environment = "production"
 )
@@ -171,7 +171,7 @@ class MainActivity : AppCompatActivity() {
 
 ```kotlin
 val config = SavvagentConfig(
-    apiUrl = "https://beta.savvagent.com",
+    apiUrl = "https://flags-beta.savvagent.com",
     sdkKey = "your-sdk-key",
     environment = "production",
     pollingInterval = 60_000L,     // Poll every 60 seconds
@@ -355,14 +355,14 @@ See the [Android example app](../../examples/android-app) for a complete impleme
 
 ## Documentation
 
-- [API Reference](https://docs.savvagent.com/android-sdk)
-- [Integration Guide](https://docs.savvagent.com/guides/android)
-- [Migration Guide](https://docs.savvagent.com/migration/android)
+- [API Reference](https://flags-docs.savvagent.com/android-sdk)
+- [Integration Guide](https://flags-docs.savvagent.com/guides/android)
+- [Migration Guide](https://flags-docs.savvagent.com/migration/android)
 
 ## Support
 
 - [GitHub Issues](https://github.com/savvagent/savvagent-sdks/issues)
-- [Documentation](https://docs.savvagent.com)
+- [Documentation](https://flags-docs.savvagent.com)
 - [Email](mailto:support@savvagent.com)
 
 ## License

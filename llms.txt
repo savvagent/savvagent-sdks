@@ -19,7 +19,7 @@ import { FlagClient } from '@savvagent/sdk';
 
 const client = new FlagClient({
   apiKey: 'sdk_your_key_here',
-  baseUrl: 'https://api.savvagent.com',
+  baseUrl: 'https://flags-api.savvagent.com',
 });
 
 // Check if flag is enabled
