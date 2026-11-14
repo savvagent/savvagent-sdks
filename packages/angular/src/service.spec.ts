@@ -109,7 +109,7 @@ describe('SavvagentService', () => {
       const error = new Error('Init error');
       const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
       const onError = jest.fn();
-      (FlagClient as jest.Mock).mockImplementationOnce(() => {
+      (FlagClient as unknown as jest.Mock).mockImplementationOnce(() => {
         throw error;
       });
 
