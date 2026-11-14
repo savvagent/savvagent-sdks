@@ -89,7 +89,7 @@ yarn add @savvagent/sdk
 import { SavvagentClient } from '@savvagent/sdk';
 
 const client = new SavvagentClient({
-  apiUrl: 'https://flags-api.savvagent.com',
+  apiUrl: 'https://api.savvagent.com/flags',
   sdkKey: 'your-sdk-key',
   environment: 'production',
 });

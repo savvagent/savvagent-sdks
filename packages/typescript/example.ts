@@ -11,7 +11,7 @@ async function main() {
   // Initialize the client
   const client = new FlagClient({
     apiKey: 'sdk_dev_example_key',
-    baseUrl: 'http://localhost:8080',
+    baseUrl: 'https://api.savvagent.com/flags', // optional; this is the default
     enableRealtime: true,
     enableTelemetry: true,
     defaults: {

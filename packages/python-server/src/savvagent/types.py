@@ -26,8 +26,8 @@ class FlagClientConfig:
     application_id: str | None = None
     """Application ID for application-scoped flags (omit for enterprise flags only)."""
 
-    base_url: str = "https://flags-api.savvagent.com"
-    """Base URL for the Savvagent API."""
+    base_url: str = "https://api.savvagent.com/flags"
+    """Base URL for the Savvagent Flags API. Trailing slashes are removed."""
 
     environment: str = "production"
     """Environment for flag evaluation (e.g., "development", "staging", "production", "beta")."""
@@ -49,6 +49,9 @@ class FlagClientConfig:
 
     timeout: float = 5.0
     """Request timeout in seconds."""
+
+    def __post_init__(self) -> None:
+        self.base_url = self.base_url.rstrip("/")
 
 
 @dataclass

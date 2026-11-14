@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 class MockURLProtocol: URLProtocol {
     static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
@@ -34,5 +37,23 @@ class MockURLProtocol: URLProtocol {
 
     override func stopLoading() {
         // Required by protocol
+    }
+}
+
+extension URLRequest {
+    /// URLProtocol receives bodies as streams; read it back for assertions.
+    func readBody() -> Data? {
+        if let httpBody = httpBody { return httpBody }
+        guard let stream = httpBodyStream else { return nil }
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while stream.hasBytesAvailable {
+            let n = stream.read(&buffer, maxLength: buffer.count)
+            if n <= 0 { break }
+            data.append(buffer, count: n)
+        }
+        return data
     }
 }

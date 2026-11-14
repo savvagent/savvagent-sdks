@@ -528,10 +528,10 @@ it('shows new feature with configuration', async () => {
 describe('Dynamic Configuration', () => {
   it('uses configuration from API', async () => {
     // Mock API response with configuration
-    nock('https://flags-api.savvagent.com')
-      .post('/api/evaluate/feature-x')
+    nock('https://api.savvagent.com/flags')
+      .post('/api/flags/feature-x/evaluate')
       .reply(200, {
-        value: true,
+        enabled: true,
         configuration: {
           maxItems: 50,
           timeout: 3000
@@ -599,14 +599,14 @@ Configuration adds to response size, but:
 
 **Without config:** ~100 bytes
 ```json
-{ "value": true, "flag_id": "xyz" }
+{ "key": "xyz", "enabled": true }
 ```
 
 **With config:** ~300 bytes (still tiny!)
 ```json
 {
-  "value": true,
-  "flag_id": "xyz",
+  "key": "xyz",
+  "enabled": true,
   "configuration": {
     "theme": { "color": "#007bff" },
     "limits": { "max": 100 }

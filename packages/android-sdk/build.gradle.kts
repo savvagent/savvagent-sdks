@@ -35,6 +35,13 @@ android {
         jvmTarget = "17"
     }
 
+    testOptions {
+        unitTests {
+            // android.util.Log is a stub on the JVM; don't throw from it in unit tests
+            isReturnDefaultValues = true
+        }
+    }
+
     publishing {
         singleVariant("release") {
             withSourcesJar()
@@ -62,6 +69,8 @@ dependencies {
 
     // Testing
     testImplementation("junit:junit:4.13.2")
+    // Real org.json for JVM unit tests (the android.jar version is a stub)
+    testImplementation("org.json:json:20231013")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
     testImplementation("io.mockk:mockk:1.13.8")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")

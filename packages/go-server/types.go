@@ -10,7 +10,8 @@ type Config struct {
 	// ApplicationID for application-scoped flags (optional)
 	ApplicationID string
 
-	// BaseURL is the Savvagent API base URL (default: https://flags-api.savvagent.com)
+	// BaseURL is the Savvagent Flags API base URL (default: https://api.savvagent.com/flags).
+	// Trailing slashes are removed.
 	BaseURL string
 
 	// EnableRealtime enables real-time flag updates via SSE (default: true)

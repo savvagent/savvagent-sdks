@@ -9,6 +9,35 @@ from savvagent.exceptions import InvalidAPIKeyError
 from tests.conftest import mock_flag_response, mock_flags_list_response
 
 
+class TestBaseUrl:
+    """Tests for the default base URL and trailing-slash handling."""
+
+    def test_default_base_url(self) -> None:
+        config = FlagClientConfig(api_key="sdk_valid_key")
+        assert config.base_url == "https://api.savvagent.com/flags"
+
+    def test_trailing_slashes_are_removed(self) -> None:
+        config = FlagClientConfig(
+            api_key="sdk_valid_key", base_url="https://flags.example.com/flags//"
+        )
+        assert config.base_url == "https://flags.example.com/flags"
+
+    @respx.mock
+    def test_evaluate_uses_default_base_url(self) -> None:
+        route = respx.post(
+            "https://api.savvagent.com/flags/api/flags/test-flag/evaluate"
+        ).mock(return_value=httpx.Response(200, json={"key": "test-flag", "enabled": True}))
+        config = FlagClientConfig(
+            api_key="sdk_valid_key", enable_realtime=False, enable_telemetry=False
+        )
+        client = FlagClient(config)
+        try:
+            client.evaluate("test-flag")
+        finally:
+            client.close()
+        assert route.called
+
+
 class TestFlagClientConstruction:
     """Tests for FlagClient initialization."""
 
@@ -117,7 +146,7 @@ class TestFlagEvaluation:
     ) -> None:
         """Test that API errors return default value."""
         mock_api.post(
-            "https://flags-api.savvagent.com/api/flags/test-flag/evaluate"
+            "https://api.savvagent.com/flags/api/flags/test-flag/evaluate"
         ).mock(return_value=httpx.Response(500, json={"error": "Internal error"}))
 
         result = client.evaluate("test-flag")
@@ -136,7 +165,7 @@ class TestFlagEvaluation:
 
         with respx.mock:
             respx.post(
-                "https://flags-api.savvagent.com/api/flags/my-flag/evaluate"
+                "https://api.savvagent.com/flags/api/flags/my-flag/evaluate"
             ).mock(return_value=httpx.Response(500))
 
             with FlagClient(config) as client:

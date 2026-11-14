@@ -13,12 +13,12 @@ import (
 
 // FlagClient is the main client for evaluating feature flags
 type FlagClient struct {
-	config              Config
-	httpClient          *http.Client
-	cache               *cache
-	configOverrides     map[string]configOverrideEntry
-	variationOverrides  map[string]variationOverrideEntry
-	overrideMutex       sync.RWMutex
+	config             Config
+	httpClient         *http.Client
+	cache              *cache
+	configOverrides    map[string]configOverrideEntry
+	variationOverrides map[string]variationOverrideEntry
+	overrideMutex      sync.RWMutex
 }
 
 // NewClient creates a new FlagClient with the given configuration
@@ -30,8 +30,10 @@ func NewClient(config Config) (*FlagClient, error) {
 
 	// Apply defaults
 	if config.BaseURL == "" {
-		config.BaseURL = "https://flags-api.savvagent.com"
+		config.BaseURL = "https://api.savvagent.com/flags"
 	}
+	// Routes are appended to the base URL, so a trailing slash would double up.
+	config.BaseURL = strings.TrimRight(config.BaseURL, "/")
 	if config.CacheTTL == 0 {
 		config.CacheTTL = 60 * time.Second
 	}
@@ -107,7 +109,7 @@ func (c *FlagClient) Evaluate(flagKey string, ctx *Context) (*EvaluationResult, 
 		return c.getDefaultResult(flagKey, err), err
 	}
 
-	url := fmt.Sprintf("%s/api/evaluate/%s", c.config.BaseURL, flagKey)
+	url := fmt.Sprintf("%s/api/flags/%s/evaluate", c.config.BaseURL, flagKey)
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return c.getDefaultResult(flagKey, err), err
@@ -138,7 +140,7 @@ func (c *FlagClient) Evaluate(flagKey string, ctx *Context) (*EvaluationResult, 
 	}
 
 	var response struct {
-		Value         bool                   `json:"value"`
+		Value         bool                   `json:"enabled"`
 		Configuration map[string]interface{} `json:"configuration"`
 		Variation     string                 `json:"variation"`
 		FlagID        string                 `json:"flag_id"`

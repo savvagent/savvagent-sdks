@@ -21,7 +21,7 @@ func TestConfigurationOverrides(t *testing.T) {
 
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			response := map[string]interface{}{
-				"value":         true,
+				"enabled":       true,
 				"configuration": mockConfig,
 			}
 			json.NewEncoder(w).Encode(response)
@@ -72,7 +72,7 @@ func TestConfigurationOverrides(t *testing.T) {
 
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			response := map[string]interface{}{
-				"value":         true,
+				"enabled":       true,
 				"configuration": mockConfig,
 			}
 			json.NewEncoder(w).Encode(response)
@@ -117,7 +117,7 @@ func TestConfigurationOverrides(t *testing.T) {
 	t.Run("Override variation", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			response := map[string]interface{}{
-				"value":     true,
+				"enabled":   true,
 				"variation": "control",
 				"configuration": map[string]interface{}{
 					"algorithm": "standard",
@@ -148,7 +148,7 @@ func TestConfigurationOverrides(t *testing.T) {
 	t.Run("Clear configuration override", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			response := map[string]interface{}{
-				"value": true,
+				"enabled": true,
 				"configuration": map[string]interface{}{
 					"original": "config",
 				},
@@ -239,7 +239,7 @@ func TestConfigurationOverrides(t *testing.T) {
 
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			response := map[string]interface{}{
-				"value":         true,
+				"enabled":       true,
 				"configuration": mockConfig,
 			}
 			json.NewEncoder(w).Encode(response)

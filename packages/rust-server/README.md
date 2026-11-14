@@ -64,7 +64,7 @@ use std::time::Duration;
 
 let config = Config::new("sdk_your_api_key_here")
     .with_application_id("your-app-id")
-    .with_base_url("https://flags-api.savvagent.com")
+    .with_base_url("https://api.savvagent.com/flags")
     .with_cache_ttl(Duration::from_secs(60))
     .with_timeout(Duration::from_secs(5))
     .with_default("feature-a", false)
@@ -248,7 +248,7 @@ Configuration builder for the FlagClient.
 ```rust
 let config = Config::new("sdk_key")
     .with_application_id("app-id")
-    .with_base_url("https://flags-api.savvagent.com")
+    .with_base_url("https://api.savvagent.com/flags")
     .with_cache_ttl(Duration::from_secs(60))
     .with_timeout(Duration::from_secs(5))
     .with_default("flag", false);

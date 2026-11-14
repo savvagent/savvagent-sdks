@@ -1,27 +1,32 @@
 import XCTest
+import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 @testable import SavvagentSDK
 
 final class SavvagentClientNetworkTests: XCTestCase {
     var client: SavvagentClient!
-    var configuration: URLSessionConfiguration!
+
+    private func ok(_ request: URLRequest, _ body: String) -> (HTTPURLResponse, Data) {
+        let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+        return (response, body.data(using: .utf8)!)
+    }
 
     override func setUp() {
         super.setUp()
-
-        // Configure URLSession to use our mock protocol
-        configuration = URLSessionConfiguration.ephemeral
+        let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MockURLProtocol.self]
+        let session = URLSession(configuration: configuration)
 
         let config = SavvagentConfig(
-            apiUrl: "https://beta.savvagent.com",
             sdkKey: "test-key",
             environment: "test",
+            pollingInterval: 0,
             enableWebSocket: false,
-            pollingInterval: 0 // Disable polling for tests
+            enableTelemetry: false
         )
-
-        // We'll need to modify SavvagentClient to accept custom URLSession for testing
-        // For now, these tests demonstrate the structure
+        client = SavvagentClient(config: config, session: session)
     }
 
     override func tearDown() {
@@ -32,193 +37,272 @@ final class SavvagentClientNetworkTests: XCTestCase {
         super.tearDown()
     }
 
-    func testIsEnabledReturnsTrue() async throws {
-        // Mock successful response with enabled=true
-        MockURLProtocol.requestHandler = { request in
-            XCTAssertEqual(request.url?.path, "/v1/flags/test-flag/evaluate")
+    // MARK: Evaluate
+
+    func testEvaluateRequestShapeAndParsing() async throws {
+        MockURLProtocol.requestHandler = { [self] request in
+            XCTAssertEqual(request.url?.path, "/flags/api/flags/test-flag/evaluate")
             XCTAssertEqual(request.httpMethod, "POST")
             XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer test-key")
 
-            let response = HTTPURLResponse(
-                url: request.url!,
-                statusCode: 200,
-                httpVersion: nil,
-                headerFields: nil
-            )!
+            let body = try JSONSerialization.jsonObject(with: request.readBody() ?? Data()) as? [String: Any]
+            let ctx = body?["context"] as? [String: Any]
+            XCTAssertEqual(ctx?["user_id"] as? String, "user-123")
+            XCTAssertEqual(ctx?["environment"] as? String, "test")
+            XCTAssertEqual((ctx?["attributes"] as? [String: Any])?["plan"] as? String, "pro")
 
-            let jsonData = """
-            {
-                "enabled": true,
-                "flagKey": "test-flag"
-            }
-            """.data(using: .utf8)!
-
-            return (response, jsonData)
+            return ok(request, """
+            {"key":"test-flag","enabled":true,"scope":"application","variation":"blue",
+             "configuration":{"color":"#00f"},"timestamp":1731550000,"version":3,"context":{}}
+            """)
         }
 
-        let context = UserContext(userId: "user-123")
-
-        // This would work if we could inject the URLSession
-        // let isEnabled = try await client.isEnabled(flagKey: "test-flag", context: context)
-        // XCTAssertTrue(isEnabled)
+        let result = try await client.evaluate(
+            flagKey: "test-flag",
+            context: UserContext(userId: "user-123", attributes: ["plan": "pro"])
+        )
+        XCTAssertTrue(result.value)
+        XCTAssertEqual(result.variation, "blue")
+        XCTAssertEqual(result.configuration?["color"] as? String, "#00f")
+        XCTAssertEqual(result.reason, "evaluated")
     }
 
-    func testIsEnabledReturnsFalse() async throws {
+    func testEvaluateUsesCache() async throws {
+        var calls = 0
+        MockURLProtocol.requestHandler = { [self] request in
+            calls += 1
+            return ok(request, #"{"key":"f","enabled":true,"variation":null,"configuration":null,"version":1}"#)
+        }
+        let ctx = UserContext(userId: "u")
+        _ = try await client.evaluate(flagKey: "f", context: ctx)
+        let second = try await client.evaluate(flagKey: "f", context: ctx)
+        XCTAssertEqual(calls, 1)
+        XCTAssertEqual(second.reason, "cached")
+    }
+
+    func testEvaluateHTTPErrorThrowsRequestFailed() async {
         MockURLProtocol.requestHandler = { request in
-            let response = HTTPURLResponse(
-                url: request.url!,
-                statusCode: 200,
-                httpVersion: nil,
-                headerFields: nil
-            )!
-
-            let jsonData = """
-            {
-                "enabled": false,
-                "flagKey": "test-flag"
-            }
-            """.data(using: .utf8)!
-
-            return (response, jsonData)
+            (HTTPURLResponse(url: request.url!, statusCode: 404, httpVersion: nil, headerFields: nil)!, Data())
         }
-
-        // Test would go here
+        do {
+            _ = try await client.evaluate(flagKey: "missing", context: UserContext(userId: "u"))
+            XCTFail("expected throw")
+        } catch SavvagentError.requestFailed {
+        } catch {
+            XCTFail("unexpected error \(error)")
+        }
     }
 
-    func testIsEnabledHandlesHTTPError() async throws {
-        MockURLProtocol.requestHandler = { request in
-            let response = HTTPURLResponse(
-                url: request.url!,
-                statusCode: 404,
-                httpVersion: nil,
-                headerFields: nil
-            )!
-
-            return (response, Data())
+    func testEvaluateInvalidResponseThrows() async {
+        MockURLProtocol.requestHandler = { [self] request in ok(request, #"{"nope":1}"#) }
+        do {
+            _ = try await client.evaluate(flagKey: "f", context: UserContext(userId: "u"))
+            XCTFail("expected throw")
+        } catch SavvagentError.invalidResponse {
+        } catch {
+            XCTFail("unexpected error \(error)")
         }
-
-        // Should throw SavvagentError.requestFailed
     }
 
-    func testIsEnabledHandlesNetworkError() async throws {
+    func testEvaluateNetworkErrorThrows() async {
         MockURLProtocol.error = URLError(.notConnectedToInternet)
-
-        // Should throw network error
+        do {
+            _ = try await client.isEnabled(flagKey: "f", context: UserContext(userId: "u"))
+            XCTFail("expected throw")
+        } catch {
+            // expected
+        }
     }
 
-    func testGetVariationReturnsStringValue() async throws {
-        MockURLProtocol.requestHandler = { request in
-            let response = HTTPURLResponse(
-                url: request.url!,
-                statusCode: 200,
-                httpVersion: nil,
-                headerFields: nil
-            )!
+    // MARK: Variation
 
-            let jsonData = """
-            {
-                "value": "dark-mode"
-            }
-            """.data(using: .utf8)!
-
-            return (response, jsonData)
+    func testGetVariationComesFromEvaluateResponse() async {
+        MockURLProtocol.requestHandler = { [self] request in
+            XCTAssertTrue(request.url!.path.hasSuffix("/api/flags/theme/evaluate"))
+            return ok(request, #"{"key":"theme","enabled":true,"variation":"dark-mode","version":1}"#)
         }
-
-        // Test variation retrieval
+        let value = await client.getVariation(flagKey: "theme", context: UserContext(userId: "u"), defaultValue: "light")
+        XCTAssertEqual(value, "dark-mode")
     }
 
     func testGetVariationReturnsDefaultOnError() async {
         MockURLProtocol.error = URLError(.notConnectedToInternet)
-
-        let context = UserContext(userId: "user-123")
-
-        // Should return default value on error
-        // let value = await client.getVariation(flagKey: "theme", context: context, defaultValue: "light")
-        // XCTAssertEqual(value, "light")
+        let value = await client.getVariation(flagKey: "theme", context: UserContext(userId: "u"), defaultValue: "light")
+        XCTAssertEqual(value, "light")
     }
 
-    func testTrackEventSendsCorrectPayload() async {
-        MockURLProtocol.requestHandler = { request in
-            XCTAssertEqual(request.url?.path, "/v1/events")
-            XCTAssertEqual(request.httpMethod, "POST")
+    func testVariationOverrideApplied() async throws {
+        MockURLProtocol.requestHandler = { [self] request in
+            ok(request, #"{"key":"f","enabled":true,"variation":"a","version":1}"#)
+        }
+        client.setVariationOverride(flagKey: "f", variation: "forced")
+        let details = try await client.getVariationDetails(flagKey: "f", context: UserContext(userId: "u"))
+        XCTAssertEqual(details.variation, "forced")
+    }
 
-            // Verify event payload
-            if let bodyData = request.httpBody,
-               let json = try? JSONSerialization.jsonObject(with: bodyData) as? [String: Any] {
-                XCTAssertEqual(json["event"] as? String, "button_click")
-                XCTAssertNotNil(json["timestamp"])
+    // MARK: Bulk fetch
+
+    func testFetchAllFlags() async throws {
+        MockURLProtocol.requestHandler = { [self] request in
+            XCTAssertEqual(request.httpMethod, "GET")
+            XCTAssertEqual(request.url?.path, "/flags/api/sdk/flags")
+            XCTAssertEqual(request.url?.query, "environment=test")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer test-key")
+            return ok(request, """
+            {"flags":[{"key":"a","enabled":true,"scope":"application","environments":{},"variations":null,
+                       "configuration":{"x":1},"version":3},
+                      {"key":"b","enabled":false}],
+             "count":2,"organization_id":"o","application_id":"app"}
+            """)
+        }
+        let flags = try await client.fetchAllFlags()
+        XCTAssertEqual(flags.map { $0.key }, ["a", "b"])
+        XCTAssertEqual(flags[0].version, 3)
+        XCTAssertTrue(flags[0].enabled)
+        XCTAssertFalse(flags[1].enabled)
+    }
+
+    // MARK: Telemetry
+
+    func testFlushPostsEvaluationTelemetry() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        let telemetryClient = SavvagentClient(
+            config: SavvagentConfig(sdkKey: "k", environment: "test", pollingInterval: 0, enableWebSocket: false),
+            session: URLSession(configuration: configuration)
+        )
+        defer { telemetryClient.close() }
+
+        var telemetryBody: [String: Any]?
+        MockURLProtocol.requestHandler = { [self] request in
+            if request.url!.path.hasSuffix("/api/telemetry/evaluations") {
+                telemetryBody = try JSONSerialization.jsonObject(with: request.readBody() ?? Data()) as? [String: Any]
+                return ok(request, "{}")
             }
-
-            let response = HTTPURLResponse(
-                url: request.url!,
-                statusCode: 200,
-                httpVersion: nil,
-                headerFields: nil
-            )!
-
-            return (response, Data())
+            return ok(request, #"{"key":"f","enabled":true,"variation":"blue","version":1}"#)
         }
 
-        // Test tracking
+        _ = try await telemetryClient.evaluate(flagKey: "f", context: UserContext(userId: "u"))
+        await telemetryClient.flush()
+
+        let evals = telemetryBody?["evaluations"] as? [[String: Any]]
+        XCTAssertEqual(evals?.count, 1)
+        XCTAssertEqual(evals?.first?["flag_key"] as? String, "f")
+        XCTAssertEqual(evals?.first?["result"] as? Bool, true)
+        XCTAssertEqual(evals?.first?["variation"] as? String, "blue")
+        XCTAssertEqual(evals?.first?["environment"] as? String, "test")
+        XCTAssertNotNil(evals?.first?["timestamp"])
     }
 
-    func testUserContextSerializesToJSON() {
+    func testTelemetryBatchesAreCappedAt1000() {
+        let chunks = SavvagentClient.chunk(Array(0..<2500))
+        XCTAssertEqual(chunks.map { $0.count }, [1000, 1000, 500])
+        XCTAssertTrue(SavvagentClient.chunk([Int]()).isEmpty)
+    }
+
+    // MARK: Context / URL building
+
+    func testUserContextSerializesToSnakeCaseJSON() {
         let context = UserContext(
             userId: "user-123",
-            attributes: [
-                "email": "test@example.com",
-                "plan": "pro",
-                "age": 25,
-                "premium": true
-            ]
+            attributes: ["email": "test@example.com", "age": 25, "premium": true],
+            anonymousId: "anon",
+            sessionId: "sess",
+            language: "en"
         )
+        let json = context.toJSON(environment: "production")
 
-        let json = context.toJSON()
+        XCTAssertEqual(json["user_id"] as? String, "user-123")
+        XCTAssertNil(json["userId"])
+        XCTAssertEqual(json["anonymous_id"] as? String, "anon")
+        XCTAssertEqual(json["session_id"] as? String, "sess")
+        XCTAssertEqual(json["environment"] as? String, "production")
+        XCTAssertEqual(json["language"] as? String, "en")
+        XCTAssertNil(json["organization_id"])
 
-        XCTAssertEqual(json["userId"] as? String, "user-123")
-
-        if let attrs = json["attributes"] as? [String: Any] {
-            XCTAssertEqual(attrs["email"] as? String, "test@example.com")
-            XCTAssertEqual(attrs["plan"] as? String, "pro")
-            XCTAssertEqual(attrs["age"] as? Int, 25)
-            XCTAssertEqual(attrs["premium"] as? Bool, true)
-        } else {
-            XCTFail("Attributes not found")
-        }
+        let attrs = json["attributes"] as? [String: Any]
+        XCTAssertEqual(attrs?["email"] as? String, "test@example.com")
+        XCTAssertEqual(attrs?["age"] as? Int, 25)
+        XCTAssertEqual(attrs?["premium"] as? Bool, true)
     }
 
-    func testCachingWorks() async throws {
-        var callCount = 0
-
-        MockURLProtocol.requestHandler = { request in
-            callCount += 1
-
-            let response = HTTPURLResponse(
-                url: request.url!,
-                statusCode: 200,
-                httpVersion: nil,
-                headerFields: nil
-            )!
-
-            let jsonData = """
-            {
-                "enabled": true,
-                "flagKey": "test-flag"
-            }
-            """.data(using: .utf8)!
-
-            return (response, jsonData)
-        }
-
-        // First call should hit the API
-        // Second call should use cache
-        // XCTAssertEqual(callCount, 1)
+    func testMakeURL() {
+        XCTAssertEqual(
+            SavvagentClient.makeURL(base: "https://api.savvagent.com/flags/", path: "/api/flags/stream")?.absoluteString,
+            "https://api.savvagent.com/flags/api/flags/stream"
+        )
+        XCTAssertEqual(
+            SavvagentClient.makeURL(
+                base: "https://api.savvagent.com/flags",
+                path: "/api/sdk/flags",
+                query: [URLQueryItem(name: "environment", value: "production")]
+            )?.absoluteString,
+            "https://api.savvagent.com/flags/api/sdk/flags?environment=production"
+        )
+        XCTAssertEqual(SavvagentClient.encodePathSegment("a/b c"), "a%2Fb%20c")
     }
+
+    // MARK: SSE
+
+    func testSSEParserDispatchesOnBlankLine() {
+        var parser = SSEParser()
+        XCTAssertNil(parser.feed(line: "event: flag.updated"))
+        XCTAssertNil(parser.feed(line: #"data: {"key":"f"}"#))
+        let event = parser.feed(line: "")
+        XCTAssertEqual(event, SSEEvent(event: "flag.updated", data: #"{"key":"f"}"#))
+        // State resets
+        XCTAssertNil(parser.feed(line: ""))
+    }
+
+    func testSSEParserHeartbeatCommentsAndMultilineData() {
+        var parser = SSEParser()
+        XCTAssertNil(parser.feed(line: ": keep-alive"))
+        XCTAssertNil(parser.feed(line: "event: heartbeat"))
+        XCTAssertNil(parser.feed(line: "data: ping"))
+        XCTAssertEqual(parser.feed(line: ""), SSEEvent(event: "heartbeat", data: "ping"))
+
+        XCTAssertNil(parser.feed(line: "data:one"))
+        XCTAssertNil(parser.feed(line: "data: two"))
+        XCTAssertEqual(parser.feed(line: ""), SSEEvent(event: "message", data: "one\ntwo"))
+    }
+
+    func testParseFlagChange() {
+        let event = SSEEvent(event: "flag.deleted", data: #"{"type":"flag.deleted","key":"f","version":4}"#)
+        let change = SavvagentClient.parseFlagChange(event)
+        XCTAssertEqual(change?.type, .deleted)
+        XCTAssertEqual(change?.flagKey, "f")
+        XCTAssertEqual(change?.version, 4)
+        XCTAssertNil(SavvagentClient.parseFlagChange(SSEEvent(event: "heartbeat", data: "ping")))
+    }
+
+    func testFlagEventInvalidatesCacheAndNotifiesListeners() async throws {
+        var calls = 0
+        MockURLProtocol.requestHandler = { [self] request in
+            calls += 1
+            return ok(request, #"{"key":"f","enabled":true,"version":1}"#)
+        }
+        let ctx = UserContext(userId: "u")
+        _ = try await client.evaluate(flagKey: "f", context: ctx)
+
+        var received: FlagChangeEvent?
+        let token = client.addFlagChangeListener { received = $0 }
+        client.handleStreamEvent(SSEEvent(event: "flag.updated", data: #"{"key":"f","version":2}"#))
+        XCTAssertEqual(received?.flagKey, "f")
+
+        _ = try await client.evaluate(flagKey: "f", context: ctx)
+        XCTAssertEqual(calls, 2)
+
+        client.removeFlagChangeListener(token)
+        received = nil
+        client.handleStreamEvent(SSEEvent(event: "flag.updated", data: #"{"key":"f","version":3}"#))
+        XCTAssertNil(received)
+    }
+
+    // MARK: Config
 
     func testConfigurationDefaults() {
         let config = SavvagentConfig(sdkKey: "test-key")
-
-        XCTAssertEqual(config.apiUrl, "https://beta.savvagent.com")
+        XCTAssertEqual(config.apiUrl, "https://api.savvagent.com/flags")
         XCTAssertEqual(config.environment, "production")
         XCTAssertEqual(config.pollingInterval, 60)
         XCTAssertTrue(config.enableWebSocket)
@@ -227,14 +311,13 @@ final class SavvagentClientNetworkTests: XCTestCase {
 
     func testConfigurationCustomValues() {
         let config = SavvagentConfig(
-            apiUrl: "https://custom.api.com",
+            apiUrl: "https://custom.api.com/",
             sdkKey: "custom-key",
             environment: "staging",
             pollingInterval: 120,
             enableWebSocket: false,
             timeout: 45
         )
-
         XCTAssertEqual(config.apiUrl, "https://custom.api.com")
         XCTAssertEqual(config.sdkKey, "custom-key")
         XCTAssertEqual(config.environment, "staging")

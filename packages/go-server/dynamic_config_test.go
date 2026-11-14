@@ -22,7 +22,7 @@ func TestDynamicConfiguration(t *testing.T) {
 
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			response := map[string]interface{}{
-				"value":         true,
+				"enabled":       true,
 				"configuration": mockConfig,
 				"flag_id":       "flag-123",
 			}
@@ -60,7 +60,7 @@ func TestDynamicConfiguration(t *testing.T) {
 
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			response := map[string]interface{}{
-				"value":         true,
+				"enabled":       true,
 				"configuration": mockConfig,
 			}
 			json.NewEncoder(w).Encode(response)
@@ -88,7 +88,7 @@ func TestDynamicConfiguration(t *testing.T) {
 	t.Run("GetConfig returns nil when flag is disabled", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			response := map[string]interface{}{
-				"value": false,
+				"enabled": false,
 				"configuration": map[string]interface{}{
 					"some": "config",
 				},
@@ -120,7 +120,7 @@ func TestDynamicConfiguration(t *testing.T) {
 
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			response := map[string]interface{}{
-				"value":         true,
+				"enabled":       true,
 				"variation":     "variant_b",
 				"configuration": mockConfig,
 			}
@@ -152,7 +152,7 @@ func TestDynamicConfiguration(t *testing.T) {
 	t.Run("GetVariation defaults to 'control' when not specified", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			response := map[string]interface{}{
-				"value": true,
+				"enabled": true,
 			}
 			json.NewEncoder(w).Encode(response)
 		}))
@@ -182,7 +182,7 @@ func TestDynamicConfiguration(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			callCount++
 			response := map[string]interface{}{
-				"value":         true,
+				"enabled":       true,
 				"configuration": mockConfig,
 			}
 			json.NewEncoder(w).Encode(response)
@@ -220,7 +220,7 @@ func TestDynamicConfiguration(t *testing.T) {
 	t.Run("Backward compatibility with IsEnabled", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			response := map[string]interface{}{
-				"value": true,
+				"enabled": true,
 				"configuration": map[string]interface{}{
 					"some": "config",
 				},
@@ -244,7 +244,7 @@ func TestDynamicConfiguration(t *testing.T) {
 	t.Run("Works with API responses without configuration", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			response := map[string]interface{}{
-				"value": true,
+				"enabled": true,
 			}
 			json.NewEncoder(w).Encode(response)
 		}))

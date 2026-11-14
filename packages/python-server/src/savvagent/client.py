@@ -176,7 +176,7 @@ class FlagClient:
             response.raise_for_status()
 
             data = response.json()
-            value = data.get("value", self._config.defaults.get(flag_key, False))
+            value = data.get("enabled", self._config.defaults.get(flag_key, False))
 
             # Cache the result (including configuration and variation)
             self._cache.set(

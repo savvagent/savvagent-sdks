@@ -84,7 +84,7 @@ public class FlagClient implements AutoCloseable {
             }
 
             // Call API
-            String url = config.getBaseUrl() + "/api/evaluate/" + flagKey;
+            String url = config.getBaseUrl() + "/api/flags/" + flagKey + "/evaluate";
             JsonObject requestBody = new JsonObject();
             requestBody.add("context", gson.toJsonTree(context));
 
@@ -100,11 +100,11 @@ public class FlagClient implements AutoCloseable {
                 }
 
                 JsonObject data = gson.fromJson(response.body().string(), JsonObject.class);
-                boolean value = data.has("value") ? data.get("value").getAsBoolean()
+                boolean value = hasValue(data, "enabled") ? data.get("enabled").getAsBoolean()
                                 : config.getDefaults().getOrDefault(flagKey, false);
 
-                Object configuration = data.has("configuration") ? data.get("configuration") : null;
-                String variation = data.has("variation") ? data.get("variation").getAsString() : null;
+                Object configuration = hasValue(data, "configuration") ? data.get("configuration") : null;
+                String variation = hasValue(data, "variation") ? data.get("variation").getAsString() : null;
 
                 // Cache the result (including configuration and variation)
                 setCachedValue(flagKey, value, configuration, variation);
@@ -224,6 +224,11 @@ public class FlagClient implements AutoCloseable {
         }
 
         return entry;
+    }
+
+    /** True when the field is present and not JSON null (the server sends "variation": null). */
+    private static boolean hasValue(JsonObject data, String field) {
+        return data.has(field) && !data.get(field).isJsonNull();
     }
 
     private void setCachedValue(String flagKey, boolean value, Object configuration, String variation) {

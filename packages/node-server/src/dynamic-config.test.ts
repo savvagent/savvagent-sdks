@@ -50,7 +50,7 @@ describe('Dynamic Configuration Tests', () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          value: true,
+          enabled: true,
           configuration: mockConfig,
           flagId: 'flag-123',
         }),
@@ -67,7 +67,7 @@ describe('Dynamic Configuration Tests', () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          value: true,
+          enabled: true,
           flagId: 'flag-123',
         }),
       });
@@ -84,7 +84,7 @@ describe('Dynamic Configuration Tests', () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          value: true,
+          enabled: true,
           configuration: mockConfig,
         }),
       });
@@ -113,7 +113,7 @@ describe('Dynamic Configuration Tests', () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          value: true,
+          enabled: true,
           configuration: mockConfig,
         }),
       });
@@ -127,7 +127,7 @@ describe('Dynamic Configuration Tests', () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          value: false,
+          enabled: false,
           configuration: { some: 'config' },
         }),
       });
@@ -142,7 +142,7 @@ describe('Dynamic Configuration Tests', () => {
 
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ value: false }),
+        json: async () => ({ enabled: false }),
       });
 
       const config = await client.getConfig('api-settings', undefined, defaultConfig);
@@ -155,7 +155,7 @@ describe('Dynamic Configuration Tests', () => {
 
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ value: true }),
+        json: async () => ({ enabled: true }),
       });
 
       const config = await client.getConfig('api-settings', undefined, defaultConfig);
@@ -174,7 +174,7 @@ describe('Dynamic Configuration Tests', () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          value: true,
+          enabled: true,
           variation: 'variant_b',
           configuration: mockConfig,
         }),
@@ -190,7 +190,7 @@ describe('Dynamic Configuration Tests', () => {
     it('should default to "control" when variation is not specified', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ value: true }),
+        json: async () => ({ enabled: true }),
       });
 
       const result = await client.getVariation('test-flag');
@@ -203,7 +203,7 @@ describe('Dynamic Configuration Tests', () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          value: false,
+          enabled: false,
           variation: 'control',
         }),
       });
@@ -220,7 +220,7 @@ describe('Dynamic Configuration Tests', () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          value: true,
+          enabled: true,
           configuration: { some: 'config' },
         }),
       });
@@ -233,7 +233,7 @@ describe('Dynamic Configuration Tests', () => {
     it('should work with API responses without configuration field', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ value: true }),
+        json: async () => ({ enabled: true }),
       });
 
       const result = await client.evaluate('test-flag');

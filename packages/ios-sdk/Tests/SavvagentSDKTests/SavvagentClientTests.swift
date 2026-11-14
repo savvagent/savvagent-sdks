@@ -1,4 +1,8 @@
 import XCTest
+import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 @testable import SavvagentSDK
 
 final class SavvagentClientTests: XCTestCase {
@@ -9,8 +13,8 @@ final class SavvagentClientTests: XCTestCase {
         let config = SavvagentConfig(
             sdkKey: "test-key",
             environment: "test",
-            enableWebSocket: false,
-            pollingInterval: 0 // Disable polling for tests
+            pollingInterval: 0, // Disable polling for tests
+            enableWebSocket: false
         )
         client = SavvagentClient(config: config)
     }
@@ -67,7 +71,7 @@ final class SavvagentClientTests: XCTestCase {
     func testConfigDefaults() {
         let config = SavvagentConfig(sdkKey: "test-key")
 
-        XCTAssertEqual(config.apiUrl, "https://beta.savvagent.com")
+        XCTAssertEqual(config.apiUrl, "https://api.savvagent.com/flags")
         XCTAssertEqual(config.environment, "production")
         XCTAssertEqual(config.pollingInterval, 60)
         XCTAssertTrue(config.enableWebSocket)
@@ -92,11 +96,16 @@ final class SavvagentClientTests: XCTestCase {
         XCTAssertEqual(config.timeout, 60)
     }
 
+    func testApiUrlTrailingSlashesStripped() {
+        let config = SavvagentConfig(apiUrl: "https://example.com/flags///", sdkKey: "k")
+        XCTAssertEqual(config.apiUrl, "https://example.com/flags")
+    }
+
     func testClientCleanup() {
         let config = SavvagentConfig(
             sdkKey: "test-key",
-            enableWebSocket: false,
-            pollingInterval: 0
+            pollingInterval: 0,
+            enableWebSocket: false
         )
         let testClient = SavvagentClient(config: config)
 

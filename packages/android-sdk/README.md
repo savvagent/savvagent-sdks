@@ -5,8 +5,9 @@ The official Android SDK for [Savvagent](https://flags.savvagent.com) - the AI-p
 ## Features
 
 - **Native Kotlin API** - Idiomatic Kotlin with coroutines support
-- **Real-time Updates** - WebSocket support for instant flag updates
-- **Automatic Caching** - Smart caching with configurable polling
+- **Real-time Updates** - Server-Sent Events stream for instant flag invalidation, with automatic reconnect
+- **Automatic Caching** - Per-user evaluation cache, refreshed by polling and realtime events
+- **Telemetry** - Batched evaluation and error reporting
 - **Type-Safe** - Full type safety with Kotlin's type system
 - **Lightweight** - Minimal dependencies
 - **Lifecycle Aware** - Integrates with Android lifecycle components
@@ -60,9 +61,9 @@ import kotlinx.coroutines.launch
 
 // Configure the SDK
 val config = SavvagentConfig(
-    apiUrl = "https://flags-beta.savvagent.com",
     sdkKey = "your-sdk-key",
     environment = "production"
+    // apiUrl defaults to https://api.savvagent.com/flags
 )
 
 // Initialize the client
@@ -171,17 +172,24 @@ class MainActivity : AppCompatActivity() {
 
 ```kotlin
 val config = SavvagentConfig(
-    apiUrl = "https://flags-beta.savvagent.com",
+    apiUrl = "https://api.savvagent.com/flags", // default; trailing slashes are ignored
     sdkKey = "your-sdk-key",
     environment = "production",
-    pollingInterval = 60_000L,     // Poll every 60 seconds
-    enableWebSocket = true,         // Enable real-time updates
+    pollingInterval = 60_000L,     // Re-fetch the environment flag list every 60 seconds (0 disables)
+    enableWebSocket = true,         // Enable realtime updates (Server-Sent Events)
     timeout = 30_000L,              // Request timeout in milliseconds
-    enableLogging = true            // Enable debug logging
+    enableLogging = true,           // Enable debug logging
+    enableTelemetry = true          // Report evaluations and errors
 )
 ```
 
+Requests are authenticated with `Authorization: Bearer <sdk key>`.
+
 ### Getting Variation Values
+
+The evaluate response carries the variation and configuration, so there is no separate
+variation request. `getVariation` evaluates the flag and returns the variation name or the
+flag configuration, whichever matches the type of the default value.
 
 ```kotlin
 // Get string variation
@@ -191,40 +199,42 @@ val theme = client.getVariation(
     defaultValue = "light"
 )
 
-// Get numeric variation
-val maxItems = client.getVariation(
-    flagKey = "max-items",
-    userContext = context,
-    defaultValue = 10
-)
-
-// Get map variation
-val config = client.getVariation(
-    flagKey = "app-config",
-    userContext = context,
-    defaultValue = mapOf("key" to "value")
-)
+// Full details
+val details = client.getVariationDetails("app-theme", context).getOrNull()
+// details?.variation, details?.enabled, details?.configuration
 ```
 
-### Event Tracking
+### Telemetry
+
+Evaluations are batched and sent to `POST /api/telemetry/evaluations` every 5 seconds (or when
+50 are queued, at most 1000 per request). Report errors that happen while a flag is in effect so
+the server can compare error rates with the flag on and off:
 
 ```kotlin
-// Track custom events
-lifecycleScope.launch {
-    client.track(
-        eventName = "feature_used",
-        userContext = context,
-        properties = mapOf(
-            "feature" to "new-checkout",
-            "duration" to 1234
-        )
-    )
+try {
+    renderNewCheckout()
+} catch (e: Exception) {
+    client.reportError("new-checkout", e, userContext, flagEnabled = true)
 }
+
+// Force a flush (for example before the app is backgrounded)
+lifecycleScope.launch { client.flush() }
 ```
+
+`track(...)` is deprecated and does nothing: the Flags API has no custom event endpoint.
 
 ### Real-time Flag Updates
 
+The client keeps a Server-Sent Events connection to `GET /api/flags/stream`. On any
+`flag.created`, `flag.updated` or `flag.deleted` event the cached value for that flag is
+discarded, so the next evaluation fetches fresh data, and listeners are notified. The
+connection reconnects with exponential backoff (1s up to 30s).
+
 ```kotlin
+client.addFlagChangeListener { flagKey, eventType ->
+    // eventType is "flag.updated", etc. Runs on a background thread.
+}
+
 // Observe flag updates using Flow
 lifecycleScope.launch {
     client.flagUpdates.collect { flags ->
@@ -263,20 +273,23 @@ val context = UserContext(
 )
 ```
 
-### WebSocket Support
+### Realtime Support
 
-Enable WebSocket for real-time flag updates:
+Realtime updates use Server-Sent Events. The `enableWebSocket` option name is kept for
+compatibility and controls whether the stream is opened:
 
 ```kotlin
 val config = SavvagentConfig(
     sdkKey = "your-sdk-key",
-    enableWebSocket = true  // Flags update in real-time
+    enableWebSocket = true  // Cached flags are invalidated in real time
 )
 ```
 
 ### Caching
 
-The SDK automatically caches flag evaluations to improve performance. Configure polling interval:
+The SDK caches flag evaluations (per user) to improve performance. The polling interval controls
+how often the environment flag list (`GET /api/sdk/flags?environment=...`) is re-fetched; cached
+evaluations whose flag version changed are discarded. Call `refresh()` to fetch on demand.
 
 ```kotlin
 val config = SavvagentConfig(

@@ -18,7 +18,7 @@ async fn test_evaluate_returns_configuration() {
     });
 
     Mock::given(method("POST"))
-        .and(path("/api/evaluate/test-flag"))
+        .and(path("/api/flags/test-flag/evaluate"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "value": true,
             "configuration": config_json,
@@ -51,7 +51,7 @@ async fn test_get_config_returns_value_when_enabled() {
     });
 
     Mock::given(method("POST"))
-        .and(path("/api/evaluate/api-settings"))
+        .and(path("/api/flags/api-settings/evaluate"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "value": true,
             "configuration": config_json
@@ -75,7 +75,7 @@ async fn test_get_config_returns_none_when_disabled() {
     let mock_server = MockServer::start().await;
 
     Mock::given(method("POST"))
-        .and(path("/api/evaluate/api-settings"))
+        .and(path("/api/flags/api-settings/evaluate"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "value": false,
             "configuration": { "some": "config" }
@@ -102,7 +102,7 @@ async fn test_get_variation_returns_details() {
     });
 
     Mock::given(method("POST"))
-        .and(path("/api/evaluate/search-algorithm"))
+        .and(path("/api/flags/search-algorithm/evaluate"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "value": true,
             "variation": "variant_b",
@@ -127,7 +127,7 @@ async fn test_variation_defaults_to_control() {
     let mock_server = MockServer::start().await;
 
     Mock::given(method("POST"))
-        .and(path("/api/evaluate/test-flag"))
+        .and(path("/api/flags/test-flag/evaluate"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "value": true
         })))
@@ -149,7 +149,7 @@ async fn test_backward_compatibility_with_is_enabled() {
     let mock_server = MockServer::start().await;
 
     Mock::given(method("POST"))
-        .and(path("/api/evaluate/test-flag"))
+        .and(path("/api/flags/test-flag/evaluate"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "value": true,
             "configuration": { "some": "config" }

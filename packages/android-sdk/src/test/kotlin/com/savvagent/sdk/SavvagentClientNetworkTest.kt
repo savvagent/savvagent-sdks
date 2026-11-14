@@ -3,15 +3,20 @@ package com.savvagent.sdk
 import kotlinx.coroutines.test.runTest
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import org.json.JSONObject
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import org.junit.Assert.*
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 class SavvagentClientNetworkTest {
 
     private lateinit var mockWebServer: MockWebServer
     private lateinit var client: SavvagentClient
+
+    private fun baseUrl(): String = mockWebServer.url("/").toString().removeSuffix("/")
 
     @Before
     fun setUp() {
@@ -19,12 +24,13 @@ class SavvagentClientNetworkTest {
         mockWebServer.start()
 
         val config = SavvagentConfig(
-            apiUrl = mockWebServer.url("/").toString().removeSuffix("/"),
+            apiUrl = baseUrl(),
             sdkKey = "test-key",
             environment = "test",
             enableWebSocket = false,
             pollingInterval = 0,
-            enableLogging = true
+            enableLogging = true,
+            enableTelemetry = false
         )
 
         client = SavvagentClient(config)
@@ -41,7 +47,7 @@ class SavvagentClientNetworkTest {
         mockWebServer.enqueue(
             MockResponse()
                 .setResponseCode(200)
-                .setBody("""{"enabled": true, "flagKey": "test-flag"}""")
+                .setBody("""{"key": "test-flag", "enabled": true, "scope": "application", "variation": null, "configuration": null, "version": 3}""")
                 .addHeader("Content-Type", "application/json")
         )
 
@@ -52,7 +58,7 @@ class SavvagentClientNetworkTest {
         assertTrue(result.getOrDefault(false))
 
         val request = mockWebServer.takeRequest()
-        assertEquals("/v1/flags/test-flag/evaluate", request.path)
+        assertEquals("/api/flags/test-flag/evaluate", request.path)
         assertEquals("POST", request.method)
         assertEquals("Bearer test-key", request.getHeader("Authorization"))
     }
@@ -62,15 +68,45 @@ class SavvagentClientNetworkTest {
         mockWebServer.enqueue(
             MockResponse()
                 .setResponseCode(200)
-                .setBody("""{"enabled": false, "flagKey": "test-flag"}""")
+                .setBody("""{"key": "test-flag", "enabled": false}""")
                 .addHeader("Content-Type", "application/json")
         )
 
-        val context = UserContext(userId = "user-123")
-        val result = client.isEnabled("test-flag", context)
+        val result = client.isEnabled("test-flag", UserContext(userId = "user-123"))
 
         assertTrue(result.isSuccess)
         assertFalse(result.getOrDefault(true))
+    }
+
+    @Test
+    fun testEvaluateParsesVariationAndConfiguration() = runTest {
+        mockWebServer.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setBody("""{"key": "theme", "enabled": true, "variation": "blue", "configuration": {"size": 3, "nested": {"a": "b"}}, "version": 2}""")
+        )
+
+        val result = client.evaluate("theme", UserContext(userId = "user-123")).getOrThrow()
+
+        assertTrue(result.value)
+        assertEquals("blue", result.variation)
+        assertEquals(3, result.configuration?.get("size"))
+        assertEquals(mapOf("a" to "b"), result.configuration?.get("nested"))
+        assertEquals("evaluated", result.reason)
+    }
+
+    @Test
+    fun testEvaluateCachesResultForSameUser() = runTest {
+        mockWebServer.enqueue(
+            MockResponse().setResponseCode(200).setBody("""{"enabled": true}""")
+        )
+        val context = UserContext(userId = "user-123")
+
+        client.evaluate("flag", context)
+        val second = client.evaluate("flag", context).getOrThrow()
+
+        assertEquals("cached", second.reason)
+        assertEquals(1, mockWebServer.requestCount)
     }
 
     @Test
@@ -81,8 +117,7 @@ class SavvagentClientNetworkTest {
                 .setBody("""{"error": "Flag not found"}""")
         )
 
-        val context = UserContext(userId = "user-123")
-        val result = client.isEnabled("missing-flag", context)
+        val result = client.isEnabled("missing-flag", UserContext(userId = "user-123"))
 
         assertTrue(result.isFailure)
     }
@@ -95,8 +130,7 @@ class SavvagentClientNetworkTest {
                 .setBody("Internal server error")
         )
 
-        val context = UserContext(userId = "user-123")
-        val result = client.isEnabled("test-flag", context)
+        val result = client.isEnabled("test-flag", UserContext(userId = "user-123"))
 
         assertTrue(result.isFailure)
     }
@@ -109,14 +143,13 @@ class SavvagentClientNetworkTest {
                 .setBody("invalid json")
         )
 
-        val context = UserContext(userId = "user-123")
-        val result = client.isEnabled("test-flag", context)
+        val result = client.isEnabled("test-flag", UserContext(userId = "user-123"))
 
         assertTrue(result.isFailure)
     }
 
     @Test
-    fun testIsEnabledSendsUserContext() = runTest {
+    fun testIsEnabledSendsSnakeCaseContext() = runTest {
         mockWebServer.enqueue(
             MockResponse()
                 .setResponseCode(200)
@@ -128,102 +161,126 @@ class SavvagentClientNetworkTest {
             attributes = mapOf(
                 "email" to "test@example.com",
                 "plan" to "pro"
-            )
+            ),
+            anonymousId = "anon-1"
         )
 
         client.isEnabled("test-flag", context)
 
         val request = mockWebServer.takeRequest()
-        val body = request.body.readUtf8()
+        val body = JSONObject(request.body.readUtf8())
+        val ctx = body.getJSONObject("context")
 
-        assertTrue(body.contains("user-456"))
-        assertTrue(body.contains("email"))
-        assertTrue(body.contains("test@example.com"))
+        assertEquals("user-456", ctx.getString("user_id"))
+        assertEquals("anon-1", ctx.getString("anonymous_id"))
+        assertEquals("test", ctx.getString("environment"))
+        assertFalse(ctx.has("userId"))
+        assertEquals("test@example.com", ctx.getJSONObject("attributes").getString("email"))
+        assertEquals("pro", ctx.getJSONObject("attributes").getString("plan"))
     }
 
     @Test
-    fun testGetVariationReturnsValue() = runTest {
+    fun testTrailingSlashesInApiUrlAreStripped() = runTest {
+        val slashed = SavvagentClient(
+            SavvagentConfig(
+                apiUrl = baseUrl() + "/flags//",
+                sdkKey = "test-key",
+                enableWebSocket = false,
+                pollingInterval = 0,
+                enableTelemetry = false
+            )
+        )
+        mockWebServer.enqueue(MockResponse().setResponseCode(200).setBody("""{"enabled": true}"""))
+
+        slashed.isEnabled("test-flag", UserContext(userId = "u"))
+        slashed.close()
+
+        assertEquals("/flags/api/flags/test-flag/evaluate", mockWebServer.takeRequest().path)
+    }
+
+    @Test
+    fun testGetVariationReturnsVariationFromEvaluate() = runTest {
         mockWebServer.enqueue(
             MockResponse()
                 .setResponseCode(200)
-                .setBody("""{"value": "dark-mode"}""")
+                .setBody("""{"enabled": true, "variation": "dark-mode"}""")
         )
 
-        val context = UserContext(userId = "user-123")
-        val value = client.getVariation("theme", context, "light")
+        val value = client.getVariation("theme", UserContext(userId = "user-123"), "light")
 
         assertEquals("dark-mode", value)
+        // No separate variation endpoint exists: it must use evaluate
+        assertEquals("/api/flags/theme/evaluate", mockWebServer.takeRequest().path)
     }
 
     @Test
     fun testGetVariationReturnsDefaultOnError() = runTest {
-        mockWebServer.enqueue(
-            MockResponse()
-                .setResponseCode(500)
-        )
+        mockWebServer.enqueue(MockResponse().setResponseCode(500))
 
-        val context = UserContext(userId = "user-123")
-        val value = client.getVariation("theme", context, "light")
+        val value = client.getVariation("theme", UserContext(userId = "user-123"), "light")
 
         assertEquals("light", value)
     }
 
     @Test
-    fun testGetVariationWithNumericValue() = runTest {
+    fun testGetVariationReturnsDefaultOnTypeMismatch() = runTest {
         mockWebServer.enqueue(
             MockResponse()
                 .setResponseCode(200)
-                .setBody("""{"value": 100}""")
+                .setBody("""{"enabled": true, "variation": "blue"}""")
         )
 
-        val context = UserContext(userId = "user-123")
-        val value = client.getVariation("max-items", context, 10)
+        val value = client.getVariation("max-items", UserContext(userId = "user-123"), 10)
 
-        assertEquals(100, value)
+        assertEquals(10, value)
     }
 
     @Test
-    fun testTrackEventSendsCorrectPayload() = runTest {
+    fun testRefreshUsesBulkEndpointWithEnvironment() = runTest {
         mockWebServer.enqueue(
             MockResponse()
                 .setResponseCode(200)
+                .setBody("""{"flags": [{"key": "a", "enabled": true, "version": 1}, {"key": "b", "enabled": false, "version": 4}], "count": 2}""")
         )
 
-        val context = UserContext(userId = "user-123")
-        val properties = mapOf(
-            "button" to "checkout",
-            "value" to 99.99
-        )
+        val result = client.refresh()
 
-        client.track("button_click", context, properties)
-
+        assertTrue(result.isSuccess)
         val request = mockWebServer.takeRequest()
-        assertEquals("/v1/events", request.path)
-        assertEquals("POST", request.method)
-
-        val body = request.body.readUtf8()
-        assertTrue(body.contains("button_click"))
-        assertTrue(body.contains("user-123"))
-        assertTrue(body.contains("button"))
-        assertTrue(body.contains("checkout"))
+        assertEquals("GET", request.method)
+        assertEquals("/api/sdk/flags?environment=test", request.path)
+        assertEquals("Bearer test-key", request.getHeader("Authorization"))
+        assertEquals(mapOf("a" to true, "b" to false), client.flagUpdates.value)
     }
 
     @Test
-    fun testTrackEventDoesNotThrowOnFailure() = runTest {
+    fun testRefreshInvalidatesCacheWhenVersionChanges() = runTest {
         mockWebServer.enqueue(
-            MockResponse()
-                .setResponseCode(500)
+            MockResponse().setResponseCode(200).setBody("""{"enabled": true, "version": 1}""")
         )
+        mockWebServer.enqueue(
+            MockResponse().setResponseCode(200).setBody("""{"flags": [{"key": "a", "enabled": true, "version": 2}]}""")
+        )
+        mockWebServer.enqueue(
+            MockResponse().setResponseCode(200).setBody("""{"enabled": false, "version": 2}""")
+        )
+        val context = UserContext(userId = "u")
 
-        val context = UserContext(userId = "user-123")
+        assertTrue(client.isEnabled("a", context).getOrThrow())
+        client.refresh()
+        assertFalse(client.isEnabled("a", context).getOrThrow())
+    }
 
-        // Should not throw
-        client.track("test_event", context)
+    @Test
+    @Suppress("DEPRECATION")
+    fun testTrackSendsNothing() = runTest {
+        client.track("button_click", UserContext(userId = "user-123"), mapOf("button" to "checkout"))
+
+        assertEquals(0, mockWebServer.requestCount)
     }
 
     @Test
     fun testMultipleSequentialRequests() = runTest {
-        // Queue multiple responses
         repeat(3) {
             mockWebServer.enqueue(
                 MockResponse()
@@ -234,13 +291,9 @@ class SavvagentClientNetworkTest {
 
         val context = UserContext(userId = "user-123")
 
-        val result1 = client.isEnabled("flag1", context)
-        val result2 = client.isEnabled("flag2", context)
-        val result3 = client.isEnabled("flag3", context)
-
-        assertTrue(result1.isSuccess)
-        assertTrue(result2.isSuccess)
-        assertTrue(result3.isSuccess)
+        assertTrue(client.isEnabled("flag1", context).isSuccess)
+        assertTrue(client.isEnabled("flag2", context).isSuccess)
+        assertTrue(client.isEnabled("flag3", context).isSuccess)
 
         assertEquals(3, mockWebServer.requestCount)
     }
@@ -253,12 +306,95 @@ class SavvagentClientNetworkTest {
                 .setBody("""{"enabled": true}""")
         )
 
-        val context = UserContext(userId = "user-123")
-        client.isEnabled("test-flag", context)
+        client.isEnabled("test-flag", UserContext(userId = "user-123"))
 
         val request = mockWebServer.takeRequest()
 
         assertEquals("Bearer test-key", request.getHeader("Authorization"))
-        assertEquals("application/json", request.getHeader("Content-Type"))
+        assertTrue(request.getHeader("Content-Type")!!.startsWith("application/json"))
+    }
+
+    @Test
+    fun testTelemetryFlushPostsEvaluationsAndErrors() = runTest {
+        val telemetryClient = SavvagentClient(
+            SavvagentConfig(
+                apiUrl = baseUrl(),
+                sdkKey = "test-key",
+                environment = "test",
+                enableWebSocket = false,
+                pollingInterval = 0,
+                enableTelemetry = true
+            )
+        )
+        mockWebServer.enqueue(MockResponse().setResponseCode(200).setBody("""{"enabled": true, "variation": "blue"}"""))
+        mockWebServer.enqueue(MockResponse().setResponseCode(202)) // evaluations
+        mockWebServer.enqueue(MockResponse().setResponseCode(202)) // errors
+
+        telemetryClient.evaluate("f", UserContext(userId = "u"))
+        telemetryClient.reportError("f", IllegalStateException("boom"), UserContext(userId = "u"), true)
+        // reportError flushes asynchronously and may race with flush(); drain both paths
+        telemetryClient.flush()
+
+        mockWebServer.takeRequest() // evaluate
+        val paths = mutableMapOf<String, JSONObject>()
+        repeat(2) {
+            val req = mockWebServer.takeRequest(5, TimeUnit.SECONDS) ?: return@repeat
+            paths[req.path!!] = JSONObject(req.body.readUtf8())
+        }
+        telemetryClient.close()
+
+        val evals = paths["/api/telemetry/evaluations"]!!.getJSONArray("evaluations")
+        assertEquals(1, evals.length())
+        assertEquals("f", evals.getJSONObject(0).getString("flag_key"))
+        assertTrue(evals.getJSONObject(0).getBoolean("result"))
+        assertEquals("blue", evals.getJSONObject(0).getString("variation"))
+        assertEquals("test", evals.getJSONObject(0).getString("environment"))
+
+        val errors = paths["/api/telemetry/errors"]!!.getJSONArray("errors")
+        assertEquals("IllegalStateException", errors.getJSONObject(0).getString("error_type"))
+        assertEquals("boom", errors.getJSONObject(0).getString("error_message"))
+    }
+
+    @Test
+    fun testRealtimeStreamInvalidatesCacheAndNotifiesListeners() {
+        val streamClient = SavvagentClient(
+            SavvagentConfig(
+                apiUrl = baseUrl(),
+                sdkKey = "test-key",
+                environment = "test",
+                enableWebSocket = true,
+                pollingInterval = 0,
+                enableTelemetry = false
+            )
+        )
+        val latch = CountDownLatch(1)
+        var changedKey: String? = null
+        var changedType: String? = null
+        streamClient.addFlagChangeListener { key, type ->
+            changedKey = key
+            changedType = type
+            latch.countDown()
+        }
+
+        mockWebServer.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .addHeader("Content-Type", "text/event-stream")
+                .setBody(
+                    "event: connected\ndata: {\"message\":\"ok\"}\n\n" +
+                        "event: heartbeat\ndata: ping\n\n" +
+                        "event: flag.updated\ndata: {\"type\":\"flag.updated\",\"key\":\"my-flag\",\"version\":4}\n\n"
+                )
+        )
+
+        assertTrue(latch.await(10, TimeUnit.SECONDS))
+        streamClient.close()
+
+        assertEquals("my-flag", changedKey)
+        assertEquals("flag.updated", changedType)
+        val request = mockWebServer.takeRequest()
+        assertEquals("/api/flags/stream", request.path)
+        assertEquals("text/event-stream", request.getHeader("Accept"))
+        assertEquals("Bearer test-key", request.getHeader("Authorization"))
     }
 }
