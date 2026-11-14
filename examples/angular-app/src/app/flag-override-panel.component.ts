@@ -1,5 +1,4 @@
 import { Component, OnInit, OnDestroy, HostListener } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import { Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 import { SavvagentService, FlagDefinition } from '@savvagent/angular';
@@ -16,123 +15,109 @@ const STORAGE_KEY = 'savvagent_local_overrides';
  */
 @Component({
   selector: 'app-flag-override-panel',
-  imports: [CommonModule],
   template: `
     <!-- Trigger Button -->
-    <button
-      *ngIf="!isOpen"
-      (click)="openPanel()"
-      class="flag-panel-trigger"
-      title="Open Flag Override Panel (Ctrl+Shift+F)"
-    >
-      <span class="flag-icon">&#9873;</span>
-      <span *ngIf="activeOverrideCount > 0" class="override-badge">{{ activeOverrideCount }}</span>
-    </button>
+    @if (!isOpen) {
+      <button (click)="openPanel()" class="flag-panel-trigger" title="Open Flag Override Panel (Ctrl+Shift+F)">
+        <span class="flag-icon">&#9873;</span>
+        @if (activeOverrideCount > 0) {
+          <span class="override-badge">{{ activeOverrideCount }}</span>
+        }
+      </button>
+    }
 
     <!-- Panel Overlay -->
-    <div *ngIf="isOpen" class="flag-panel-overlay" (click)="closePanel()">
-      <div class="flag-panel" (click)="$event.stopPropagation()">
-        <div class="flag-panel-header">
-          <h3>Feature Flag Overrides</h3>
-          <div class="flag-panel-actions">
-            <button
-              (click)="fetchFlags()"
-              class="flag-panel-btn flag-panel-btn-secondary"
-              [disabled]="loading"
-            >
-              {{ loading ? 'Loading...' : 'Refresh' }}
-            </button>
-            <button
-              (click)="clearAllOverrides()"
-              class="flag-panel-btn flag-panel-btn-secondary"
-              [disabled]="activeOverrideCount === 0"
-            >
-              Clear All
-            </button>
-            <button
-              (click)="closePanel()"
-              class="flag-panel-btn flag-panel-btn-close"
-            >
-              &times;
-            </button>
-          </div>
-        </div>
-
-        <p class="flag-panel-hint">
-          Toggle flags locally for testing. Changes apply immediately.
-          Press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd> to toggle panel.
-        </p>
-
-        <div *ngIf="error" class="flag-panel-error">{{ error }}</div>
-
-        <ng-container *ngIf="loading && flags.length === 0">
-          <div class="flag-panel-loading">Loading flags...</div>
-        </ng-container>
-
-        <ng-container *ngIf="!loading && flags.length === 0">
-          <div class="flag-panel-empty">No flags found</div>
-        </ng-container>
-
-        <div class="flag-list" *ngIf="flags.length > 0">
-          <div
-            *ngFor="let flag of flags"
-            class="flag-item"
-            [class.flag-item-overridden]="isOverridden(flag.key)"
-          >
-            <div class="flag-info">
-              <div class="flag-key">
-                {{ flag.key }}
-                <span *ngIf="isOverridden(flag.key)" class="override-indicator">OVERRIDDEN</span>
-              </div>
-              <div class="flag-meta">
-                <span class="flag-scope" [class.flag-scope-application]="flag.scope === 'application'" [class.flag-scope-enterprise]="flag.scope === 'enterprise'">
-                  {{ flag.scope }}
-                </span>
-                <span class="flag-server-value">
-                  Server: {{ flag.enabled ? 'ON' : 'OFF' }}
-                </span>
-              </div>
-            </div>
-
-            <div class="flag-controls">
-              <button
-                (click)="setOverride(flag.key, true)"
-                class="flag-toggle-btn"
-                [class.active]="getEffectiveValue(flag) && isOverridden(flag.key)"
-                [class.server]="getEffectiveValue(flag) && !isOverridden(flag.key)"
-              >
-                ON
+    @if (isOpen) {
+      <div class="flag-panel-overlay" (click)="closePanel()">
+        <div class="flag-panel" (click)="$event.stopPropagation()">
+          <div class="flag-panel-header">
+            <h3>Feature Flag Overrides</h3>
+            <div class="flag-panel-actions">
+              <button (click)="fetchFlags()" class="flag-panel-btn flag-panel-btn-secondary" [disabled]="loading">
+                {{ loading ? 'Loading...' : 'Refresh' }}
               </button>
               <button
-                (click)="setOverride(flag.key, false)"
-                class="flag-toggle-btn"
-                [class.active]="!getEffectiveValue(flag) && isOverridden(flag.key)"
-                [class.server]="!getEffectiveValue(flag) && !isOverridden(flag.key)"
+                (click)="clearAllOverrides()"
+                class="flag-panel-btn flag-panel-btn-secondary"
+                [disabled]="activeOverrideCount === 0"
               >
-                OFF
+                Clear All
               </button>
-              <button
-                *ngIf="isOverridden(flag.key)"
-                (click)="clearOverride(flag.key)"
-                class="flag-clear-btn"
-                title="Use server value"
-              >
-                Reset
-              </button>
+              <button (click)="closePanel()" class="flag-panel-btn flag-panel-btn-close">&times;</button>
             </div>
           </div>
-        </div>
-
-        <div class="flag-panel-footer">
-          <span class="override-count">
-            {{ activeOverrideCount }} override{{ activeOverrideCount !== 1 ? 's' : '' }} active
-          </span>
-          <span class="flag-panel-note">
-            Overrides persist across page reloads.
-          </span>
+          <p class="flag-panel-hint">
+            Toggle flags locally for testing. Changes apply immediately. Press
+            <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd> to toggle panel.
+          </p>
+          @if (error) {
+            <div class="flag-panel-error">{{ error }}</div>
+          }
+          @if (loading && flags.length === 0) {
+            <div class="flag-panel-loading">Loading flags...</div>
+          }
+          @if (!loading && flags.length === 0) {
+            <div class="flag-panel-empty">No flags found</div>
+          }
+          @if (flags.length > 0) {
+            <div class="flag-list">
+              @for (flag of flags; track flag.key) {
+                <div class="flag-item" [class.flag-item-overridden]="isOverridden(flag.key)">
+                  <div class="flag-info">
+                    <div class="flag-key">
+                      {{ flag.key }}
+                      @if (isOverridden(flag.key)) {
+                        <span class="override-indicator">OVERRIDDEN</span>
+                      }
+                    </div>
+                    <div class="flag-meta">
+                      <span
+                        class="flag-scope"
+                        [class.flag-scope-application]="flag.scope === 'application'"
+                        [class.flag-scope-enterprise]="flag.scope === 'enterprise'"
+                      >
+                        {{ flag.scope }}
+                      </span>
+                      <span class="flag-server-value"> Server: {{ flag.enabled ? 'ON' : 'OFF' }} </span>
+                    </div>
+                  </div>
+                  <div class="flag-controls">
+                    <button
+                      (click)="setOverride(flag.key, true)"
+                      class="flag-toggle-btn"
+                      [class.active]="getEffectiveValue(flag) && isOverridden(flag.key)"
+                      [class.server]="getEffectiveValue(flag) && !isOverridden(flag.key)"
+                    >
+                      ON
+                    </button>
+                    <button
+                      (click)="setOverride(flag.key, false)"
+                      class="flag-toggle-btn"
+                      [class.active]="!getEffectiveValue(flag) && isOverridden(flag.key)"
+                      [class.server]="!getEffectiveValue(flag) && !isOverridden(flag.key)"
+                    >
+                      OFF
+                    </button>
+                    @if (isOverridden(flag.key)) {
+                      <button (click)="clearOverride(flag.key)" class="flag-clear-btn" title="Use server value">
+                        Reset
+                      </button>
+                    }
+                  </div>
+                </div>
+              }
+            </div>
+          }
+          <div class="flag-panel-footer">
+            <span class="override-count">
+              {{ activeOverrideCount }} override{{ activeOverrideCount !== 1 ? 's' : '' }}
+              active
+            </span>
+            <span class="flag-panel-note"> Overrides persist across page reloads. </span>
+          </div>
         </div>
       </div>
-    </div>
+    }
   `,
 })
 export class FlagOverridePanelComponent implements OnInit, OnDestroy {

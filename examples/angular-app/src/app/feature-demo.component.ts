@@ -18,16 +18,16 @@ import { SavvagentService, FlagObservableResult, FlagEvaluationResult } from '@s
       <h1>Savvagent Angular Example</h1>
       <p class="subtitle">SDK Developer Guide Best Practices Demo</p>
 
-      <ng-container *ngIf="loading; else content">
+      @if (loading) {
         <p class="loading">Loading feature flags...</p>
-      </ng-container>
-
-      <ng-template #content>
+      } @else {
         <!-- New Feature Card -->
         <div class="feature-card" [class.feature-card-overridden]="isOverridden('new-feature')">
           <h2>
             New Feature
-            <span *ngIf="isOverridden('new-feature')" class="override-badge-inline">LOCAL OVERRIDE</span>
+            @if (isOverridden('new-feature')) {
+              <span class="override-badge-inline">LOCAL OVERRIDE</span>
+            }
           </h2>
           <p>
             Status:
@@ -35,22 +35,26 @@ import { SavvagentService, FlagObservableResult, FlagEvaluationResult } from '@s
               {{ newFeatureEnabled ? 'Enabled' : 'Disabled' }}
             </span>
           </p>
-          <p *ngIf="isOverridden('new-feature')" class="server-value">
-            Server value: {{ newFeatureEnabled ? 'Enabled' : 'Disabled' }}
-          </p>
-          <p *ngIf="newFeatureResult?.metadata?.variation" class="variation">
-            Variation: {{ newFeatureResult?.metadata?.variation }}
-          </p>
-          <p *ngIf="newFeatureResult?.metadata?.configuration" class="config">
-            Config: <code>{{ newFeatureResult?.metadata?.configuration | json }}</code>
-          </p>
+          @if (isOverridden('new-feature')) {
+            <p class="server-value">Server value: {{ newFeatureEnabled ? 'Enabled' : 'Disabled' }}</p>
+          }
+          @if (newFeatureResult?.metadata?.variation) {
+            <p class="variation">Variation: {{ newFeatureResult?.metadata?.variation }}</p>
+          }
+          @if (newFeatureResult?.metadata?.configuration) {
+            <p class="config">
+              Config:
+              <code>{{ newFeatureResult?.metadata?.configuration | json }}</code>
+            </p>
+          }
         </div>
-
         <!-- Beta Feature Card -->
         <div class="feature-card" [class.feature-card-overridden]="isOverridden('beta-feature')">
           <h2>
             Beta Feature
-            <span *ngIf="isOverridden('beta-feature')" class="override-badge-inline">LOCAL OVERRIDE</span>
+            @if (isOverridden('beta-feature')) {
+              <span class="override-badge-inline">LOCAL OVERRIDE</span>
+            }
           </h2>
           <p>
             Status:
@@ -58,19 +62,20 @@ import { SavvagentService, FlagObservableResult, FlagEvaluationResult } from '@s
               {{ betaFeatureEnabled ? 'Enabled' : 'Disabled' }}
             </span>
           </p>
-          <p *ngIf="isOverridden('beta-feature')" class="server-value">
-            Server value: {{ betaFeatureEnabled ? 'Enabled' : 'Disabled' }}
-          </p>
-          <p *ngIf="betaFeatureResult?.metadata?.variation" class="variation">
-            Variation: {{ betaFeatureResult?.metadata?.variation }}
-          </p>
+          @if (isOverridden('beta-feature')) {
+            <p class="server-value">Server value: {{ betaFeatureEnabled ? 'Enabled' : 'Disabled' }}</p>
+          }
+          @if (betaFeatureResult?.metadata?.variation) {
+            <p class="variation">Variation: {{ betaFeatureResult?.metadata?.variation }}</p>
+          }
         </div>
-
         <!-- Enterprise One Card -->
         <div class="feature-card" [class.feature-card-overridden]="isOverridden('enterprise-one')">
           <h2>
             Enterprise One
-            <span *ngIf="isOverridden('enterprise-one')" class="override-badge-inline">LOCAL OVERRIDE</span>
+            @if (isOverridden('enterprise-one')) {
+              <span class="override-badge-inline">LOCAL OVERRIDE</span>
+            }
           </h2>
           <p>
             Status:
@@ -78,38 +83,37 @@ import { SavvagentService, FlagObservableResult, FlagEvaluationResult } from '@s
               {{ enterpriseOneEnabled ? 'Enabled' : 'Disabled' }}
             </span>
           </p>
-          <p *ngIf="isOverridden('enterprise-one')" class="server-value">
-            Server value: {{ enterpriseOneEnabled ? 'Enabled' : 'Disabled' }}
-          </p>
-          <p *ngIf="enterpriseOneResult?.metadata?.variation" class="variation">
-            Variation: {{ enterpriseOneResult?.metadata?.variation }}
-          </p>
-          <p *ngIf="enterpriseOneResult?.metadata?.configuration" class="config">
-            Config: <code>{{ enterpriseOneResult?.metadata?.configuration | json }}</code>
-          </p>
+          @if (isOverridden('enterprise-one')) {
+            <p class="server-value">Server value: {{ enterpriseOneEnabled ? 'Enabled' : 'Disabled' }}</p>
+          }
+          @if (enterpriseOneResult?.metadata?.variation) {
+            <p class="variation">Variation: {{ enterpriseOneResult?.metadata?.variation }}</p>
+          }
+          @if (enterpriseOneResult?.metadata?.configuration) {
+            <p class="config">
+              Config:
+              <code>{{ enterpriseOneResult?.metadata?.configuration | json }}</code>
+            </p>
+          }
         </div>
-
         <!-- New Feature Enabled Alert -->
-        <div *ngIf="newFeatureEnabled" class="alert alert-success">
-          <strong>New Feature Enabled!</strong>
-          <p>This feature is enabled for you based on your user attributes.</p>
-          <button (click)="handleRiskyAction()" class="btn">
-            Test Error Tracking
-          </button>
-        </div>
-
+        @if (newFeatureEnabled) {
+          <div class="alert alert-success">
+            <strong>New Feature Enabled!</strong>
+            <p>This feature is enabled for you based on your user attributes.</p>
+            <button (click)="handleRiskyAction()" class="btn">Test Error Tracking</button>
+          </div>
+        }
         <!-- User Management Section -->
         <div class="user-section">
           <h3>User Management</h3>
-          <p>Current User ID: <code>{{ currentUserId || 'Not set' }}</code></p>
-          <button (click)="setRandomUserId()" class="btn">
-            Set Random User ID
-          </button>
-          <button (click)="clearUserId()" class="btn btn-secondary">
-            Clear User ID
-          </button>
+          <p>
+            Current User ID: <code>{{ currentUserId || 'Not set' }}</code>
+          </p>
+          <button (click)="setRandomUserId()" class="btn">Set Random User ID</button>
+          <button (click)="clearUserId()" class="btn btn-secondary">Clear User ID</button>
         </div>
-      </ng-template>
+      }
     </div>
   `,
 })
