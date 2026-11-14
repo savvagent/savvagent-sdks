@@ -25,7 +25,7 @@ class FeatureFlagManager: ObservableObject {
 
     func initialize() async {
         let config = SavvagentConfig(
-            apiUrl: "https://beta.savvagent.com",
+            apiUrl: "https://api.savvagent.com/flags",
             sdkKey: "demo-sdk-key",
             environment: "development"
         )

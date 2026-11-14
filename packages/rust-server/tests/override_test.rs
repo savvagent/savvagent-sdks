@@ -18,7 +18,7 @@ async fn test_override_configuration_completely() {
     });
 
     Mock::given(method("POST"))
-        .and(path("/api/evaluate/test-flag"))
+        .and(path("/api/flags/test-flag/evaluate"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "value": true,
             "configuration": config_json
@@ -67,7 +67,7 @@ async fn test_merge_configuration() {
     });
 
     Mock::given(method("POST"))
-        .and(path("/api/evaluate/test-flag"))
+        .and(path("/api/flags/test-flag/evaluate"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "value": true,
             "configuration": config_json
@@ -108,7 +108,7 @@ async fn test_override_variation() {
     let mock_server = MockServer::start().await;
 
     Mock::given(method("POST"))
-        .and(path("/api/evaluate/test-flag"))
+        .and(path("/api/flags/test-flag/evaluate"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "value": true,
             "variation": "control",
@@ -138,7 +138,7 @@ async fn test_clear_configuration_override() {
     let mock_server = MockServer::start().await;
 
     Mock::given(method("POST"))
-        .and(path("/api/evaluate/test-flag"))
+        .and(path("/api/flags/test-flag/evaluate"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "value": true,
             "configuration": {
@@ -224,7 +224,7 @@ async fn test_deep_merge_nested_configurations() {
     });
 
     Mock::given(method("POST"))
-        .and(path("/api/evaluate/test-flag"))
+        .and(path("/api/flags/test-flag/evaluate"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "value": true,
             "configuration": config_json

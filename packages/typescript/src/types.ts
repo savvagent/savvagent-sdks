@@ -10,7 +10,7 @@ export interface FlagClientConfig {
   apiKey: string;
   /** Application ID for application-scoped flags (omit for enterprise flags only) */
   applicationId?: string;
-  /** Base URL for the Savvagent API (default: production URL) */
+  /** Base URL for the Savvagent Flags API (default: https://api.savvagent.com/flags). Trailing slashes are removed. */
   baseUrl?: string;
   /** Environment for flag evaluation (e.g., "development", "staging", "production", "beta"). Default: "production" */
   environment?: string;

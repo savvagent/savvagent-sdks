@@ -28,7 +28,7 @@ export class FlagClient {
     this.config = {
       apiKey: config.apiKey,
       applicationId: config.applicationId || '',
-      baseUrl: config.baseUrl || 'https://flags-api.savvagent.com',
+      baseUrl: (config.baseUrl || 'https://api.savvagent.com/flags').replace(/\/+$/, ''),
       environment: config.environment || 'production',
       enableRealtime: config.enableRealtime ?? true,
       cacheTtl: config.cacheTtl || 60000,
@@ -152,14 +152,14 @@ export class FlagClient {
       }
 
       const data = await response.json() as {
-        value?: boolean;
+        enabled?: boolean;
         configuration?: any;
         variation?: string;
         flagId?: string;
         description?: string;
         variant?: string;
       };
-      const value = data.value ?? this.config.defaults[flagKey] ?? false;
+      const value = data.enabled ?? this.config.defaults[flagKey] ?? false;
 
       // Cache the result (including configuration and variation)
       this.cache.set(flagKey, value, data.flagId, data.configuration, data.variation);

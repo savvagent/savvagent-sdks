@@ -34,7 +34,11 @@ pub struct FlagClient {
 
 impl FlagClient {
     /// Create a new FlagClient with the given configuration
-    pub fn new(config: Config) -> Result<Self, SavvagentError> {
+    pub fn new(mut config: Config) -> Result<Self, SavvagentError> {
+        // Routes are appended to the base URL, so a trailing slash would double up.
+        let trimmed = config.base_url.trim_end_matches('/').len();
+        config.base_url.truncate(trimmed);
+
         // Validate API key
         if !config.api_key.starts_with("sdk_") {
             return Err(SavvagentError::InvalidApiKey);
@@ -108,7 +112,7 @@ impl FlagClient {
         }
 
         // Make API request
-        let url = format!("{}/api/evaluate/{}", self.config.base_url, flag_key);
+        let url = format!("{}/api/flags/{}/evaluate", self.config.base_url, flag_key);
         let body = json!({ "context": ctx });
 
         let response = self
@@ -128,7 +132,7 @@ impl FlagClient {
         // Parse response
         let data: serde_json::Value = response.json().await?;
 
-        let value = data["value"]
+        let value = data["enabled"]
             .as_bool()
             .or_else(|| self.config.defaults.get(flag_key).copied())
             .unwrap_or(false);
@@ -420,5 +424,56 @@ impl FlagClient {
             }
             _ => override_val.clone(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn config(base_url: &str) -> Config {
+        Config {
+            api_key: "sdk_test".to_string(),
+            base_url: base_url.to_string(),
+            enable_realtime: false,
+            enable_telemetry: false,
+            ..Config::default()
+        }
+    }
+
+    #[test]
+    fn default_base_url_is_the_flags_api() {
+        assert_eq!(Config::default().base_url, "https://api.savvagent.com/flags");
+    }
+
+    #[test]
+    fn trailing_slashes_are_removed_from_the_base_url() {
+        let client = FlagClient::new(config("https://flags.example.com/flags//")).unwrap();
+        assert_eq!(client.config.base_url, "https://flags.example.com/flags");
+    }
+
+    #[tokio::test]
+    async fn evaluate_posts_to_the_canonical_route_and_reads_enabled() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/flags/api/flags/new-checkout/evaluate"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "key": "new-checkout",
+                "enabled": true,
+                "scope": "application",
+                "variation": null,
+                "configuration": null,
+                "timestamp": 1_731_550_000,
+                "version": 3,
+                "context": {}
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = FlagClient::new(config(&format!("{}/flags/", server.uri()))).unwrap();
+        assert!(client.is_enabled("new-checkout", None).await);
     }
 }

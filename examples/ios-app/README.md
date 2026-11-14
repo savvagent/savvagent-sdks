@@ -27,7 +27,7 @@ This is an example iOS application demonstrating how to integrate and use the Sa
 2. Update the SDK key in `SavvagentExampleApp.swift`:
    ```swift
    let config = SavvagentConfig(
-       apiUrl: "https://flags-beta.savvagent.com",
+       apiUrl: "https://api.savvagent.com/flags",
        sdkKey: "your-sdk-key",  // Replace with your SDK key
        environment: "production"
    )

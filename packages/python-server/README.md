@@ -64,7 +64,7 @@ from savvagent import FlagClientConfig
 config = FlagClientConfig(
     api_key="sdk_your_api_key_here",
     application_id="your-app-id",
-    base_url="https://flags-api.savvagent.com",  # optional
+    base_url="https://api.savvagent.com/flags",  # optional
     enable_realtime=True,  # default: True
     cache_ttl=60,  # seconds, default: 60
     enable_telemetry=True,  # default: True

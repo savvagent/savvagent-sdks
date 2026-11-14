@@ -45,7 +45,7 @@ describe('@savvagent/remix - Server Utilities', () => {
       const config: FlagClientConfig = {
         apiKey: 'sdk_test_key_123',
         applicationId: 'app_123',
-        baseUrl: 'https://flags-api.savvagent.com',
+        baseUrl: 'https://api.savvagent.com/flags',
       };
 
       server.initRemixClient(config);

@@ -67,7 +67,7 @@ client.close();
 ```java
 FlagClientConfig config = FlagClientConfig.builder("sdk_your_api_key_here")
     .applicationId("your-app-id")
-    .baseUrl("https://flags-api.savvagent.com") // optional
+    .baseUrl("https://api.savvagent.com/flags") // optional
     .enableRealtime(true) // default: true
     .cacheTtl(60000L) // default: 60 seconds
     .enableTelemetry(true) // default: true

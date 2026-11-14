@@ -5,7 +5,7 @@ The official iOS SDK for [Savvagent](https://flags.savvagent.com) - the AI-power
 ## Features
 
 - **Native Swift API** - Idiomatic Swift with async/await support
-- **Real-time Updates** - WebSocket support for instant flag updates
+- **Real-time Updates** - Server-Sent Events stream for instant flag updates
 - **Automatic Caching** - Smart caching with configurable polling
 - **Type-Safe** - Full type safety with Swift's type system
 - **Lightweight** - Zero external dependencies
@@ -13,7 +13,7 @@ The official iOS SDK for [Savvagent](https://flags.savvagent.com) - the AI-power
 
 ## Requirements
 
-- iOS 13.0+ / macOS 10.15+ / tvOS 13.0+ / watchOS 6.0+
+- iOS 15.0+ / macOS 12.0+ / tvOS 15.0+ / watchOS 8.0+
 - Swift 5.9+
 - Xcode 15.0+
 
@@ -56,7 +56,7 @@ import SavvagentSDK
 
 // Configure the SDK
 let config = SavvagentConfig(
-    apiUrl: "https://flags-beta.savvagent.com",
+    apiUrl: "https://api.savvagent.com/flags",
     sdkKey: "your-sdk-key",
     environment: "production"
 )
@@ -198,53 +198,56 @@ class ViewController: UIViewController {
 
 ```swift
 let config = SavvagentConfig(
-    apiUrl: "https://flags-beta.savvagent.com",
+    apiUrl: "https://api.savvagent.com/flags", // default; trailing slashes are stripped
     sdkKey: "your-sdk-key",
     environment: "production",
-    pollingInterval: 60,        // Poll every 60 seconds
-    enableWebSocket: true,       // Enable real-time updates
-    timeout: 30                  // Request timeout in seconds
+    pollingInterval: 60,        // Re-sync flag versions every 60 seconds (0 disables)
+    enableWebSocket: true,       // Realtime updates over Server-Sent Events (name kept for compatibility)
+    timeout: 30,                 // Request timeout in seconds
+    enableTelemetry: true        // Batched evaluation telemetry
 )
 ```
 
 ### Getting Variation Values
 
+The server has no separate variation endpoint; the variation is part of the
+evaluate response (`POST /api/flags/{key}/evaluate`).
+
 ```swift
-// Get string variation
+// Variation name (String), falling back to the default on any error
 let theme = await client.getVariation(
     flagKey: "app-theme",
     context: context,
     defaultValue: "light"
 )
 
-// Get numeric variation
-let maxItems = await client.getVariation(
-    flagKey: "max-items",
-    context: context,
-    defaultValue: 10
-)
-
-// Get JSON variation
-let config = await client.getVariation(
-    flagKey: "app-config",
-    context: context,
-    defaultValue: ["key": "value"]
-)
+// Full details
+let details = try await client.getVariationDetails(flagKey: "app-theme", context: context)
+print(details.variation, details.enabled, details.configuration ?? [:])
 ```
 
-### Event Tracking
+### Bulk Fetch
 
 ```swift
-// Track custom events
-await client.track(
-    eventName: "feature_used",
-    context: context,
-    properties: [
-        "feature": "new-checkout",
-        "duration": 1234
-    ]
-)
+// GET /api/sdk/flags?environment=...
+// `enabled` is the environment master switch, not a per-user evaluation.
+let flags = try await client.fetchAllFlags()
 ```
+
+### Telemetry and Error Reporting
+
+Evaluations are batched and sent to `/api/telemetry/evaluations` (at most 1000 per
+request). Call `flush()` to send immediately.
+
+```swift
+await client.flush()
+
+// POST /api/telemetry/errors
+await client.reportError(flagKey: "new-checkout", flagEnabled: true, error: error, context: context)
+```
+
+`track(eventName:...)` is deprecated and does nothing: the Flags API has no custom
+events endpoint.
 
 ### Cleanup
 
@@ -272,20 +275,23 @@ let context = UserContext(
 )
 ```
 
-### WebSocket Support
+### Realtime Updates (SSE)
 
-Enable WebSocket for real-time flag updates:
+With `enableWebSocket: true` (the default) the client keeps a Server-Sent Events
+connection open to `GET /api/flags/stream`. On `flag.created`, `flag.updated` and
+`flag.deleted` events the cached value for that flag is dropped and listeners are
+notified. The connection reconnects with exponential backoff (1s up to 30s).
 
 ```swift
-let config = SavvagentConfig(
-    sdkKey: "your-sdk-key",
-    enableWebSocket: true  // Flags update in real-time
-)
+let token = client.addFlagChangeListener { event in
+    print(event.type, event.flagKey, event.version ?? -1)
+}
+client.removeFlagChangeListener(token)
 ```
 
 ### Caching
 
-The SDK automatically caches flag evaluations to improve performance. Configure polling interval:
+The SDK caches evaluations per flag and user. The polling interval controls how often flag versions are re-synced via the bulk endpoint; stale entries are dropped:
 
 ```swift
 let config = SavvagentConfig(

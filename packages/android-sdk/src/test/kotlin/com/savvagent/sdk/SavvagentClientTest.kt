@@ -22,18 +22,19 @@ class SavvagentClientTest {
     fun testConfigDefaults() {
         val config = SavvagentConfig(sdkKey = "test-key")
 
-        assertEquals("https://flags-beta.savvagent.com", config.apiUrl)
+        assertEquals("https://api.savvagent.com/flags", config.apiUrl)
         assertEquals("production", config.environment)
         assertEquals(60_000L, config.pollingInterval)
         assertTrue(config.enableWebSocket)
         assertFalse(config.enableLogging)
         assertEquals(30_000L, config.timeout)
+        assertTrue(config.enableTelemetry)
     }
 
     @Test
     fun testConfigCustomValues() {
         val config = SavvagentConfig(
-            apiUrl = "https://flags.savvagent.com",
+            apiUrl = "https://example.test/flags",
             sdkKey = "staging-key",
             environment = "staging",
             pollingInterval = 120_000L,
@@ -42,7 +43,7 @@ class SavvagentClientTest {
             enableLogging = true
         )
 
-        assertEquals("https://flags.savvagent.com", config.apiUrl)
+        assertEquals("https://example.test/flags", config.apiUrl)
         assertEquals("staging-key", config.sdkKey)
         assertEquals("staging", config.environment)
         assertEquals(120_000L, config.pollingInterval)
@@ -105,12 +106,40 @@ class SavvagentClientTest {
 
         val json = context.toJson()
 
-        assertEquals("user-123", json.getString("userId"))
+        assertEquals("user-123", json.getString("user_id"))
+        assertFalse(json.has("userId"))
         assertTrue(json.has("attributes"))
 
         val attrs = json.getJSONObject("attributes")
         assertEquals("test@example.com", attrs.getString("email"))
         assertEquals("pro", attrs.getString("plan"))
+    }
+
+    @Test
+    fun testUserContextToJsonIncludesOptionalFields() {
+        val json = UserContext(
+            userId = "u",
+            anonymousId = "a",
+            sessionId = "s",
+            language = "en",
+            organizationId = "o",
+            applicationId = "app"
+        ).toJson("staging")
+
+        assertEquals("a", json.getString("anonymous_id"))
+        assertEquals("s", json.getString("session_id"))
+        assertEquals("staging", json.getString("environment"))
+        assertEquals("en", json.getString("language"))
+        assertEquals("o", json.getString("organization_id"))
+        assertEquals("app", json.getString("application_id"))
+    }
+
+    @Test
+    fun testUserContextToJsonOmitsUnsetOptionalFields() {
+        val json = UserContext(userId = "u").toJson()
+
+        assertFalse(json.has("anonymous_id"))
+        assertFalse(json.has("environment"))
     }
 
     @Test
@@ -140,7 +169,8 @@ class SavvagentClientTest {
             sdkKey = "test-key",
             environment = "test",
             enableWebSocket = false,
-            pollingInterval = 0
+            pollingInterval = 0,
+            enableTelemetry = false
         )
 
         val client = SavvagentClient(config)
@@ -154,7 +184,8 @@ class SavvagentClientTest {
         val config = SavvagentConfig(
             sdkKey = "test-key",
             enableWebSocket = false,
-            pollingInterval = 0
+            pollingInterval = 0,
+            enableTelemetry = false
         )
 
         val client = SavvagentClient(config)

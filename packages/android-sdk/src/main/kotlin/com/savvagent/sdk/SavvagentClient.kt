@@ -5,37 +5,69 @@ import android.util.Log
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import okhttp3.*
+import okhttp3.Call
+import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okio.BufferedSource
+import org.json.JSONArray
 import org.json.JSONObject
-import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArraySet
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+
+/**
+ * Default base URL of the Savvagent Flags API gateway.
+ */
+const val DEFAULT_API_URL = "https://api.savvagent.com/flags"
 
 /**
  * Configuration for the Savvagent SDK client
+ *
+ * @property apiUrl Base URL of the Flags API. Trailing slashes are ignored.
+ * @property pollingInterval How often (ms) the environment flag list is re-fetched. 0 disables polling.
+ * @property enableWebSocket Enables realtime flag updates. Realtime now uses Server-Sent Events
+ *   (the server has no WebSocket endpoint); the property name is kept for source compatibility.
+ * @property enableTelemetry Batch and report evaluations and errors to the telemetry endpoints.
  */
 data class SavvagentConfig(
-    val apiUrl: String = "https://flags-beta.savvagent.com",
+    val apiUrl: String = DEFAULT_API_URL,
     val sdkKey: String,
     val environment: String = "production",
     val pollingInterval: Long = 60_000L, // milliseconds
     val enableWebSocket: Boolean = true,
     val timeout: Long = 30_000L, // milliseconds
-    val enableLogging: Boolean = false
+    val enableLogging: Boolean = false,
+    val enableTelemetry: Boolean = true
 )
 
 /**
- * User context for feature flag evaluation
+ * User context for feature flag evaluation.
+ *
+ * Serialized using the server's snake_case context fields.
  */
 data class UserContext(
     val userId: String,
-    val attributes: Map<String, Any> = emptyMap()
+    val attributes: Map<String, Any> = emptyMap(),
+    val anonymousId: String? = null,
+    val sessionId: String? = null,
+    val language: String? = null,
+    val organizationId: String? = null,
+    val applicationId: String? = null
 ) {
-    fun toJson(): JSONObject {
+    fun toJson(environment: String? = null): JSONObject {
         return JSONObject().apply {
-            put("userId", userId)
+            put("user_id", userId)
+            anonymousId?.let { put("anonymous_id", it) }
+            sessionId?.let { put("session_id", it) }
+            environment?.let { put("environment", it) }
+            language?.let { put("language", it) }
+            organizationId?.let { put("organization_id", it) }
+            applicationId?.let { put("application_id", it) }
             put("attributes", JSONObject(attributes))
         }
     }
@@ -62,12 +94,33 @@ data class VariationResult(
 )
 
 /**
+ * Listener notified when the server reports that a flag was created, updated or deleted.
+ */
+fun interface FlagChangeListener {
+    /**
+     * @param flagKey the flag that changed
+     * @param eventType one of "flag.created", "flag.updated", "flag.deleted"
+     */
+    fun onFlagChanged(flagKey: String, eventType: String)
+}
+
+/**
  * Cache entry for flag values
  */
 private data class CacheEntry(
     val value: Boolean,
     val configuration: Map<String, Any>? = null,
-    val variation: String? = null
+    val variation: String? = null,
+    val userId: String? = null,
+    val version: Long = -1L
+)
+
+/**
+ * Environment-level flag state from the bulk endpoint (master switch, not per-user)
+ */
+private data class EnvironmentFlag(
+    val enabled: Boolean,
+    val version: Long
 )
 
 /**
@@ -94,6 +147,8 @@ class SavvagentClient(
     private val config: SavvagentConfig,
     private val context: Context? = null
 ) {
+    private val baseUrl: String = config.apiUrl.trimEnd('/')
+
     private val okHttpClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(config.timeout, TimeUnit.MILLISECONDS)
         .readTimeout(config.timeout, TimeUnit.MILLISECONDS)
@@ -101,27 +156,44 @@ class SavvagentClient(
         .apply {
             if (config.enableLogging) {
                 addInterceptor(okhttp3.logging.HttpLoggingInterceptor().apply {
-                    level = okhttp3.logging.HttpLoggingInterceptor.Level.BODY
+                    level = okhttp3.logging.HttpLoggingInterceptor.Level.BASIC
                 })
             }
         }
         .build()
 
+    // The SSE stream is long-lived: no read timeout (server heartbeats every ~30s)
+    private val streamClient: OkHttpClient = okHttpClient.newBuilder()
+        .readTimeout(0, TimeUnit.MILLISECONDS)
+        .build()
+
     private val flagCache = ConcurrentHashMap<String, CacheEntry>()
+    private val environmentFlags = ConcurrentHashMap<String, EnvironmentFlag>()
     private val configOverrides = ConcurrentHashMap<String, ConfigOverrideEntry>()
     private val variationOverrides = ConcurrentHashMap<String, VariationOverrideEntry>()
+    private val listeners = CopyOnWriteArraySet<FlagChangeListener>()
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-    private var webSocket: WebSocket? = null
+    private val closed = AtomicBoolean(false)
+
+    private var streamJob: Job? = null
     private var pollingJob: Job? = null
+    private var telemetryJob: Job? = null
+    @Volatile private var streamCall: Call? = null
+    @Volatile private var reconnectAttempt = 0
+
+    private val telemetryLock = Any()
+    private val evaluationQueue = ArrayDeque<JSONObject>()
+    private val errorQueue = ArrayDeque<JSONObject>()
 
     private val _flagUpdates = MutableStateFlow<Map<String, Boolean>>(emptyMap())
     val flagUpdates: StateFlow<Map<String, Boolean>> = _flagUpdates
 
     init {
         if (config.enableWebSocket) {
-            setupWebSocket()
+            startRealtime()
         }
         startPolling()
+        startTelemetry()
     }
 
     /**
@@ -130,89 +202,49 @@ class SavvagentClient(
     suspend fun evaluate(flagKey: String, userContext: UserContext): Result<FlagEvaluationResult> {
         return withContext(Dispatchers.IO) {
             try {
-                // Check cache first
-                flagCache[flagKey]?.let { cached ->
-                    var configuration = cached.configuration
-                    var variation = cached.variation
-
-                    // Apply overrides
-                    configOverrides[flagKey]?.let { override ->
-                        configuration = if (override.merge && configuration != null) {
-                            mergeConfigurations(configuration, override.config)
-                        } else {
-                            override.config
-                        }
-                    }
-
-                    variationOverrides[flagKey]?.let { override ->
-                        variation = override.variation
-                    }
-
-                    return@withContext Result.success(
-                        FlagEvaluationResult(
-                            key = flagKey,
-                            value = cached.value,
-                            configuration = configuration,
-                            variation = variation,
-                            reason = "cached"
-                        )
+                // Check cache first (only valid for the same user)
+                flagCache[flagKey]?.takeIf { it.userId == userContext.userId }?.let { cached ->
+                    val result = applyOverrides(
+                        flagKey, cached.value, cached.configuration, cached.variation, "cached"
                     )
+                    recordEvaluation(result, userContext)
+                    return@withContext Result.success(result)
                 }
 
                 // Fetch from API
-                val url = "${config.apiUrl}/v1/flags/$flagKey/evaluate"
-                val json = userContext.toJson()
+                val url = apiUrl("api", "flags", flagKey, "evaluate")
+                val body = JSONObject().put("context", userContext.toJson(config.environment))
 
                 val request = Request.Builder()
                     .url(url)
-                    .post(json.toString().toRequestBody("application/json".toMediaType()))
+                    .post(body.toString().toRequestBody(JSON_MEDIA_TYPE))
                     .addHeader("Authorization", "Bearer ${config.sdkKey}")
+                    .addHeader("Accept", "application/json")
                     .build()
 
-                val response = okHttpClient.newCall(request).execute()
-
-                if (!response.isSuccessful) {
-                    return@withContext Result.failure(
-                        SavvagentException("Request failed with code: ${response.code}")
-                    )
+                val jsonResponse = okHttpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        return@withContext Result.failure(
+                            SavvagentException("Request failed with code: ${response.code}")
+                        )
+                    }
+                    JSONObject(response.body?.string() ?: "")
                 }
 
-                val body = response.body?.string() ?: ""
-                val jsonResponse = JSONObject(body)
                 val enabled = jsonResponse.getBoolean("enabled")
-
-                var configuration = if (jsonResponse.has("configuration")) {
-                    jsonResponse.getJSONObject("configuration").toMap()
-                } else null
-
-                var variation = if (jsonResponse.has("variation")) {
-                    jsonResponse.getString("variation")
-                } else null
+                val configuration = jsonResponse.optJSONObject("configuration")?.toMap()
+                val variation = jsonResponse.optStringOrNull("variation")
+                val version = jsonResponse.optLong("version", -1L)
 
                 // Update cache
-                flagCache[flagKey] = CacheEntry(enabled, configuration, variation)
+                flagCache[flagKey] = CacheEntry(enabled, configuration, variation, userContext.userId, version)
                 updateFlagFlow()
 
-                // Apply overrides to evaluated result
-                configOverrides[flagKey]?.let { override ->
-                    configuration = if (override.merge && configuration != null) {
-                        mergeConfigurations(configuration, override.config)
-                    } else {
-                        override.config
-                    }
-                }
-
-                variationOverrides[flagKey]?.let { override ->
-                    variation = override.variation
-                }
-
-                Result.success(FlagEvaluationResult(
-                    key = flagKey,
-                    value = enabled,
-                    configuration = configuration,
-                    variation = variation,
-                    reason = "evaluated"
-                ))
+                val result = applyOverrides(flagKey, enabled, configuration, variation, "evaluated")
+                recordEvaluation(result, userContext)
+                Result.success(result)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 logError("Error checking flag: $flagKey", e)
                 Result.failure(e)
@@ -252,87 +284,138 @@ class SavvagentClient(
     }
 
     /**
-     * Get a variation value for a feature flag (legacy method - kept for backward compatibility)
+     * Get a variation value for a feature flag (legacy method - kept for backward compatibility).
+     *
+     * The server has no separate variation endpoint, so this evaluates the flag and returns the
+     * variation name, or else the flag configuration, whichever has the same type as
+     * [defaultValue]. Falls back to [defaultValue] on any error or type mismatch.
      */
     suspend fun <T> getVariation(
         flagKey: String,
         userContext: UserContext,
         defaultValue: T
     ): T {
-        return withContext(Dispatchers.IO) {
-            try {
-                val url = "${config.apiUrl}/v1/flags/$flagKey/variation"
-                val json = userContext.toJson()
-
-                val request = Request.Builder()
-                    .url(url)
-                    .post(json.toString().toRequestBody("application/json".toMediaType()))
-                    .addHeader("Authorization", "Bearer ${config.sdkKey}")
-                    .build()
-
-                val response = okHttpClient.newCall(request).execute()
-
-                if (!response.isSuccessful) {
-                    return@withContext defaultValue
-                }
-
-                val body = response.body?.string() ?: ""
-                val jsonResponse = JSONObject(body)
-
+        val result = evaluate(flagKey, userContext).getOrNull() ?: return defaultValue
+        val candidates = listOf<Any?>(result.variation, result.configuration)
+        for (candidate in candidates) {
+            if (candidate != null && sameKind(candidate, defaultValue)) {
                 @Suppress("UNCHECKED_CAST")
-                (jsonResponse.get("value") as? T) ?: defaultValue
-            } catch (e: Exception) {
-                logError("Error getting variation: $flagKey", e)
-                defaultValue
+                return candidate as T
             }
         }
+        return defaultValue
     }
 
     /**
-     * Track an event for analytics
+     * Track an event for analytics.
+     *
+     * The Flags API has no custom-event endpoint, so this is a no-op kept for source
+     * compatibility. Evaluations and errors are reported automatically (see [reportError]).
      */
+    @Deprecated("The Flags API has no event endpoint; this call does nothing.")
+    @Suppress("UNUSED_PARAMETER")
     suspend fun track(
         eventName: String,
         userContext: UserContext,
         properties: Map<String, Any> = emptyMap()
     ) {
+        logDebug("track(\"$eventName\") ignored: the Flags API has no event endpoint")
+    }
+
+    /**
+     * Report an error that occurred while a flag was in effect, so the server can compare
+     * error rates with the flag on and off.
+     */
+    fun reportError(
+        flagKey: String,
+        error: Throwable,
+        userContext: UserContext? = null,
+        flagEnabled: Boolean? = null
+    ) {
+        if (!config.enableTelemetry || closed.get()) return
+        val event = JSONObject().apply {
+            put("flag_key", flagKey)
+            flagEnabled?.let { put("flag_enabled", it) }
+            put("error_type", error.javaClass.simpleName.ifEmpty { "Error" })
+            put("error_message", error.message ?: error.toString())
+            put("stack_trace", error.stackTraceToString().take(MAX_STACK_TRACE))
+            put("environment", config.environment)
+            put(
+                "context",
+                userContext?.toJson(config.environment)
+                    ?: JSONObject().put("environment", config.environment)
+            )
+            put("timestamp", System.currentTimeMillis())
+        }
+        synchronized(telemetryLock) { enqueue(errorQueue, event) }
+        // Errors are critical telemetry: flush immediately
+        scope.launch { flushQueue(errorQueue, "errors", "errors") }
+    }
+
+    /**
+     * Flush any pending telemetry (evaluations and errors) to the server.
+     */
+    suspend fun flush() {
         withContext(Dispatchers.IO) {
-            try {
-                val url = "${config.apiUrl}/v1/events"
-                val json = JSONObject().apply {
-                    put("event", eventName)
-                    put("context", userContext.toJson())
-                    put("properties", JSONObject(properties))
-                    put("timestamp", System.currentTimeMillis())
-                }
-
-                val request = Request.Builder()
-                    .url(url)
-                    .post(json.toString().toRequestBody("application/json".toMediaType()))
-                    .addHeader("Authorization", "Bearer ${config.sdkKey}")
-                    .build()
-
-                okHttpClient.newCall(request).execute().close()
-            } catch (e: Exception) {
-                logError("Error tracking event: $eventName", e)
-            }
+            flushTelemetry()
         }
     }
 
     /**
-     * Flush any pending events or data
+     * Re-fetch the environment flag list. Cached evaluations whose flag version changed are
+     * discarded. Invoked periodically when [SavvagentConfig.pollingInterval] is positive.
      */
-    suspend fun flush() {
-        // Implementation for flushing pending events
+    suspend fun refresh(): Result<Unit> {
+        return withContext(Dispatchers.IO) { refreshFlags() }
+    }
+
+    /**
+     * Register a listener for server-pushed flag changes. Listeners run on a background thread.
+     */
+    fun addFlagChangeListener(listener: FlagChangeListener) {
+        listeners.add(listener)
+    }
+
+    /**
+     * Remove a previously registered listener.
+     */
+    fun removeFlagChangeListener(listener: FlagChangeListener) {
+        listeners.remove(listener)
+    }
+
+    /**
+     * Invalidate the cached value for one flag, or for all flags when [flagKey] is null.
+     */
+    fun invalidateCache(flagKey: String? = null) {
+        if (flagKey == null) flagCache.clear() else flagCache.remove(flagKey)
+        updateFlagFlow()
     }
 
     /**
      * Close the client and cleanup resources
      */
     fun close() {
+        if (!closed.compareAndSet(false, true)) return
+
+        streamCall?.cancel()
+        streamJob?.cancel()
         pollingJob?.cancel()
-        webSocket?.close(1000, "Client closed")
+        telemetryJob?.cancel()
         scope.cancel()
+
+        // Best-effort final telemetry flush on a short-lived scope (never on the caller's thread)
+        val pending = config.enableTelemetry && synchronized(telemetryLock) {
+            evaluationQueue.isNotEmpty() || errorQueue.isNotEmpty()
+        }
+        if (pending) {
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    flushTelemetry()
+                } catch (e: Exception) {
+                    logError("Error flushing telemetry on close", e)
+                }
+            }
+        }
     }
 
     /**
@@ -423,101 +506,328 @@ class SavvagentClient(
 
     // MARK: - Private Methods
 
-    private fun setupWebSocket() {
-        try {
-            val wsUrl = config.apiUrl.replace("http", "ws") + "/v1/stream"
-            val request = Request.Builder()
-                .url(wsUrl)
-                .addHeader("Authorization", "Bearer ${config.sdkKey}")
-                .build()
+    private fun apiUrl(vararg segments: String): HttpUrl {
+        val builder = baseUrl.toHttpUrl().newBuilder()
+        segments.forEach { builder.addPathSegment(it) }
+        return builder.build()
+    }
 
-            webSocket = okHttpClient.newWebSocket(request, object : WebSocketListener() {
-                override fun onMessage(webSocket: WebSocket, text: String) {
-                    handleWebSocketMessage(text)
+    private fun applyOverrides(
+        flagKey: String,
+        enabled: Boolean,
+        configuration: Map<String, Any>?,
+        variation: String?,
+        reason: String
+    ): FlagEvaluationResult {
+        var finalConfig = configuration
+        var finalVariation = variation
+
+        configOverrides[flagKey]?.let { override ->
+            finalConfig = if (override.merge && finalConfig != null) {
+                mergeConfigurations(finalConfig!!, override.config)
+            } else {
+                override.config
+            }
+        }
+        variationOverrides[flagKey]?.let { override ->
+            finalVariation = override.variation
+        }
+
+        return FlagEvaluationResult(
+            key = flagKey,
+            value = enabled,
+            configuration = finalConfig,
+            variation = finalVariation,
+            reason = reason
+        )
+    }
+
+    private fun sameKind(candidate: Any, reference: Any?): Boolean {
+        return when (reference) {
+            null -> true
+            is Map<*, *> -> candidate is Map<*, *>
+            is List<*> -> candidate is List<*>
+            is Number -> candidate is Number
+            else -> reference.javaClass.isInstance(candidate)
+        }
+    }
+
+    // MARK: Realtime (Server-Sent Events)
+
+    private fun startRealtime() {
+        streamJob = scope.launch {
+            while (isActive) {
+                try {
+                    streamOnce()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    if (!isActive) break
+                    logError("Realtime stream error", e)
                 }
+                if (!isActive) break
+                delay(nextReconnectDelay())
+            }
+        }
+    }
 
-                override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                    logError("WebSocket failure", t)
-                    // Attempt to reconnect after delay
-                    scope.launch {
-                        delay(5000)
-                        setupWebSocket()
+    private fun nextReconnectDelay(): Long {
+        val attempt = reconnectAttempt
+        reconnectAttempt = attempt + 1
+        val exponential = RECONNECT_BASE_MS shl minOf(attempt, 5)
+        return minOf(exponential, RECONNECT_MAX_MS)
+    }
+
+    private fun streamOnce() {
+        val request = Request.Builder()
+            .url(apiUrl("api", "flags", "stream"))
+            .addHeader("Authorization", "Bearer ${config.sdkKey}")
+            .addHeader("Accept", "text/event-stream")
+            .addHeader("Cache-Control", "no-cache")
+            .build()
+
+        val call = streamClient.newCall(request)
+        streamCall = call
+        call.execute().use { response ->
+            if (!response.isSuccessful) {
+                throw SavvagentException("Stream request failed with code: ${response.code}")
+            }
+            val source = response.body?.source() ?: throw SavvagentException("Empty stream body")
+            readEvents(source) { event, data -> handleStreamEvent(event, data) }
+        }
+        // Stream ended cleanly: the caller reconnects with backoff.
+    }
+
+    private fun readEvents(source: BufferedSource, onEvent: (String, String) -> Unit) {
+        var event = "message"
+        val data = StringBuilder()
+        while (true) {
+            val line = source.readUtf8Line() ?: break
+            if (line.isEmpty()) {
+                if (data.isNotEmpty() || event != "message") {
+                    onEvent(event, data.toString())
+                }
+                event = "message"
+                data.setLength(0)
+                continue
+            }
+            if (line.startsWith(":")) continue // comment
+            val idx = line.indexOf(':')
+            val field = if (idx < 0) line else line.substring(0, idx)
+            var value = if (idx < 0) "" else line.substring(idx + 1)
+            if (value.startsWith(" ")) value = value.substring(1)
+            when (field) {
+                "event" -> event = value
+                "data" -> {
+                    if (data.isNotEmpty()) data.append('\n')
+                    data.append(value)
+                }
+            }
+        }
+    }
+
+    private fun handleStreamEvent(event: String, data: String) {
+        when {
+            event == "connected" -> {
+                reconnectAttempt = 0
+                logDebug("Realtime stream connected")
+            }
+            event == "heartbeat" -> Unit
+            event.startsWith("flag.") -> {
+                try {
+                    val json = JSONObject(data)
+                    val key = json.optStringOrNull("key") ?: return
+                    val type = json.optStringOrNull("type") ?: event
+                    flagCache.remove(key)
+                    if (event == "flag.deleted") environmentFlags.remove(key)
+                    updateFlagFlow()
+                    listeners.forEach { listener ->
+                        try {
+                            listener.onFlagChanged(key, type)
+                        } catch (e: Exception) {
+                            logError("Flag change listener threw", e)
+                        }
                     }
+                } catch (e: Exception) {
+                    logError("Error handling stream event: $event", e)
                 }
-            })
-        } catch (e: Exception) {
-            logError("Error setting up WebSocket", e)
+            }
         }
     }
 
-    private fun handleWebSocketMessage(message: String) {
-        try {
-            val json = JSONObject(message)
-            val flagKey = json.getString("flagKey")
-            val enabled = json.getBoolean("enabled")
-            val configuration = if (json.has("configuration")) {
-                json.getJSONObject("configuration").toMap()
-            } else null
-            val variation = if (json.has("variation")) json.getString("variation") else null
-
-            flagCache[flagKey] = CacheEntry(enabled, configuration, variation)
-            updateFlagFlow()
-        } catch (e: Exception) {
-            logError("Error handling WebSocket message", e)
-        }
-    }
+    // MARK: Polling (bulk environment fetch)
 
     private fun startPolling() {
         if (config.pollingInterval <= 0) return
 
         pollingJob = scope.launch {
             while (isActive) {
-                delay(config.pollingInterval)
                 refreshFlags()
+                delay(config.pollingInterval)
             }
         }
     }
 
-    private suspend fun refreshFlags() {
-        try {
-            val url = "${config.apiUrl}/v1/flags"
+    private fun refreshFlags(): Result<Unit> {
+        return try {
+            val url = apiUrl("api", "sdk", "flags").newBuilder()
+                .addQueryParameter("environment", config.environment)
+                .build()
             val request = Request.Builder()
                 .url(url)
                 .addHeader("Authorization", "Bearer ${config.sdkKey}")
+                .addHeader("Accept", "application/json")
                 .build()
 
-            val response = okHttpClient.newCall(request).execute()
-
-            if (response.isSuccessful) {
-                val body = response.body?.string() ?: ""
-                val json = JSONObject(body)
-                val flags = json.getJSONArray("flags")
-
-                for (i in 0 until flags.length()) {
-                    val flag = flags.getJSONObject(i)
-                    val key = flag.getString("key")
-                    val enabled = flag.getBoolean("enabled")
-                    val configuration = if (flag.has("configuration")) {
-                        flag.getJSONObject("configuration").toMap()
-                    } else null
-                    val variation = if (flag.has("variation")) flag.getString("variation") else null
-                    flagCache[key] = CacheEntry(enabled, configuration, variation)
+            val json = okHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return Result.failure(SavvagentException("Request failed with code: ${response.code}"))
                 }
-
-                updateFlagFlow()
+                JSONObject(response.body?.string() ?: "")
             }
+
+            val flags = json.optJSONArray("flags") ?: JSONArray()
+            val fresh = HashMap<String, EnvironmentFlag>()
+            for (i in 0 until flags.length()) {
+                val flag = flags.getJSONObject(i)
+                fresh[flag.getString("key")] = EnvironmentFlag(
+                    enabled = flag.optBoolean("enabled", false),
+                    version = flag.optLong("version", -1L)
+                )
+            }
+
+            // Drop cached evaluations whose flag changed or disappeared
+            for ((key, entry) in flagCache) {
+                val latest = fresh[key]
+                if (latest == null || (latest.version >= 0 && entry.version >= 0 && latest.version != entry.version)) {
+                    flagCache.remove(key, entry)
+                }
+            }
+            environmentFlags.clear()
+            environmentFlags.putAll(fresh)
+            updateFlagFlow()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             logError("Error refreshing flags", e)
+            Result.failure(e)
+        }
+    }
+
+    // MARK: Telemetry
+
+    private fun startTelemetry() {
+        if (!config.enableTelemetry) return
+
+        telemetryJob = scope.launch {
+            while (isActive) {
+                delay(TELEMETRY_FLUSH_INTERVAL_MS)
+                flushTelemetry()
+            }
+        }
+    }
+
+    private fun recordEvaluation(result: FlagEvaluationResult, userContext: UserContext) {
+        if (!config.enableTelemetry || closed.get()) return
+        val event = JSONObject().apply {
+            put("flag_key", result.key)
+            put("result", result.value)
+            result.variation?.let { put("variation", it) }
+            put("environment", config.environment)
+            put("context", userContext.toJson(config.environment))
+            put("timestamp", System.currentTimeMillis())
+        }
+        val flushNow = synchronized(telemetryLock) {
+            enqueue(evaluationQueue, event)
+            evaluationQueue.size >= TELEMETRY_BATCH_SIZE
+        }
+        if (flushNow) {
+            scope.launch { flushQueue(evaluationQueue, "evaluations", "evaluations") }
+        }
+    }
+
+    // Must be called while holding telemetryLock
+    private fun enqueue(queue: ArrayDeque<JSONObject>, event: JSONObject) {
+        queue.addLast(event)
+        while (queue.size > TELEMETRY_MAX_QUEUE) queue.removeFirst()
+    }
+
+    private fun flushTelemetry() {
+        flushQueue(evaluationQueue, "evaluations", "evaluations")
+        flushQueue(errorQueue, "errors", "errors")
+    }
+
+    /**
+     * Send queued events in batches of at most [TELEMETRY_MAX_BATCH]. On a transient failure the
+     * batch is put back at the head of the queue.
+     */
+    private fun flushQueue(queue: ArrayDeque<JSONObject>, path: String, field: String) {
+        while (true) {
+            val batch = synchronized(telemetryLock) {
+                val n = minOf(queue.size, TELEMETRY_MAX_BATCH)
+                List(n) { queue.removeFirst() }
+            }
+            if (batch.isEmpty()) return
+
+            if (!postTelemetry(path, field, batch)) {
+                synchronized(telemetryLock) {
+                    batch.asReversed().forEach { queue.addFirst(it) }
+                    while (queue.size > TELEMETRY_MAX_QUEUE) queue.removeFirst()
+                }
+                return
+            }
+        }
+    }
+
+    /**
+     * @return true if the batch was delivered or must be dropped; false if it should be retried
+     */
+    private fun postTelemetry(path: String, field: String, batch: List<JSONObject>): Boolean {
+        return try {
+            val body = JSONObject().put(field, JSONArray(batch))
+            val request = Request.Builder()
+                .url(apiUrl("api", "telemetry", path))
+                .post(body.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .addHeader("Authorization", "Bearer ${config.sdkKey}")
+                .build()
+
+            okHttpClient.newCall(request).execute().use { response ->
+                val code = response.code
+                when {
+                    response.isSuccessful -> true
+                    code in 400..499 && code != 408 && code != 429 -> {
+                        logError("Telemetry batch rejected with code $code; dropping ${batch.size} events")
+                        true
+                    }
+                    else -> {
+                        logError("Telemetry request failed with code $code; will retry")
+                        false
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            logError("Error sending telemetry", e)
+            false
         }
     }
 
     private fun updateFlagFlow() {
-        _flagUpdates.value = flagCache.mapValues { it.value.value }
+        val merged = HashMap<String, Boolean>()
+        environmentFlags.forEach { (key, flag) -> merged[key] = flag.enabled }
+        flagCache.forEach { (key, entry) -> merged[key] = entry.value }
+        _flagUpdates.value = merged
     }
 
     private fun logError(message: String, throwable: Throwable? = null) {
         if (config.enableLogging) {
             Log.e(TAG, message, throwable)
+        }
+    }
+
+    private fun logDebug(message: String) {
+        if (config.enableLogging) {
+            Log.d(TAG, message)
         }
     }
 
@@ -549,6 +859,16 @@ class SavvagentClient(
 
     companion object {
         private const val TAG = "SavvagentClient"
+        private val JSON_MEDIA_TYPE = "application/json".toMediaType()
+
+        private const val RECONNECT_BASE_MS = 1_000L
+        private const val RECONNECT_MAX_MS = 30_000L
+
+        private const val TELEMETRY_FLUSH_INTERVAL_MS = 5_000L
+        private const val TELEMETRY_BATCH_SIZE = 50
+        private const val TELEMETRY_MAX_BATCH = 1000 // server limit per request
+        private const val TELEMETRY_MAX_QUEUE = 5_000
+        private const val MAX_STACK_TRACE = 8_000
     }
 }
 
@@ -557,24 +877,30 @@ class SavvagentClient(
  */
 class SavvagentException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
+private fun JSONObject.optStringOrNull(name: String): String? {
+    return if (has(name) && !isNull(name)) getString(name) else null
+}
+
+private fun Any?.toKotlinValue(): Any? = when (this) {
+    null, JSONObject.NULL -> null
+    is JSONObject -> toMap()
+    is JSONArray -> {
+        val list = mutableListOf<Any>()
+        for (i in 0 until length()) {
+            get(i).toKotlinValue()?.let { list.add(it) }
+        }
+        list
+    }
+    else -> this
+}
+
 /**
- * Extension function to convert JSONObject to Map
+ * Extension function to convert JSONObject to Map (JSON nulls are omitted)
  */
 private fun JSONObject.toMap(): Map<String, Any> {
     val map = mutableMapOf<String, Any>()
     keys().forEach { key ->
-        val value = get(key)
-        map[key] = when (value) {
-            is JSONObject -> value.toMap()
-            is org.json.JSONArray -> {
-                val list = mutableListOf<Any>()
-                for (i in 0 until value.length()) {
-                    list.add(value.get(i))
-                }
-                list
-            }
-            else -> value
-        }
+        get(key).toKotlinValue()?.let { map[key] = it }
     }
     return map
 }

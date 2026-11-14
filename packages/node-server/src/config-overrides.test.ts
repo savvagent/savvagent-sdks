@@ -41,7 +41,7 @@ describe('Configuration Overrides', () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
-        value: true,
+        enabled: true,
         configuration: {
           theme: { primaryColor: '#007bff', fontSize: 16 },
           limits: { maxItems: 100 },
@@ -67,7 +67,7 @@ describe('Configuration Overrides', () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
-        value: true,
+        enabled: true,
         configuration: {
           theme: { primaryColor: '#007bff', fontSize: 16 },
           limits: { maxItems: 100 },
@@ -100,7 +100,7 @@ describe('Configuration Overrides', () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
-        value: true,
+        enabled: true,
         variation: 'control',
         configuration: { algorithm: 'standard' },
       }),
@@ -120,7 +120,7 @@ describe('Configuration Overrides', () => {
     mockFetch.mockResolvedValue({
       ok: true,
       json: async () => ({
-        value: true,
+        enabled: true,
         configuration: { original: 'config' },
       }),
     });
@@ -193,7 +193,7 @@ describe('Configuration Overrides', () => {
     mockFetch.mockResolvedValue({
       ok: true,
       json: async () => ({
-        value: true,
+        enabled: true,
         configuration: { original: 'value' },
       }),
     });

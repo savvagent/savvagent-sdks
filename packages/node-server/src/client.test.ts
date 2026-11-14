@@ -60,7 +60,7 @@ describe('FlagClient', () => {
     it('should accept custom configuration', () => {
       const client = new FlagClient({
         apiKey: 'sdk_test_key',
-        baseUrl: 'https://flags-beta.savvagent.com',
+        baseUrl: 'https://api.savvagent.com/flags',
         enableRealtime: false,
         enableTelemetry: false,
         cacheTtl: 30000,
@@ -71,6 +71,44 @@ describe('FlagClient', () => {
       });
 
       expect(client).toBeDefined();
+    });
+  });
+
+  describe('base URL', () => {
+    const okResponse = {
+      ok: true,
+      json: async () => ({ enabled: true }),
+    };
+
+    it('defaults to https://api.savvagent.com/flags', async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce(okResponse);
+      const client = new FlagClient({
+        apiKey: 'sdk_test_key',
+        enableRealtime: false,
+        enableTelemetry: false,
+      });
+
+      await client.evaluate('test-flag');
+
+      expect((global.fetch as jest.Mock).mock.calls[0][0]).toBe(
+        'https://api.savvagent.com/flags/api/flags/test-flag/evaluate'
+      );
+    });
+
+    it('strips trailing slashes from a custom base URL', async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce(okResponse);
+      const client = new FlagClient({
+        apiKey: 'sdk_test_key',
+        baseUrl: 'https://flags.example.com/flags//',
+        enableRealtime: false,
+        enableTelemetry: false,
+      });
+
+      await client.evaluate('test-flag');
+
+      expect((global.fetch as jest.Mock).mock.calls[0][0]).toBe(
+        'https://flags.example.com/flags/api/flags/test-flag/evaluate'
+      );
     });
   });
 
@@ -90,7 +128,6 @@ describe('FlagClient', () => {
         ok: true,
         json: async () => ({
           enabled: true,
-          value: true,
           reason: 'match',
         }),
       });
@@ -107,7 +144,6 @@ describe('FlagClient', () => {
         ok: true,
         json: async () => ({
           enabled: false,
-          value: false,
           reason: 'default',
         }),
       });
@@ -123,7 +159,6 @@ describe('FlagClient', () => {
         ok: true,
         json: async () => ({
           enabled: true,
-          value: true,
         }),
       });
 
@@ -155,7 +190,6 @@ describe('FlagClient', () => {
         ok: true,
         json: async () => ({
           enabled: true,
-          value: true,
         }),
       });
 
@@ -243,7 +277,7 @@ describe('FlagClient', () => {
       (global.fetch as jest.Mock).mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          value: true,
+          enabled: true,
         }),
       });
 
@@ -255,7 +289,7 @@ describe('FlagClient', () => {
       (global.fetch as jest.Mock).mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          value: false,
+          enabled: false,
         }),
       });
 
@@ -288,7 +322,7 @@ describe('FlagClient', () => {
       (global.fetch as jest.Mock).mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          value: true,
+          enabled: true,
           variation: 'dark-mode',
         }),
       });
@@ -302,7 +336,7 @@ describe('FlagClient', () => {
       (global.fetch as jest.Mock).mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          value: true,
+          enabled: true,
           variation: 'variant-100',
         }),
       });
@@ -328,7 +362,7 @@ describe('FlagClient', () => {
       (global.fetch as jest.Mock).mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          value: true,
+          enabled: true,
           configuration: configObject,
         }),
       });
@@ -378,7 +412,7 @@ describe('FlagClient', () => {
     it('should merge application_id from config', async () => {
       (global.fetch as jest.Mock).mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ value: true }),
+        json: async () => ({ enabled: true }),
       });
 
       await client.evaluate('test-flag', { user_id: 'user-123' });
@@ -393,7 +427,7 @@ describe('FlagClient', () => {
     it('should handle complex context attributes', async () => {
       (global.fetch as jest.Mock).mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ value: true }),
+        json: async () => ({ enabled: true }),
       });
 
       const context: FlagContext = {

@@ -21,7 +21,7 @@ public class FlagClientConfig {
     private FlagClientConfig(Builder builder) {
         this.apiKey = builder.apiKey;
         this.applicationId = builder.applicationId;
-        this.baseUrl = builder.baseUrl;
+        this.baseUrl = builder.baseUrl == null ? null : builder.baseUrl.replaceAll("/+$", "");
         this.enableRealtime = builder.enableRealtime;
         this.cacheTtl = builder.cacheTtl;
         this.enableTelemetry = builder.enableTelemetry;
@@ -47,7 +47,7 @@ public class FlagClientConfig {
     public static class Builder {
         private final String apiKey;
         private String applicationId = "";
-        private String baseUrl = "https://flags-api.savvagent.com";
+        private String baseUrl = "https://api.savvagent.com/flags";
         private boolean enableRealtime = true;
         private long cacheTtl = 60000L;
         private boolean enableTelemetry = true;
