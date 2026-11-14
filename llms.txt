@@ -1,6 +1,6 @@
 # Savvagent SDKs
 
-> Savvagent is an AI-powered feature flag platform that prevents production incidents. This repository contains official SDKs for TypeScript/JavaScript, React, Vue, Svelte, Next.js, Node.js, Go, Java, Rust, iOS, and Android.
+> Savvagent is an AI-powered feature flag platform that prevents production incidents. This repository contains official SDKs for TypeScript/JavaScript, React, Vue, Svelte, Next.js, React Router, Node.js, Go, Java, Rust, iOS, and Android.
 
 Savvagent feature flags enable safe rollouts with automatic error detection and correlation. The platform tracks flag evaluations and correlates production errors with recent flag changes using AI.
 
@@ -41,6 +41,7 @@ await client.withFlag('experimental', async () => {
 - [Vue SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/vue/README.md): Vue 3 composables
 - [Svelte SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/svelte/README.md): Svelte stores
 - [Next.js SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/nextjs/README.md): App Router and Pages Router support
+- [React Router SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/react-router/README.md): React Router 8 framework mode: evaluate flags in loaders, actions and middleware, hydrate them into React without a flash of defaults (replaces @savvagent/remix)
 - [Node.js Server SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/node-server/README.md): Server-side SDK for Express, Fastify, etc.
 - [Go Server SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/go-server/README.md): Idiomatic Go with goroutine-safe access
 - [Java Server SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/java-server/README.md): Thread-safe for Spring Boot, etc.

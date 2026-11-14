@@ -1,6 +1,6 @@
 # Savvagent SDKs - Complete Documentation
 
-> Savvagent is an AI-powered feature flag platform that prevents production incidents. This repository contains official SDKs for TypeScript/JavaScript, React, Vue, Svelte, Next.js, Node.js, Go, Java, Rust, iOS, and Android.
+> Savvagent is an AI-powered feature flag platform that prevents production incidents. This repository contains official SDKs for TypeScript/JavaScript, React, Vue, Svelte, Next.js, React Router, Node.js, Go, Java, Rust, iOS, and Android.
 
 ---
 
@@ -45,6 +45,12 @@ npm install @savvagent/vue
 ```bash
 npm install @savvagent/nextjs
 ```
+
+### React Router 8 (framework mode)
+```bash
+npm install @savvagent/react-router
+```
+Replaces `@savvagent/remix` (Remix is now React Router).
 
 ### Node.js Server
 ```bash
@@ -232,6 +238,61 @@ export function Feature() {
   return value ? <NewUI /> : <OldUI />;
 }
 ```
+
+### React Router 8 (framework mode)
+
+Flags are evaluated on the server in loaders, actions or middleware, then
+hydrated into the React provider, so the first render shows real values
+instead of defaults. The client hooks are those of `@savvagent/react`.
+
+```ts
+// app/savvagent.server.ts - one shared server client, per-request context
+import { createSavvagentServer } from '@savvagent/react-router';
+
+export const savvagent = createSavvagentServer(
+  { apiKey: process.env.SAVVAGENT_SDK_KEY!, applicationId: 'my-app' },
+  {
+    defaultContext: { environment: 'production' },
+    // The user comes from your own auth, never from a client-set cookie.
+    getUserId: async ({ request }) => (await getSession(request)).get('userId'),
+  }
+);
+```
+
+```tsx
+// app/root.tsx
+import { Outlet } from 'react-router';
+import { SavvagentProvider, getSavvagent } from '@savvagent/react-router';
+import type { Route } from './+types/root';
+import { savvagent } from './savvagent.server';
+
+// Per-request scope for every loader and action, plus the anonymous ID cookie.
+export const middleware: Route.MiddlewareFunction[] = [savvagent.middleware];
+
+export async function loader({ context }: Route.LoaderArgs) {
+  return { flags: await getSavvagent(context).evaluateFlags(['new-feature']) };
+}
+
+export default function App({ loaderData }: Route.ComponentProps) {
+  return (
+    <SavvagentProvider config={{ apiKey: 'sdk_...' }} flags={loaderData.flags}>
+      <Outlet />
+    </SavvagentProvider>
+  );
+}
+
+// Any component: starts from the server value, then follows the browser client
+import { useFlag } from '@savvagent/react-router';
+
+export function Feature() {
+  const { value } = useFlag('new-feature');
+  return value ? <NewUI /> : <OldUI />;
+}
+```
+
+In actions, use `getSavvagent(context).isEnabled(...)`, `.withFlag(...)` and
+`.trackError(...)`. Without middleware, call `await savvagent.forRequest(request)`
+and return its `headers` from the loader.
 
 ### Node.js Server (Express)
 
