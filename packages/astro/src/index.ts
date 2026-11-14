@@ -6,34 +6,50 @@
  * @packageDocumentation
  */
 
-import type { AstroIntegration, MiddlewareHandler } from 'astro';
+import type { AstroIntegration, AstroIntegrationLogger, MiddlewareHandler } from 'astro';
 import { FlagClient, FlagClientConfig, FlagContext, FlagEvaluationResult } from '@savvagent/sdk';
 
 let clientInstance: FlagClient | null = null;
 
 export interface SavvagentIntegrationOptions {
   /**
-   * Savvagent configuration for the server-side client.
-   *
-   * The integration serializes this object as JSON into the server bundle so
-   * the middleware can build the client at request time. Function values
-   * (such as `onError`) are therefore not carried over; call
-   * `initSavvagent()` yourself from your own middleware if you need them.
+   * Savvagent configuration for the server-side client, inlined into the
+   * server bundle as JSON. Values are therefore fixed when the config is
+   * loaded (at `astro build` for production), and function values such as
+   * `onError` are dropped. Prefer {@link configModule} to read environment
+   * variables at server runtime or to keep function options.
    */
-  config: FlagClientConfig;
+  config?: FlagClientConfig;
+  /**
+   * Path (relative to the project root, or absolute) to a module whose
+   * default export is the client config, e.g. `'./src/savvagent.config.mjs'`.
+   * The middleware imports it at server runtime, so `process.env` is read
+   * when the server starts and function options such as `onError` survive.
+   * Takes precedence over {@link config}.
+   */
+  configModule?: string;
 }
 
 /**
  * Request-scoped Savvagent API, available as `Astro.locals.savvagent` in
  * pages, endpoints and middleware once the integration is installed.
  *
- * Every method merges the context derived from the current request (cookies
- * and `Accept-Language`, see {@link getRequestContext}) with the context you
- * pass; values you pass win.
+ * Every method merges the context derived from the current request (the
+ * `user_id`, `session_id` and `savvagent_anonymous_id` cookies and
+ * `Accept-Language`) with the context you pass; values you pass win.
+ * Visitors without a `savvagent_anonymous_id` cookie get a fresh one, so
+ * each visitor keeps a stable rollout bucket. On prerendered pages no
+ * request headers or cookies are read.
  */
 export interface SavvagentLocals {
-  /** The shared server-side FlagClient. */
-  client: FlagClient;
+  /**
+   * The server-side FlagClient. It is shared by every request in the server
+   * process: never mutate it per request (`setUserId`, `setOverride`,
+   * `setEnvironment`, ...), pass per-request context to the methods below
+   * instead. `null` when the client could not be created (invalid config);
+   * the methods then return flag defaults.
+   */
+  client: FlagClient | null;
   /** Context derived from the current request. */
   context: FlagContext;
   isEnabled(flagKey: string, context?: FlagContext): Promise<boolean>;
@@ -60,6 +76,10 @@ declare global {
 export const SAVVAGENT_CONFIG_MODULE_ID = 'virtual:@savvagent/astro/config';
 const RESOLVED_CONFIG_MODULE_ID = '\0' + SAVVAGENT_CONFIG_MODULE_ID;
 
+/** Cookie that keeps a visitor's anonymous ID stable across requests. */
+export const ANONYMOUS_ID_COOKIE = 'savvagent_anonymous_id';
+const ANONYMOUS_ID_MAX_AGE = 60 * 60 * 24 * 365;
+
 /**
  * Apply server-side defaults to a client config. Realtime (SSE) updates rely
  * on browser globals, so they are off unless explicitly enabled.
@@ -68,18 +88,51 @@ export function toServerConfig(config: FlagClientConfig): FlagClientConfig {
   return { ...config, enableRealtime: config.enableRealtime ?? false };
 }
 
-function savvagentConfigPlugin(config: FlagClientConfig) {
+/**
+ * Check a client config for problems that would stop the client from
+ * being created. Returns human-readable problems (empty when valid).
+ */
+export function validateConfig(config: unknown): string[] {
+  if (!config || typeof config !== 'object') {
+    return ['config must be an object with at least an `apiKey`'];
+  }
+  const { apiKey } = config as Partial<FlagClientConfig>;
+  if (!apiKey) return ['`apiKey` is missing'];
+  if (typeof apiKey !== 'string' || !apiKey.startsWith('sdk_')) {
+    return ['`apiKey` must be an SDK key starting with "sdk_"'];
+  }
+  return [];
+}
+
+/** Keys of a config whose values are functions (lost when serialized as JSON). */
+export function functionValuedKeys(config: object): string[] {
+  return Object.entries(config)
+    .filter(([, value]) => typeof value === 'function')
+    .map(([key]) => key);
+}
+
+function savvagentConfigPlugin(source: { json: FlagClientConfig } | { modulePath: string }) {
+  const code =
+    'modulePath' in source
+      ? `export { default } from ${JSON.stringify(source.modulePath)};`
+      : `export default ${JSON.stringify(source.json)};`;
   return {
     name: '@savvagent/astro:config',
     resolveId(id: string) {
       return id === SAVVAGENT_CONFIG_MODULE_ID ? RESOLVED_CONFIG_MODULE_ID : undefined;
     },
     load(id: string) {
-      return id === RESOLVED_CONFIG_MODULE_ID
-        ? `export default ${JSON.stringify(config)};`
-        : undefined;
+      return id === RESOLVED_CONFIG_MODULE_ID ? code : undefined;
     },
   };
+}
+
+function reportConfigProblems(logger: AstroIntegrationLogger, problems: string[]): void {
+  for (const problem of problems) {
+    logger.error(
+      `Invalid Savvagent config: ${problem}. Astro.locals.savvagent will return flag defaults.`
+    );
+  }
 }
 
 /**
@@ -99,14 +152,8 @@ function savvagentConfigPlugin(config: FlagClientConfig) {
  * import savvagent from '@savvagent/astro';
  *
  * export default defineConfig({
- *   integrations: [
- *     savvagent({
- *       config: {
- *         apiKey: process.env.SAVVAGENT_SDK_KEY,
- *         applicationId: process.env.SAVVAGENT_APP_ID,
- *       },
- *     }),
- *   ],
+ *   // src/savvagent.config.mjs: export default { apiKey: process.env.SAVVAGENT_SDK_KEY };
+ *   integrations: [savvagent({ configModule: './src/savvagent.config.mjs' })],
  * });
  * ```
  */
@@ -116,10 +163,40 @@ export default function savvagent(
   return {
     name: '@savvagent/astro',
     hooks: {
-      'astro:config:setup': ({ addMiddleware, updateConfig }) => {
-        updateConfig({
-          vite: { plugins: [savvagentConfigPlugin(options.config)] },
-        });
+      'astro:config:setup': async ({ addMiddleware, updateConfig, config, logger }) => {
+        if (options.configModule) {
+          // Imported lazily so this module stays free of static Node imports
+          // (pages and client code may import it too).
+          const { isAbsolute, resolve: resolvePath } = await import('node:path');
+          const { fileURLToPath, pathToFileURL } = await import('node:url');
+          const root = config?.root ? fileURLToPath(config.root) : process.cwd();
+          const modulePath = isAbsolute(options.configModule)
+            ? options.configModule
+            : resolvePath(root, options.configModule);
+          updateConfig({ vite: { plugins: [savvagentConfigPlugin({ modulePath })] } });
+          try {
+            const loaded = await import(pathToFileURL(modulePath).href);
+            reportConfigProblems(logger, validateConfig(loaded.default));
+          } catch (error) {
+            logger.warn(
+              `Could not load configModule "${options.configModule}" to validate it ` +
+                `(${(error as Error).message}); it will be loaded at server runtime.`
+            );
+          }
+        } else if (options.config) {
+          const dropped = functionValuedKeys(options.config);
+          if (dropped.length > 0) {
+            logger.warn(
+              `These config options are functions and cannot be inlined as JSON, so they are ` +
+                `ignored: ${dropped.join(', ')}. Use the \`configModule\` option to keep them.`
+            );
+          }
+          reportConfigProblems(logger, validateConfig(options.config));
+          updateConfig({ vite: { plugins: [savvagentConfigPlugin({ json: options.config })] } });
+        } else {
+          reportConfigProblems(logger, validateConfig(undefined));
+          updateConfig({ vite: { plugins: [savvagentConfigPlugin({ json: {} as FlagClientConfig })] } });
+        }
         addMiddleware({ entrypoint: '@savvagent/astro/middleware', order: 'pre' });
       },
       'astro:config:done': ({ injectTypes }) => {
@@ -129,7 +206,6 @@ export default function savvagent(
         });
       },
       'astro:build:done': () => {
-        // Prerendering runs the middleware in the build process; release its client.
         if (clientInstance) {
           clientInstance.close();
           clientInstance = null;
@@ -139,20 +215,48 @@ export default function savvagent(
   };
 }
 
+/** Options for {@link createSavvagentLocals}. */
+export interface SavvagentLocalsOptions {
+  /** Anonymous ID to evaluate with when the request has no anonymous ID cookie. */
+  anonymousId?: string;
+  /** Prerendered pages have no visitor: skip request headers and cookies. */
+  isPrerendered?: boolean;
+  /** Defaults returned when `client` is null. */
+  defaults?: Record<string, boolean>;
+}
+
 /**
  * Build the request-scoped API exposed as `Astro.locals.savvagent`.
  *
- * @param client - The FlagClient to evaluate with
+ * @param client - The FlagClient to evaluate with, or null to always return defaults
  * @param request - The current request
+ * @param options - Anonymous ID, prerendering and defaults
  */
-export function createSavvagentLocals(client: FlagClient, request: Request): SavvagentLocals {
+export function createSavvagentLocals(
+  client: FlagClient | null,
+  request: Request,
+  options: SavvagentLocalsOptions = {}
+): SavvagentLocals {
+  const fromRequest = options.isPrerendered ? {} : getRequestContext(request);
   const requestContext = Object.fromEntries(
-    Object.entries(getRequestContext(request)).filter(
+    Object.entries({ ...fromRequest, anonymous_id: fromRequest.anonymous_id || options.anonymousId }).filter(
       ([key, value]) => key !== '' && value !== undefined && value !== ''
     )
   ) as FlagContext;
 
   const merge = (context?: FlagContext): FlagContext => ({ ...requestContext, ...context });
+
+  if (!client) {
+    const defaultFor = (flagKey: string) => options.defaults?.[flagKey] ?? false;
+    return {
+      client: null,
+      context: requestContext,
+      isEnabled: async (flagKey) => defaultFor(flagKey),
+      evaluate: async (flagKey) => ({ key: flagKey, value: defaultFor(flagKey), reason: 'error' }),
+      withFlag: async (flagKey, callback) => (defaultFor(flagKey) ? callback() : null),
+      trackError: () => {},
+    };
+  }
 
   return {
     client,
@@ -164,6 +268,10 @@ export function createSavvagentLocals(client: FlagClient, request: Request): Sav
   };
 }
 
+function newAnonymousId(): string {
+  return globalThis.crypto?.randomUUID?.() ?? `anon_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+}
+
 /**
  * Create the middleware that provides `Astro.locals.savvagent`.
  * The integration registers this automatically; use it directly only when
@@ -172,9 +280,35 @@ export function createSavvagentLocals(client: FlagClient, request: Request): Sav
  * @param config - Client configuration (server defaults applied via {@link toServerConfig})
  */
 export function createSavvagentMiddleware(config: FlagClientConfig): MiddlewareHandler {
+  let client: FlagClient | null = null;
+  let failed = false;
+
   return (context, next) => {
-    const client = initSavvagent(toServerConfig(config));
-    context.locals.savvagent = createSavvagentLocals(client, context.request);
+    if (!client && !failed) {
+      try {
+        client = initSavvagent(toServerConfig(config));
+      } catch (error) {
+        // Report once instead of failing every request with a 500.
+        failed = true;
+        console.error('[Savvagent] Could not create the server-side client:', error);
+      }
+    }
+
+    let anonymousId: string | undefined;
+    if (!context.isPrerendered && !context.cookies.get(ANONYMOUS_ID_COOKIE)?.value) {
+      anonymousId = newAnonymousId();
+      context.cookies.set(ANONYMOUS_ID_COOKIE, anonymousId, {
+        path: '/',
+        sameSite: 'lax',
+        maxAge: ANONYMOUS_ID_MAX_AGE,
+      });
+    }
+
+    context.locals.savvagent = createSavvagentLocals(client, context.request, {
+      anonymousId,
+      isPrerendered: context.isPrerendered,
+      defaults: config?.defaults,
+    });
     return next();
   };
 }
@@ -208,6 +342,14 @@ export function getSavvagent(): FlagClient {
   return clientInstance;
 }
 
+function decodeCookieValue(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 /**
  * Extract context from Astro request.
  *
@@ -223,7 +365,7 @@ export function getRequestContext(
   const cookies = Object.fromEntries(
     cookieHeader.split('; ').map((c) => {
       const [key, ...values] = c.split('=');
-      return [key, values.join('=')];
+      return [key, decodeCookieValue(values.join('='))];
     })
   );
 

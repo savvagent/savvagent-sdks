@@ -248,7 +248,7 @@ export function startDemo(): void {
     error = null;
     renderPanel();
     try {
-      flags = await client.getAllFlags('development');
+      flags = await client.getAllFlags(client.getEnvironment());
     } catch (e) {
       error = 'Failed to fetch flags';
       console.error('[Demo] Error fetching flags:', e);

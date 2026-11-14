@@ -38,20 +38,18 @@ Example Astro application demonstrating how to use the Savvagent Astro integrati
 
 ### Configuration
 
-```typescript
+```js
 // astro.config.mjs
 import { defineConfig } from 'astro/config';
+import node from '@astrojs/node';
 import savvagent from '@savvagent/astro';
 
 export default defineConfig({
-  integrations: [
-    savvagent({
-      config: {
-        apiKey: process.env.SAVVAGENT_SDK_KEY,
-        baseUrl: process.env.SAVVAGENT_API_URL,
-      },
-    }),
-  ],
+  output: 'server',
+  adapter: node({ mode: 'standalone' }),
+  // src/savvagent.config.mjs default-exports the client config; the
+  // middleware imports it at server runtime, so process.env is read then.
+  integrations: [savvagent({ configModule: './src/savvagent.config.mjs' })],
 });
 ```
 

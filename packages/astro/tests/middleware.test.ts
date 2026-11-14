@@ -24,6 +24,8 @@ describe('@savvagent/astro/middleware', () => {
   it('provides Astro.locals.savvagent using the integration config', async () => {
     const context = {
       request: new Request('http://localhost:4321/', { headers: { cookie: 'user_id=u-7' } }),
+      isPrerendered: false,
+      cookies: { get: () => undefined, set: vi.fn() },
       locals: {} as Record<string, any>,
     };
     const next = vi.fn().mockResolvedValue(new Response('ok'));

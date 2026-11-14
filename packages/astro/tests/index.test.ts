@@ -48,7 +48,12 @@ import savvagent, {
 
 // Minimal stand-in for the options Astro passes to astro:config:setup.
 function setupParams() {
-  return { addMiddleware: vi.fn(), updateConfig: vi.fn() } as any;
+  return {
+    addMiddleware: vi.fn(),
+    updateConfig: vi.fn(),
+    logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
+    config: { root: new URL('file:///project/') },
+  } as any;
 }
 
 describe('@savvagent/astro', () => {
@@ -78,7 +83,7 @@ describe('@savvagent/astro', () => {
       expect(integration.hooks['astro:build:done']).toBeDefined();
     });
 
-    it('should register the Savvagent middleware in astro:config:setup hook', () => {
+    it('should register the Savvagent middleware in astro:config:setup hook', async () => {
       const options: SavvagentIntegrationOptions = {
         config: {
           apiKey: 'sdk_test_key',
@@ -89,7 +94,7 @@ describe('@savvagent/astro', () => {
 
       const integration = savvagent(options);
       const params = setupParams();
-      integration.hooks['astro:config:setup']!(params);
+      await integration.hooks['astro:config:setup']!(params);
 
       // The client is created per server process by the middleware, not here.
       expect(params.addMiddleware).toHaveBeenCalledWith({
@@ -99,7 +104,7 @@ describe('@savvagent/astro', () => {
       expect(params.updateConfig).toHaveBeenCalledTimes(1);
     });
 
-    it('should cleanup client in astro:build:done hook', () => {
+    it('should cleanup client in astro:build:done hook', async () => {
       mockClose.mockClear();
 
       const options: SavvagentIntegrationOptions = {
@@ -110,7 +115,7 @@ describe('@savvagent/astro', () => {
       };
 
       const integration = savvagent(options);
-      integration.hooks['astro:config:setup']!(setupParams());
+      await integration.hooks['astro:config:setup']!(setupParams());
       integration.hooks['astro:build:done']!({} as any);
 
       expect(mockClose).toHaveBeenCalled();
@@ -710,7 +715,7 @@ describe('@savvagent/astro', () => {
   });
 
   describe('Integration Lifecycle', () => {
-    it('should support full integration lifecycle', () => {
+    it('should support full integration lifecycle', async () => {
       mockClose.mockClear();
 
       const options: SavvagentIntegrationOptions = {
@@ -727,7 +732,7 @@ describe('@savvagent/astro', () => {
       expect(integration.name).toBe('@savvagent/astro');
 
       // Setup
-      integration.hooks['astro:config:setup']!(setupParams());
+      await integration.hooks['astro:config:setup']!(setupParams());
 
       // Use client
       const client = getSavvagent();

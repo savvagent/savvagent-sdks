@@ -29,16 +29,36 @@ import savvagent, {
   getSavvagent,
   SAVVAGENT_CONFIG_MODULE_ID,
   toServerConfig,
+  getRequestContext,
+  ANONYMOUS_ID_COOKIE,
   type SavvagentLocals,
 } from '../src/index';
 import { FlagClient } from '@savvagent/sdk';
+import { fileURLToPath } from 'node:url';
 
 function makeRequest(headers: Record<string, string> = {}): Request {
   return new Request('http://localhost:4321/', { headers });
 }
 
-function makeContext(request: Request) {
-  return { request, locals: {} as Record<string, unknown> };
+function makeCookies(request: Request) {
+  const jar = new Map<string, string>();
+  for (const part of (request.headers.get('cookie') ?? '').split('; ')) {
+    const [key, ...rest] = part.split('=');
+    if (key) jar.set(key, rest.join('='));
+  }
+  return {
+    get: (name: string) => (jar.has(name) ? { value: jar.get(name)! } : undefined),
+    set: vi.fn((name: string, value: string) => void jar.set(name, value)),
+  };
+}
+
+function makeContext(request: Request, isPrerendered = false) {
+  return {
+    request,
+    isPrerendered,
+    cookies: makeCookies(request),
+    locals: {} as Record<string, unknown>,
+  };
 }
 
 describe('createSavvagentLocals', () => {
@@ -128,7 +148,10 @@ describe('createSavvagentMiddleware', () => {
     const locals = context.locals.savvagent as SavvagentLocals;
     expect(locals).toBeDefined();
     await expect(locals.isEnabled('new-feature')).resolves.toBe(true);
-    expect(mockIsEnabled).toHaveBeenLastCalledWith('new-feature', { user_id: 'u-5' });
+    expect(mockIsEnabled).toHaveBeenLastCalledWith('new-feature', {
+      user_id: 'u-5',
+      anonymous_id: expect.any(String),
+    });
     expect(locals.client).toBe(getSavvagent());
   });
 
@@ -157,17 +180,28 @@ describe('createSavvagentMiddleware', () => {
 });
 
 describe('integration wiring', () => {
-  function runSetup(config: Parameters<typeof savvagent>[0]['config']) {
+  async function runSetup(options: Parameters<typeof savvagent>[0]) {
     const addMiddleware = vi.fn();
     const updateConfig = vi.fn();
-    const integration = savvagent({ config });
-    const setup = integration.hooks['astro:config:setup'] as (opts: unknown) => void;
-    setup({ addMiddleware, updateConfig });
-    return { addMiddleware, updateConfig, integration };
+    const logger = { warn: vi.fn(), error: vi.fn(), info: vi.fn() };
+    const integration = savvagent(options);
+    const setup = integration.hooks['astro:config:setup'] as (opts: unknown) => Promise<void>;
+    await setup({
+      addMiddleware,
+      updateConfig,
+      logger,
+      config: { root: new URL('./fixtures/', import.meta.url) },
+    });
+    const plugin = updateConfig.mock.calls[0][0].vite.plugins[0] as {
+      resolveId: (id: string) => string | undefined;
+      load: (id: string) => string | undefined;
+    };
+    const virtualCode = plugin.load(plugin.resolveId(SAVVAGENT_CONFIG_MODULE_ID) as string) as string;
+    return { addMiddleware, updateConfig, logger, integration, virtualCode };
   }
 
-  it('registers the Savvagent middleware to run before user middleware', () => {
-    const { addMiddleware } = runSetup({ apiKey: 'sdk_x' });
+  it('registers the Savvagent middleware to run before user middleware', async () => {
+    const { addMiddleware } = await runSetup({ config: { apiKey: 'sdk_x' } });
     expect(addMiddleware).toHaveBeenCalledWith({
       entrypoint: '@savvagent/astro/middleware',
       order: 'pre',
@@ -175,11 +209,15 @@ describe('integration wiring', () => {
   });
 
   it('serves the integration config to the middleware through a virtual module', async () => {
-    const { updateConfig } = runSetup({
-      apiKey: 'sdk_x',
-      baseUrl: 'https://flags.example.com',
-      applicationId: 'app-1',
+    const { updateConfig, logger } = await runSetup({
+      config: {
+        apiKey: 'sdk_x',
+        baseUrl: 'https://flags.example.com',
+        applicationId: 'app-1',
+      },
     });
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(logger.error).not.toHaveBeenCalled();
 
     const plugins = updateConfig.mock.calls[0][0].vite.plugins as Array<{
       name: string;
@@ -204,6 +242,52 @@ describe('integration wiring', () => {
     expect(plugin.load('some-other-module')).toBeUndefined();
   });
 
+  it('re-exports configModule from the virtual module, resolved against the project root', async () => {
+    const { virtualCode, logger } = await runSetup({ configModule: './runtime-config.mjs' });
+    const expected = fileURLToPath(new URL('./fixtures/runtime-config.mjs', import.meta.url));
+    expect(virtualCode).toBe(`export { default } from ${JSON.stringify(expected)};`);
+    // The module is valid, so nothing is reported.
+    expect(logger.error).not.toHaveBeenCalled();
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('prefers configModule over config', async () => {
+    const { virtualCode } = await runSetup({
+      configModule: './runtime-config.mjs',
+      config: { apiKey: 'sdk_inline' },
+    });
+    expect(virtualCode).toContain('export { default } from');
+    expect(virtualCode).not.toContain('sdk_inline');
+  });
+
+  it('reports an invalid configModule at setup with logger.error', async () => {
+    const { logger } = await runSetup({ configModule: './invalid-config.mjs' });
+    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('apiKey'));
+  });
+
+  it('warns when configModule cannot be loaded for validation', async () => {
+    const { logger, addMiddleware } = await runSetup({ configModule: './does-not-exist.mjs' });
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('does-not-exist.mjs'));
+    expect(addMiddleware).toHaveBeenCalled();
+  });
+
+  it('reports a missing or invalid apiKey in the JSON config with logger.error', async () => {
+    const missing = await runSetup({ config: { apiKey: '' } });
+    expect(missing.logger.error).toHaveBeenCalledWith(expect.stringContaining('`apiKey` is missing'));
+    const wrong = await runSetup({ config: { apiKey: 'pk_live_123' } });
+    expect(wrong.logger.error).toHaveBeenCalledWith(expect.stringContaining('sdk_'));
+    const none = await runSetup({});
+    expect(none.logger.error).toHaveBeenCalled();
+  });
+
+  it('warns about function-valued config keys dropped from the JSON config', async () => {
+    const { logger, virtualCode } = await runSetup({
+      config: { apiKey: 'sdk_x', onError: () => {} },
+    });
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('onError'));
+    expect(virtualCode).not.toContain('onError');
+  });
+
   it('injects App.Locals types for consumers', () => {
     const integration = savvagent({ config: { apiKey: 'sdk_x' } });
     const injectTypes = vi.fn();
@@ -226,5 +310,77 @@ describe('toServerConfig', () => {
       apiKey: 'sdk_x',
       enableRealtime: true,
     });
+  });
+});
+
+describe('anonymous ID and prerendering', () => {
+  it('gives a visitor without the cookie a fresh anonymous ID and sets the cookie', async () => {
+    mockIsEnabled.mockResolvedValue(true);
+    const onRequest = createSavvagentMiddleware({ apiKey: 'sdk_mw' });
+    const a = makeContext(makeRequest());
+    const b = makeContext(makeRequest());
+    const next = vi.fn().mockResolvedValue(new Response('ok'));
+    await onRequest(a as never, next);
+    await onRequest(b as never, next);
+
+    const idA = (a.locals.savvagent as SavvagentLocals).context.anonymous_id;
+    const idB = (b.locals.savvagent as SavvagentLocals).context.anonymous_id;
+    expect(idA).toBeTruthy();
+    expect(idB).toBeTruthy();
+    expect(idA).not.toBe(idB);
+    expect(a.cookies.set).toHaveBeenCalledWith(
+      ANONYMOUS_ID_COOKIE,
+      idA,
+      expect.objectContaining({ path: '/', sameSite: 'lax' })
+    );
+
+    await (a.locals.savvagent as SavvagentLocals).isEnabled('f');
+    expect(mockIsEnabled).toHaveBeenLastCalledWith('f', { anonymous_id: idA });
+  });
+
+  it('keeps the anonymous ID from an existing cookie', async () => {
+    const onRequest = createSavvagentMiddleware({ apiKey: 'sdk_mw' });
+    const context = makeContext(makeRequest({ cookie: `${ANONYMOUS_ID_COOKIE}=anon-1` }));
+    await onRequest(context as never, async () => new Response('ok'));
+    expect(context.cookies.set).not.toHaveBeenCalled();
+    expect((context.locals.savvagent as SavvagentLocals).context.anonymous_id).toBe('anon-1');
+  });
+
+  it('reads no headers or cookies on prerendered pages', async () => {
+    const onRequest = createSavvagentMiddleware({ apiKey: 'sdk_mw' });
+    const request = makeRequest({ cookie: 'user_id=u-1', 'accept-language': 'fr' });
+    const context = makeContext(request, true);
+    const headersGet = vi.spyOn(request.headers, 'get');
+    await onRequest(context as never, async () => new Response('ok'));
+
+    expect(headersGet).not.toHaveBeenCalled();
+    expect(context.cookies.set).not.toHaveBeenCalled();
+    expect((context.locals.savvagent as SavvagentLocals).context).toEqual({});
+  });
+});
+
+describe('getRequestContext cookie decoding', () => {
+  it('URL-decodes cookie values', () => {
+    const context = getRequestContext(
+      makeRequest({ cookie: 'user_id=user%40example.com; session_id=a%20b' })
+    );
+    expect(context.user_id).toBe('user@example.com');
+    expect(context.session_id).toBe('a b');
+  });
+
+  it('keeps malformed encodings as-is', () => {
+    expect(getRequestContext(makeRequest({ cookie: 'user_id=%E0%A4%A' })).user_id).toBe('%E0%A4%A');
+  });
+});
+
+describe('createSavvagentLocals without a client', () => {
+  it('returns defaults instead of throwing', async () => {
+    const locals = createSavvagentLocals(null, makeRequest(), { defaults: { on: true } });
+    await expect(locals.isEnabled('on')).resolves.toBe(true);
+    await expect(locals.isEnabled('off')).resolves.toBe(false);
+    await expect(locals.evaluate('on')).resolves.toMatchObject({ value: true, reason: 'error' });
+    await expect(locals.withFlag('off', () => 'x')).resolves.toBeNull();
+    expect(() => locals.trackError('on', new Error('e'))).not.toThrow();
+    expect(locals.client).toBeNull();
   });
 });
