@@ -10,7 +10,6 @@ import { FlagOverridePanelComponent } from './flag-override-panel.component';
  */
 @Component({
   selector: 'app-root',
-  standalone: true,
   imports: [CommonModule, FeatureDemoComponent, FlagOverridePanelComponent],
   template: `
     <app-feature-demo></app-feature-demo>

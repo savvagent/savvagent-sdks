@@ -12,7 +12,6 @@ import { SavvagentService, FlagObservableResult, FlagEvaluationResult } from '@s
  */
 @Component({
   selector: 'app-feature-demo',
-  standalone: true,
   imports: [CommonModule],
   template: `
     <div class="container">

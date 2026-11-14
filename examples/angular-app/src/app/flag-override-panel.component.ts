@@ -16,7 +16,6 @@ const STORAGE_KEY = 'savvagent_local_overrides';
  */
 @Component({
   selector: 'app-flag-override-panel',
-  standalone: true,
   imports: [CommonModule],
   template: `
     <!-- Trigger Button -->
