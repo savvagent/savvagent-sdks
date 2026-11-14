@@ -4,7 +4,7 @@ Astro integration for Savvagent with server-side rendering and middleware suppor
 
 ## Requirements
 
-- Astro 5, 6 or 7 (`astro >=5.0.0 <8`); built and tested on Astro 7.
+- Astro 4.14 or later, up to Astro 7 (`astro >=4.14.0 <8`); built and tested on Astro 7.
 - An adapter (for example `@astrojs/node`) for on-demand rendered pages, so flags are evaluated per request.
 
 ## Installation
@@ -59,7 +59,7 @@ provides `Astro.locals.savvagent` on every request. It also injects the
 
 Visitors without a `savvagent_anonymous_id` cookie get a new random ID, set as
 that cookie, so each visitor keeps a stable rollout bucket. On prerendered
-pages no request headers or cookies are read.
+pages no request headers or cookies are read (Astro 5 and later).
 
 ### 2. Use in Astro Components
 

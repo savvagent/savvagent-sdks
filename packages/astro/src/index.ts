@@ -38,8 +38,8 @@ export interface SavvagentIntegrationOptions {
  * `user_id`, `session_id` and `savvagent_anonymous_id` cookies and
  * `Accept-Language`) with the context you pass; values you pass win.
  * Visitors without a `savvagent_anonymous_id` cookie get a fresh one, so
- * each visitor keeps a stable rollout bucket. On prerendered pages no
- * request headers or cookies are read.
+ * each visitor keeps a stable rollout bucket. On prerendered pages (Astro 5
+ * and later) no request headers or cookies are read.
  */
 export interface SavvagentLocals {
   /**
@@ -294,8 +294,12 @@ export function createSavvagentMiddleware(config: FlagClientConfig): MiddlewareH
       }
     }
 
+    // APIContext.isPrerendered exists since Astro 5. On Astro 4 it is absent,
+    // and a prerendered page sees the empty request Astro builds it with.
+    const isPrerendered = (context as { isPrerendered?: boolean }).isPrerendered === true;
+
     let anonymousId: string | undefined;
-    if (!context.isPrerendered && !context.cookies.get(ANONYMOUS_ID_COOKIE)?.value) {
+    if (!isPrerendered && !context.cookies.get(ANONYMOUS_ID_COOKIE)?.value) {
       anonymousId = newAnonymousId();
       context.cookies.set(ANONYMOUS_ID_COOKIE, anonymousId, {
         path: '/',
@@ -306,7 +310,7 @@ export function createSavvagentMiddleware(config: FlagClientConfig): MiddlewareH
 
     context.locals.savvagent = createSavvagentLocals(client, context.request, {
       anonymousId,
-      isPrerendered: context.isPrerendered,
+      isPrerendered,
       defaults: config?.defaults,
     });
     return next();
