@@ -21,10 +21,14 @@ export const savvagent = createSavvagentServer(
   }
 );
 
-/** Settings the browser SDK needs. SDK keys (sdk_...) are safe to expose. */
+/**
+ * Settings the browser SDK needs, sent to the page in loader data. The key
+ * must be a public client SDK key (`sdk_...`): it is visible to every
+ * visitor. It is read from its own variable, never from the server's key.
+ */
 export function browserConfig() {
   return {
-    apiKey: process.env.VITE_SAVVAGENT_SDK_KEY || process.env.SAVVAGENT_SDK_KEY || 'sdk_your_key_here',
+    apiKey: process.env.VITE_SAVVAGENT_SDK_KEY || 'sdk_your_key_here',
     baseUrl:
       process.env.VITE_SAVVAGENT_API_URL || process.env.SAVVAGENT_API_URL || 'https://api.savvagent.com/flags',
   };
