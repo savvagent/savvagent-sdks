@@ -37,11 +37,15 @@ describe('@savvagent/astro/middleware', () => {
     await expect(context.locals.savvagent.isEnabled('new-feature')).resolves.toBe(true);
 
     expect(constructedConfigs).toHaveLength(1);
-    // Realtime (SSE) needs browser globals, so it is off by default on the server.
+    // Server defaults: no realtime (SSE needs browser globals), no language
+    // detection from the server's locale, one attempt, throttled onError.
     expect(constructedConfigs[0]).toEqual({
       apiKey: 'sdk_fixture',
       applicationId: 'fixture-app',
       enableRealtime: false,
+      disableLanguageDetection: true,
+      retryAttempts: 1,
+      onError: expect.any(Function),
     });
   });
 });

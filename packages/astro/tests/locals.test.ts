@@ -74,11 +74,24 @@ describe('createSavvagentLocals', () => {
 
   const client = new FlagClient({ apiKey: 'sdk_test' });
 
-  it('evaluates flags with context derived from the request', async () => {
+  it('ignores the user_id cookie by default, since the browser controls it (#23)', async () => {
     mockIsEnabled.mockResolvedValue(true);
     const locals = createSavvagentLocals(
       client,
       makeRequest({ cookie: 'user_id=u-1; session_id=s-1', 'accept-language': 'fr-FR,en' })
+    );
+
+    await locals.isEnabled('new-feature');
+    expect(mockIsEnabled).toHaveBeenCalledWith('new-feature', { session_id: 's-1', language: 'fr-FR' });
+    expect(locals.context).not.toHaveProperty('user_id');
+  });
+
+  it('evaluates flags with context derived from the request, user_id cookie included when trusted', async () => {
+    mockIsEnabled.mockResolvedValue(true);
+    const locals = createSavvagentLocals(
+      client,
+      makeRequest({ cookie: 'user_id=u-1; session_id=s-1', 'accept-language': 'fr-FR,en' }),
+      { trustUserIdCookie: true }
     );
 
     await expect(locals.isEnabled('new-feature')).resolves.toBe(true);
@@ -91,7 +104,9 @@ describe('createSavvagentLocals', () => {
 
   it('lets per-call context override and extend the request context', async () => {
     mockIsEnabled.mockResolvedValue(false);
-    const locals = createSavvagentLocals(client, makeRequest({ cookie: 'user_id=u-1' }));
+    const locals = createSavvagentLocals(client, makeRequest({ cookie: 'user_id=u-1' }), {
+      trustUserIdCookie: true,
+    });
 
     await locals.isEnabled('beta-feature', {
       user_id: 'u-2',
@@ -118,15 +133,19 @@ describe('createSavvagentLocals', () => {
   it('exposes evaluate, withFlag, trackError, the client and the request context', async () => {
     const result = { key: 'f', value: true, reason: 'default' };
     mockEvaluate.mockResolvedValue(result);
-    mockWithFlag.mockResolvedValue('ran');
-    const locals = createSavvagentLocals(client, makeRequest({ cookie: 'user_id=u-9' }));
+    mockIsEnabled.mockResolvedValue(true);
+    const locals = createSavvagentLocals(client, makeRequest({ cookie: 'user_id=u-9' }), {
+      trustUserIdCookie: true,
+    });
 
     await expect(locals.evaluate('f')).resolves.toBe(result);
     expect(mockEvaluate).toHaveBeenCalledWith('f', { user_id: 'u-9' });
 
-    const cb = () => 'ran';
+    // withFlag evaluates through the bounded isEnabled, then runs the callback.
+    const cb = vi.fn(() => 'ran');
     await expect(locals.withFlag('f', cb)).resolves.toBe('ran');
-    expect(mockWithFlag).toHaveBeenCalledWith('f', cb, { user_id: 'u-9' });
+    expect(mockIsEnabled).toHaveBeenCalledWith('f', { user_id: 'u-9' });
+    expect(cb).toHaveBeenCalledTimes(1);
 
     const err = new Error('boom');
     locals.trackError('f', err);
@@ -138,7 +157,7 @@ describe('createSavvagentLocals', () => {
 });
 
 describe('createSavvagentMiddleware', () => {
-  it('sets context.locals.savvagent and calls next', async () => {
+  it('sets context.locals.savvagent and calls next, ignoring the user_id cookie by default', async () => {
     mockIsEnabled.mockResolvedValue(true);
     const onRequest = createSavvagentMiddleware({ apiKey: 'sdk_mw' });
     const context = makeContext(makeRequest({ cookie: 'user_id=u-5' }));
@@ -152,10 +171,58 @@ describe('createSavvagentMiddleware', () => {
     expect(locals).toBeDefined();
     await expect(locals.isEnabled('new-feature')).resolves.toBe(true);
     expect(mockIsEnabled).toHaveBeenLastCalledWith('new-feature', {
-      user_id: 'u-5',
       anonymous_id: expect.any(String),
     });
     expect(locals.client).toBe(getSavvagent());
+  });
+
+  it('reads the user_id cookie when trustUserIdCookie is set', async () => {
+    mockIsEnabled.mockResolvedValue(true);
+    const onRequest = createSavvagentMiddleware({ apiKey: 'sdk_mw' }, { trustUserIdCookie: true });
+    const context = makeContext(makeRequest({ cookie: 'user_id=u-5' }));
+    await onRequest(context as never, async () => new Response('ok'));
+
+    await (context.locals.savvagent as SavvagentLocals).isEnabled('new-feature');
+    expect(mockIsEnabled).toHaveBeenLastCalledWith('new-feature', {
+      user_id: 'u-5',
+      anonymous_id: expect.any(String),
+    });
+  });
+
+  it('prefers getUserId over the trusted cookie and passes it the request and locals', async () => {
+    mockIsEnabled.mockResolvedValue(true);
+    const getUserId = vi.fn(({ locals }: { locals: Record<string, unknown> }) => locals.sessionUser as string);
+    const onRequest = createSavvagentMiddleware(
+      { apiKey: 'sdk_mw' },
+      { trustUserIdCookie: true, getUserId: getUserId as never }
+    );
+    const context = makeContext(makeRequest({ cookie: 'user_id=u-cookie' }));
+    await onRequest(context as never, async () => {
+      // Set by the app's own auth middleware, which runs after Savvagent's.
+      context.locals.sessionUser = 'u-session';
+      const savvagent = context.locals.savvagent as SavvagentLocals;
+      await savvagent.isEnabled('a');
+      await savvagent.isEnabled('b');
+      return new Response('ok');
+    });
+
+    expect(mockIsEnabled).toHaveBeenLastCalledWith('b', {
+      user_id: 'u-session',
+      anonymous_id: expect.any(String),
+    });
+    // Resolved once per request.
+    expect(getUserId).toHaveBeenCalledTimes(1);
+    expect(getUserId.mock.calls[0][0]).toMatchObject({ request: context.request, locals: context.locals });
+    expect((context.locals.savvagent as SavvagentLocals).context.user_id).toBe('u-session');
+  });
+
+  it('falls back to no user_id when getUserId returns nothing and the cookie is not trusted', async () => {
+    mockIsEnabled.mockResolvedValue(true);
+    const onRequest = createSavvagentMiddleware({ apiKey: 'sdk_mw' }, { getUserId: () => undefined });
+    const context = makeContext(makeRequest({ cookie: 'user_id=u-cookie' }));
+    await onRequest(context as never, async () => new Response('ok'));
+    await (context.locals.savvagent as SavvagentLocals).isEnabled('a');
+    expect(mockIsEnabled.mock.calls.at(-1)?.[1]).not.toHaveProperty('user_id');
   });
 
   it('sets locals before next() runs, so pages can read them', async () => {
@@ -219,7 +286,10 @@ describe('integration wiring', () => {
         applicationId: 'app-1',
       },
     });
-    expect(logger.warn).not.toHaveBeenCalled();
+    // An inline apiKey ends up in the server bundle, so the integration says so.
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('server bundle'));
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('configModule'));
     expect(logger.error).not.toHaveBeenCalled();
 
     const plugins = updateConfig.mock.calls[0][0].vite.plugins as Array<{
@@ -234,9 +304,8 @@ describe('integration wiring', () => {
     expect(resolved).toBeTruthy();
     expect(plugin.resolveId('some-other-module')).toBeUndefined();
 
-    const code = plugin.load(resolved as string);
-    expect(code).toContain('export default');
-    const json = (code as string).replace(/^export default\s*/, '').replace(/;\s*$/, '');
+    const code = plugin.load(resolved as string) as string;
+    const json = code.match(/^export default (.*);$/m)?.[1] as string;
     expect(JSON.parse(json)).toEqual({
       apiKey: 'sdk_x',
       baseUrl: 'https://flags.example.com',
@@ -248,7 +317,11 @@ describe('integration wiring', () => {
   it('re-exports configModule from the virtual module, resolved against the project root', async () => {
     const { virtualCode, logger } = await runSetup({ configModule: './runtime-config.mjs' });
     const expected = fileURLToPath(new URL('./fixtures/runtime-config.mjs', import.meta.url));
-    expect(virtualCode).toBe(`export { default } from ${JSON.stringify(expected)};`);
+    expect(virtualCode).toBe(
+      `export { default } from ${JSON.stringify(expected)};\n` +
+        'export const getUserId = undefined;\n' +
+        'export const options = {};'
+    );
     // The module is valid, so nothing is reported.
     expect(logger.error).not.toHaveBeenCalled();
     expect(logger.warn).not.toHaveBeenCalled();
@@ -261,6 +334,35 @@ describe('integration wiring', () => {
     });
     expect(virtualCode).toContain('export { default } from');
     expect(virtualCode).not.toContain('sdk_inline');
+  });
+
+  it('re-exports getUserId from configModule when the module defines it', async () => {
+    const { virtualCode, logger } = await runSetup({ configModule: './get-user-id-config.mjs' });
+    const expected = fileURLToPath(new URL('./fixtures/get-user-id-config.mjs', import.meta.url));
+    expect(virtualCode).toContain(`export { default, getUserId } from ${JSON.stringify(expected)};`);
+    expect(virtualCode).not.toContain('export const getUserId');
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('reads getUserId from the module namespace when the module cannot be loaded at startup', async () => {
+    const { virtualCode } = await runSetup({ configModule: './does-not-exist.mjs' });
+    expect(virtualCode).toContain('import * as configModule from');
+    expect(virtualCode).toContain('export const getUserId = configModule.getUserId;');
+  });
+
+  it('serves trustUserIdCookie and evaluationTimeoutMs to the middleware', async () => {
+    const { virtualCode } = await runSetup({
+      config: { apiKey: 'sdk_x' },
+      trustUserIdCookie: true,
+      evaluationTimeoutMs: 250,
+    });
+    expect(virtualCode).toContain('export const options = {"trustUserIdCookie":true,"evaluationTimeoutMs":250};');
+    expect(virtualCode).toContain('export const getUserId = undefined;');
+  });
+
+  it('does not warn about the server bundle for configModule', async () => {
+    const { logger } = await runSetup({ configModule: './runtime-config.mjs' });
+    expect(logger.warn).not.toHaveBeenCalledWith(expect.stringContaining('server bundle'));
   });
 
   it('warns (not errors) about an invalid configModule, since it is checked again at runtime', async () => {
@@ -306,14 +408,28 @@ describe('integration wiring', () => {
 });
 
 describe('toServerConfig', () => {
-  it('turns realtime off by default for the server-side client', () => {
-    expect(toServerConfig({ apiKey: 'sdk_x' })).toEqual({ apiKey: 'sdk_x', enableRealtime: false });
+  it('turns off realtime, language detection and retries by default for the server-side client', () => {
+    expect(toServerConfig({ apiKey: 'sdk_x' })).toEqual({
+      apiKey: 'sdk_x',
+      enableRealtime: false,
+      disableLanguageDetection: true,
+      retryAttempts: 1,
+    });
   });
 
-  it('keeps an explicit enableRealtime setting', () => {
-    expect(toServerConfig({ apiKey: 'sdk_x', enableRealtime: true })).toEqual({
+  it('keeps explicit settings', () => {
+    expect(
+      toServerConfig({
+        apiKey: 'sdk_x',
+        enableRealtime: true,
+        disableLanguageDetection: false,
+        retryAttempts: 3,
+      })
+    ).toEqual({
       apiKey: 'sdk_x',
       enableRealtime: true,
+      disableLanguageDetection: false,
+      retryAttempts: 3,
     });
   });
 });
@@ -405,12 +521,13 @@ describe('anonymous ID cookie attributes and source', () => {
   it('generates IDs from crypto, never Math.random, even without globalThis.crypto', async () => {
     const random = vi.spyOn(Math, 'random');
     const original = Object.getOwnPropertyDescriptor(globalThis, 'crypto');
-    expect(await newAnonymousId()).toMatch(/^[0-9a-f-]{32,36}$/);
+    // Same `anon_` format as the browser SDK and @savvagent/react-router.
+    expect(await newAnonymousId()).toMatch(/^anon_[0-9a-f-]{36}$/);
     Object.defineProperty(globalThis, 'crypto', { value: undefined, configurable: true });
     try {
       const a = await newAnonymousId();
       const b = await newAnonymousId();
-      expect(a).toMatch(/^[0-9a-f-]{32,36}$/);
+      expect(a).toMatch(/^anon_[0-9a-f-]{32,36}$/);
       expect(a).not.toBe(b);
     } finally {
       if (original) Object.defineProperty(globalThis, 'crypto', original);

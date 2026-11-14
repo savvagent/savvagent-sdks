@@ -5,7 +5,7 @@
  * to the integration in astro.config (served by a virtual module).
  */
 
-import config from 'virtual:@savvagent/astro/config';
+import config, { getUserId, options } from 'virtual:@savvagent/astro/config';
 import { createSavvagentMiddleware } from './index';
 
-export const onRequest = createSavvagentMiddleware(config);
+export const onRequest = createSavvagentMiddleware(config, { ...options, getUserId });

@@ -49,8 +49,13 @@ export default defineConfig({
 `configModule` is resolved against the project root. You can pass the config
 inline instead, with `savvagent({ config: { apiKey: process.env.SAVVAGENT_SDK_KEY } })`,
 but then it is serialized as JSON into the server bundle: values are fixed when
-the Astro config is loaded (at `astro build` for production) and function
-options are dropped (the integration warns about them).
+the Astro config is loaded (at `astro build` for production), the `apiKey` is
+written into the built files, and function options are dropped. The
+integration warns about both.
+
+> **Warning:** never put a server-only secret in `config`. Everything in it is
+> written into the server bundle. Use `configModule` and read secrets from the
+> environment at server runtime.
 
 The integration checks the config at startup and reports a missing or invalid
 `apiKey` with Astro's logger. If the client cannot be created, requests still
@@ -62,7 +67,52 @@ provides `Astro.locals.savvagent` on every request. It also injects the
 `astro dev`) has run. Realtime updates are off on the server unless you set
 `enableRealtime: true`.
 
-Visitors without a `savvagent_anonymous_id` cookie get a new random ID, set as
+#### Identifying the user
+
+`user_id` comes from, in order of precedence:
+
+1. The `context` you pass to a method, for example `{ user_id: session.userId }`.
+2. A `getUserId({ request, locals })` function exported from your `configModule`.
+   It runs once per request, on the first evaluation, so it can read a user that
+   your own auth middleware stored in `Astro.locals`.
+3. The `user_id` cookie, only with `trustUserIdCookie: true`.
+
+```js
+// src/savvagent.config.mjs
+export default { apiKey: process.env.SAVVAGENT_SDK_KEY };
+export function getUserId({ locals }) {
+  return locals.user?.id;
+}
+```
+
+> **Warning:** the `user_id` cookie is set by the browser, so any visitor can
+> claim any user's ID and receive that user's targeted flags (#23). It is
+> ignored by default. Enable `trustUserIdCookie` only for demos, or when nothing
+> gated by a flag is sensitive.
+
+```ts
+// Demo only: trust the browser's user_id cookie.
+savvagent({ configModule: './src/savvagent.config.mjs', trustUserIdCookie: true });
+```
+
+The low-level `getRequestContext()`, `evaluateForRequest()` and
+`createFlagMiddleware()` helpers still read the `user_id` cookie; treat that
+value as unverified.
+
+#### Evaluation on the server
+
+The server-side client makes one attempt per evaluation (`retryAttempts: 1`),
+does not detect a language from the server's own locale
+(`disableLanguageDetection: true`) and opens no realtime connection, unless your
+config says otherwise. Each `Astro.locals.savvagent` evaluation is bounded by
+the `evaluationTimeoutMs` integration option (default 1000): when the Flags API
+is slow or down, it resolves with the flag's default (`reason: 'error'`) instead
+of holding up the page. `onError` (default `console.error`) hears about the same
+error message at most once a minute.
+
+#### Anonymous ID
+
+Visitors without a `savvagent_anonymous_id` cookie get a new random ID (`anon_<uuid>`, the same format as the browser SDK), set as
 that cookie (`SameSite=Lax`, `Secure` over HTTPS, one year), so each visitor
 keeps a stable rollout bucket. The cookie is deliberately not `HttpOnly`: the
 browser SDK (`@savvagent/sdk` and the framework SDKs built on it) reads it and
@@ -74,8 +124,8 @@ no request headers or cookies are read (Astro 5 and later).
 
 ```astro
 ---
-// Context from the request (the `user_id`, `session_id` and
-// `savvagent_anonymous_id` cookies and Accept-Language) is merged in;
+// Context from the request (the `session_id` and `savvagent_anonymous_id`
+// cookies, Accept-Language, and the user from getUserId) is merged in;
 // values you pass win.
 const showNewLayout = await Astro.locals.savvagent.isEnabled('new-layout', {
   attributes: { plan: 'pro' },
@@ -110,8 +160,18 @@ change results for all visitors. Pass per-request context to the methods
 instead.
 
 The type is exported as `SavvagentLocals`. If you compose middleware yourself
-instead of using the integration, `createSavvagentMiddleware(config)` returns
-the same middleware.
+instead of using the integration, `createSavvagentMiddleware(config, options?)`
+returns the same middleware; `options` takes `trustUserIdCookie`, `getUserId`
+and `evaluationTimeoutMs`.
+
+### Integration options
+
+| Option | Description |
+| --- | --- |
+| `configModule` | Module whose default export is the client config, imported at server runtime. May also export `getUserId`. |
+| `config` | Inline client config, serialized as JSON into the server bundle. |
+| `trustUserIdCookie` | Read `user_id` from the `user_id` cookie (default `false`). Demos only. |
+| `evaluationTimeoutMs` | Upper bound on one evaluation, in milliseconds (default `1000`). |
 
 ### Server-Side Functions
 
