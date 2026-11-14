@@ -458,3 +458,82 @@ describe('FlagClient', () => {
     });
   });
 });
+
+describe('FlagClient evaluation cache (cross-user isolation, #22)', () => {
+  beforeEach(() => {
+    jest.resetAllMocks();
+    // Enabled only for user "alice"; responses carry configuration and variation.
+    (global.fetch as jest.Mock).mockImplementation(async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(init.body as string);
+      const enabled = body.context?.user_id === 'alice';
+      return {
+        ok: true,
+        json: async () => ({ enabled, variation: enabled ? 'on' : 'off', configuration: { enabled } }),
+      };
+    });
+  });
+
+  function makeClient(cacheTtl?: number) {
+    return new FlagClient({
+      apiKey: 'sdk_test_key',
+      enableRealtime: false,
+      enableTelemetry: false,
+      ...(cacheTtl !== undefined ? { cacheTtl } : {}),
+    });
+  }
+
+  it('same flag, two contexts: two API calls and two different results', async () => {
+    const client = makeClient();
+    const alice = await client.evaluate('flag', { user_id: 'alice' });
+    const bob = await client.evaluate('flag', { user_id: 'bob' });
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    expect(alice.value).toBe(true);
+    expect(bob.value).toBe(false);
+    client.close();
+  });
+
+  it('same context twice: one API call, cached result keeps variation and configuration', async () => {
+    const client = makeClient();
+    await client.evaluate('flag', { user_id: 'alice', attributes: { a: 1, b: 2 } });
+    const second = await client.evaluate('flag', { attributes: { b: 2, a: 1 }, user_id: 'alice' });
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(second.reason).toBe('cached');
+    expect(second.value).toBe(true);
+    expect(second.variation).toBe('on');
+    expect(second.configuration).toEqual({ enabled: true });
+    client.close();
+  });
+
+  it('invalidating a flag clears every context', async () => {
+    const client = makeClient();
+    await client.evaluate('flag', { user_id: 'alice' });
+    await client.evaluate('flag', { user_id: 'bob' });
+    (client as any).cache.invalidate('flag');
+    await client.evaluate('flag', { user_id: 'alice' });
+    await client.evaluate('flag', { user_id: 'bob' });
+    expect(global.fetch).toHaveBeenCalledTimes(4);
+    client.close();
+  });
+
+  it('cacheMaxEntries caps the cache across many distinct contexts', async () => {
+    const client = new FlagClient({
+      apiKey: 'sdk_test_key',
+      enableRealtime: false,
+      enableTelemetry: false,
+      cacheMaxEntries: 5,
+    });
+    for (let i = 0; i < 50; i++) {
+      await client.evaluate('flag', { user_id: `user-${i}` });
+    }
+    expect((client as any).cache.size).toBe(5);
+    client.close();
+  });
+
+  it('cacheTtl: 0 never caches', async () => {
+    const client = makeClient(0);
+    await client.evaluate('flag', { user_id: 'alice' });
+    await client.evaluate('flag', { user_id: 'alice' });
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    client.close();
+  });
+});

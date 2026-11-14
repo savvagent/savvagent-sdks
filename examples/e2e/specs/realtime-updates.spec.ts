@@ -9,13 +9,7 @@ test.describe('Real-time Flag Updates', () => {
   test('should update UI without page refresh when override changes', async ({
     overridePanel,
     featureDemo,
-    appConfig,
   }) => {
-    // Skip for Astro SSR as it handles flags differently
-    if (appConfig.framework === 'astro') {
-      test.skip();
-    }
-
     const initialStatus = await featureDemo.getFeatureStatus(featureDemo.newFeatureCard);
 
     // Set override to opposite of current value
@@ -32,12 +26,7 @@ test.describe('Real-time Flag Updates', () => {
   test('should reflect override changes immediately in feature cards', async ({
     overridePanel,
     featureDemo,
-    appConfig,
   }) => {
-    if (appConfig.framework === 'astro') {
-      test.skip();
-    }
-
     // Enable new-feature via override
     await overridePanel.open();
     await overridePanel.waitForFlagsLoaded();
@@ -59,12 +48,7 @@ test.describe('Real-time Flag Updates', () => {
   test('should maintain flag state during panel interactions', async ({
     overridePanel,
     featureDemo,
-    appConfig,
   }) => {
-    if (appConfig.framework === 'astro') {
-      test.skip();
-    }
-
     // Get initial state
     const betaInitialStatus = await featureDemo.getFeatureStatus(featureDemo.betaFeatureCard);
 

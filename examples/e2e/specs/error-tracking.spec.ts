@@ -1,12 +1,7 @@
 import { test, expect } from '../fixtures';
 
 test.describe('Error Tracking Integration', () => {
-  test.beforeEach(async ({ page, featureDemo, overridePanel, appConfig }) => {
-    // Skip for Astro as it's SSR-only
-    if (appConfig.framework === 'astro') {
-      test.skip();
-    }
-
+  test.beforeEach(async ({ page, featureDemo, overridePanel }) => {
     await page.goto('/');
     await featureDemo.waitForLoad();
 

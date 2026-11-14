@@ -4,11 +4,10 @@ Example Astro application demonstrating how to use the Savvagent Astro integrati
 
 ## Features
 
-- Astro with server-side rendering
+- Astro 7 with on-demand server rendering (`@astrojs/node` adapter)
 - TypeScript
-- Savvagent Astro integration
-- Server-side feature flag evaluation
-- Static site generation support
+- Savvagent Astro integration: flags evaluated on the server through `Astro.locals.savvagent`
+- A plain client script (no UI framework) that takes over in the browser: flag override panel (Ctrl+Shift+F), user switching, error tracking and realtime updates
 
 ## Setup
 
@@ -39,20 +38,18 @@ Example Astro application demonstrating how to use the Savvagent Astro integrati
 
 ### Configuration
 
-```typescript
+```js
 // astro.config.mjs
 import { defineConfig } from 'astro/config';
+import node from '@astrojs/node';
 import savvagent from '@savvagent/astro';
 
 export default defineConfig({
-  integrations: [
-    savvagent({
-      config: {
-        apiKey: process.env.SAVVAGENT_SDK_KEY,
-        baseUrl: process.env.SAVVAGENT_API_URL,
-      },
-    }),
-  ],
+  output: 'server',
+  adapter: node({ mode: 'standalone' }),
+  // src/savvagent.config.mjs default-exports the client config; the
+  // middleware imports it at server runtime, so process.env is read then.
+  integrations: [savvagent({ configModule: './src/savvagent.config.mjs' })],
 });
 ```
 
@@ -61,7 +58,7 @@ export default defineConfig({
 ```astro
 ---
 const isEnabled = await Astro.locals.savvagent.isEnabled('new-feature', {
-  userId: 'user-123',
+  user_id: 'user-123',
   attributes: {
     email: 'user@example.com',
   },

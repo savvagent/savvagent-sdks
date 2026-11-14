@@ -2,6 +2,16 @@
 
 Astro integration for Savvagent with server-side rendering and middleware support.
 
+## Requirements
+
+- Astro 4.14 or later, up to Astro 7 (`astro >=4.14.0 <8`); built and tested on Astro 7.
+- An adapter (for example `@astrojs/node`) for on-demand rendered pages, so flags are evaluated per request.
+- On Astro 4, which cannot tell the middleware that a page is being prerendered,
+  each prerendered page is evaluated with a fresh random anonymous ID at build
+  time, so percentage rollouts on prerendered pages can differ from one build
+  to the next. Pass an explicit `user_id` or `anonymous_id` there if that
+  matters, or use Astro 5 or later.
+
 ## Installation
 
 ```bash
@@ -12,31 +22,63 @@ npm install @savvagent/astro
 
 ### 1. Add Integration
 
+Put the client config in a module and point the integration at it with
+`configModule`. The middleware imports that module at server runtime, so
+environment variables are read when the server starts (not baked in at
+`astro build`) and function options such as `onError` are kept.
+
+```js
+// src/savvagent.config.mjs
+export default {
+  apiKey: process.env.SAVVAGENT_SDK_KEY,
+  applicationId: process.env.SAVVAGENT_APP_ID,
+  onError: (error) => console.error('[Savvagent]', error),
+};
+```
+
 ```ts
 // astro.config.mjs
 import { defineConfig } from 'astro/config';
 import savvagent from '@savvagent/astro';
 
 export default defineConfig({
-  integrations: [
-    savvagent({
-      config: {
-        apiKey: process.env.SAVVAGENT_API_KEY,
-        applicationId: process.env.SAVVAGENT_APP_ID,
-      },
-    }),
-  ],
+  integrations: [savvagent({ configModule: './src/savvagent.config.mjs' })],
 });
 ```
+
+`configModule` is resolved against the project root. You can pass the config
+inline instead, with `savvagent({ config: { apiKey: process.env.SAVVAGENT_SDK_KEY } })`,
+but then it is serialized as JSON into the server bundle: values are fixed when
+the Astro config is loaded (at `astro build` for production) and function
+options are dropped (the integration warns about them).
+
+The integration checks the config at startup and reports a missing or invalid
+`apiKey` with Astro's logger. If the client cannot be created, requests still
+render and `Astro.locals.savvagent` returns flag defaults.
+
+The integration registers middleware that creates one server-side client and
+provides `Astro.locals.savvagent` on every request. It also injects the
+`App.Locals` types, so `Astro.locals.savvagent` is typed once `astro sync` (or
+`astro dev`) has run. Realtime updates are off on the server unless you set
+`enableRealtime: true`.
+
+Visitors without a `savvagent_anonymous_id` cookie get a new random ID, set as
+that cookie (`SameSite=Lax`, `Secure` over HTTPS, one year), so each visitor
+keeps a stable rollout bucket. The cookie is deliberately not `HttpOnly`: the
+browser SDK (`@savvagent/sdk` and the framework SDKs built on it) reads it and
+uses the same anonymous ID, so server-rendered and client-side evaluations put
+a visitor in the same bucket. It holds only a random ID. On prerendered pages
+no request headers or cookies are read (Astro 5 and later).
 
 ### 2. Use in Astro Components
 
 ```astro
 ---
-import { isEnabled } from '@savvagent/astro';
-
-const showNewLayout = await isEnabled('new-layout', {
-  user_id: Astro.cookies.get('user_id')?.value,
+// Context from the request (the `user_id`, `session_id` and
+// `savvagent_anonymous_id` cookies and Accept-Language) is merged in;
+// values you pass win.
+const showNewLayout = await Astro.locals.savvagent.isEnabled('new-layout', {
+  attributes: { plan: 'pro' },
 });
 ---
 
@@ -49,7 +91,31 @@ const showNewLayout = await isEnabled('new-layout', {
 
 ## API Reference
 
+### `Astro.locals.savvagent`
+
+Available in pages, endpoints and your own middleware:
+
+| Member | Description |
+| --- | --- |
+| `isEnabled(flagKey, context?)` | `Promise<boolean>` |
+| `evaluate(flagKey, context?)` | `Promise<FlagEvaluationResult>` |
+| `withFlag(flagKey, callback, context?)` | Runs `callback` when the flag is on, else returns `null` |
+| `trackError(flagKey, error, context?)` | Reports an error with flag context |
+| `context` | The `FlagContext` derived from the request |
+| `client` | The process-wide `FlagClient` (`null` if it could not be created) |
+
+`client` is shared by every request in the server process. Never mutate it
+per request (`setUserId`, `setOverride`, `setEnvironment`, ...): that would
+change results for all visitors. Pass per-request context to the methods
+instead.
+
+The type is exported as `SavvagentLocals`. If you compose middleware yourself
+instead of using the integration, `createSavvagentMiddleware(config)` returns
+the same middleware.
+
 ### Server-Side Functions
+
+These use the same process-wide client as `Astro.locals.savvagent` (when imported as ESM, as Astro does), without request context.
 
 #### `isEnabled(flagKey, context?)`
 

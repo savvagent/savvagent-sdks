@@ -1,4 +1,4 @@
-import { FlagCache } from './cache';
+import { FlagCache, contextCacheKey, DEFAULT_CACHE_MAX_ENTRIES } from './cache';
 import { TelemetryService } from './telemetry';
 import { RealtimeService } from './realtime';
 import {
@@ -37,7 +37,8 @@ export class FlagClient {
       baseUrl: (config.baseUrl || 'https://api.savvagent.com/flags').replace(/\/+$/, ''),
       environment: config.environment || 'production',
       enableRealtime: config.enableRealtime ?? true,
-      cacheTtl: config.cacheTtl || 60000,
+      cacheTtl: config.cacheTtl ?? 60000,
+      cacheMaxEntries: config.cacheMaxEntries ?? DEFAULT_CACHE_MAX_ENTRIES,
       enableTelemetry: config.enableTelemetry ?? true,
       defaults: config.defaults || {},
       onError: config.onError || ((error) => console.error('[Savvagent]', error)),
@@ -62,7 +63,7 @@ export class FlagClient {
     }
 
     // Initialize services
-    this.cache = new FlagCache(this.config.cacheTtl);
+    this.cache = new FlagCache(this.config.cacheTtl, this.config.cacheMaxEntries);
     this.telemetry = new TelemetryService(
       this.config.baseUrl,
       this.config.apiKey,
@@ -94,8 +95,31 @@ export class FlagClient {
   }
 
   /**
-   * Get or create an anonymous ID for consistent flag evaluation
-   * @returns Anonymous ID from localStorage or newly generated
+   * Read the anonymous ID cookie (set by server integrations), if any.
+   */
+  private static readAnonymousIdCookie(name: string): string | null {
+    if (typeof document === 'undefined' || typeof document.cookie !== 'string') {
+      return null;
+    }
+    for (const part of document.cookie.split(';')) {
+      const [rawKey, ...rest] = part.trim().split('=');
+      if (rawKey === name) {
+        const raw = rest.join('=');
+        try {
+          return decodeURIComponent(raw) || null;
+        } catch {
+          return raw || null;
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Get or create an anonymous ID for consistent flag evaluation.
+   * Uses the `savvagent_anonymous_id` cookie when present (and mirrors it to
+   * localStorage), otherwise the ID stored in localStorage, otherwise a new one.
+   * @returns Anonymous ID from the cookie, localStorage, or newly generated
    */
   private getOrCreateAnonymousId(): string {
     // Check if we're in a browser environment
@@ -105,6 +129,19 @@ export class FlagClient {
     }
 
     const storageKey = 'savvagent_anonymous_id';
+
+    // Prefer the cookie a server integration (such as @savvagent/astro) set,
+    // so server-rendered and client-side evaluations bucket a visitor the same.
+    const cookieId = FlagClient.readAnonymousIdCookie(storageKey);
+    if (cookieId) {
+      try {
+        localStorage.setItem(storageKey, cookieId);
+      } catch (e) {
+        console.warn('[Savvagent] Could not save anonymous ID to localStorage:', e);
+      }
+      return cookieId;
+    }
+
     let anonId = localStorage.getItem(storageKey);
 
     if (!anonId) {
@@ -360,18 +397,22 @@ export class FlagClient {
         };
       }
 
-      // Check cache second
-      const cachedValue = this.cache.get(flagKey);
-      if (cachedValue !== null) {
-        return {
-          key: flagKey,
-          value: cachedValue,
-          reason: 'cached',
-        };
-      }
-
       // Build context with user identifiers
       const evaluationContext = this.buildContext(context);
+      // Cache entries are per flag AND per evaluation context, so one user's
+      // result is never served to another.
+      const contextKey = contextCacheKey(evaluationContext);
+
+      // Check cache second
+      const cached = this.cache.getEntry(flagKey, contextKey);
+      if (cached !== null) {
+        return {
+          key: flagKey,
+          value: cached.value,
+          reason: 'cached',
+          ...(cached.metadata ? { metadata: cached.metadata } : {}),
+        };
+      }
 
       // Build type-safe request body
       // Cast to any for JsonValue compatibility (all fields are JSON-serializable)
@@ -406,8 +447,15 @@ export class FlagClient {
       const data: ApiEvaluateResponse = await response.json();
       const value = data.enabled || false;
 
-      // Cache the result (use key as ID since response doesn't include UUID)
-      this.cache.set(flagKey, value, data.key);
+      const metadata: FlagEvaluationResult['metadata'] = {
+        scope: data.scope,
+        configuration: data.configuration,
+        variation: data.variation,
+        timestamp: data.timestamp,
+      };
+
+      // Cache the result for this context (use key as ID since response doesn't include UUID)
+      this.cache.set(flagKey, value, data.key, contextKey, metadata);
 
       // Track evaluation
       const durationMs = Date.now() - startTime;
@@ -424,12 +472,7 @@ export class FlagClient {
         key: flagKey,
         value,
         reason: 'evaluated',
-        metadata: {
-          scope: data.scope,
-          configuration: data.configuration,
-          variation: data.variation,
-          timestamp: data.timestamp,
-        },
+        metadata,
       };
     } catch (error) {
       // Use default value if provided
@@ -720,11 +763,9 @@ export class FlagClient {
 
       const data: FlagListResponse = await response.json();
 
-      // Optionally cache all flags
-      data.flags.forEach((flag) => {
-        this.cache.set(flag.key, flag.enabled, flag.key);
-      });
-
+      // Not cached: `enabled` is the environment-level state, not a result
+      // evaluated for any particular context, so serving it from the
+      // evaluation cache would bypass targeting.
       return data.flags;
     } catch (error) {
       this.config.onError(error as Error);
