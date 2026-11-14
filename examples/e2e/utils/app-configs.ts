@@ -4,7 +4,7 @@ export interface AppConfig {
   port: number;
   devCommand: string;
   envPrefix: 'VITE_' | 'NEXT_PUBLIC_' | '';
-  framework: 'react' | 'nextjs' | 'angular' | 'vue' | 'svelte' | 'sveltekit' | 'astro' | 'solid';
+  framework: 'react' | 'nextjs' | 'angular' | 'vue' | 'svelte' | 'sveltekit' | 'astro' | 'solid' | 'react-router';
   isSSR: boolean;
   startupTimeout: number;
 }
@@ -89,6 +89,16 @@ export const APP_CONFIGS: Record<string, AppConfig> = {
     framework: 'solid',
     isSSR: false,
     startupTimeout: 30000,
+  },
+  'react-router-app': {
+    name: 'React Router',
+    directory: 'react-router-app',
+    port: 5178,
+    devCommand: 'pnpm dev',
+    envPrefix: 'VITE_',
+    framework: 'react-router',
+    isSSR: true,
+    startupTimeout: 45000,
   },
 };
 

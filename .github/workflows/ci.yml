@@ -54,6 +54,7 @@ jobs:
           - sveltekit-app
           - astro-app
           - solid-app
+          - react-router-app
 
     steps:
       - name: Checkout
