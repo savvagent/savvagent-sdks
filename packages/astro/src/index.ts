@@ -10,6 +10,9 @@ import type { AstroIntegration, AstroIntegrationLogger, MiddlewareHandler } from
 import { FlagClient, FlagClientConfig, FlagContext, FlagEvaluationResult } from '@savvagent/sdk';
 
 let clientInstance: FlagClient | null = null;
+/** Defaults and throttled error reporter of {@link clientInstance}, for the request helpers. */
+let clientDefaults: Record<string, boolean> | undefined;
+let clientReportError: ((error: Error) => void) | undefined;
 
 export interface SavvagentIntegrationOptions {
   /**
@@ -376,6 +379,8 @@ export default function savvagent(
         if (clientInstance) {
           clientInstance.close();
           clientInstance = null;
+          clientDefaults = undefined;
+          clientReportError = undefined;
         }
       },
     },
@@ -414,9 +419,10 @@ export function createSavvagentLocals(
   request: Request,
   options: SavvagentLocalsOptions = {}
 ): SavvagentLocals {
-  const fromRequest = options.isPrerendered ? {} : getRequestContext(request);
-  // The cookie is set by the browser, so it identifies no one unless trusted (#23).
-  if (!options.trustUserIdCookie) delete fromRequest.user_id;
+  // The user_id cookie is set by the browser, so it identifies no one unless trusted (#23).
+  const fromRequest = options.isPrerendered
+    ? {}
+    : getRequestContext(request, undefined, { trustUserIdCookie: options.trustUserIdCookie });
   const requestContext = Object.fromEntries(
     Object.entries({ ...fromRequest, anonymous_id: fromRequest.anonymous_id || options.anonymousId }).filter(
       ([key, value]) => key !== '' && value !== undefined && value !== ''
@@ -621,6 +627,10 @@ export function createSavvagentMiddleware(
 export function initSavvagent(config: FlagClientConfig): FlagClient {
   if (!clientInstance) {
     clientInstance = new FlagClient(config);
+    clientDefaults = config.defaults;
+    clientReportError = throttleErrors(
+      config.onError ?? ((error) => console.error('[Savvagent]', error))
+    );
   }
   return clientInstance;
 }
@@ -648,20 +658,34 @@ function decodeCookieValue(value: string): string {
   }
 }
 
+/** Options for {@link getRequestContext}. */
+export interface RequestContextOptions {
+  /**
+   * Read `user_id` from the `user_id` cookie (default: false). The browser
+   * sets that cookie, so any visitor can claim any user ID (#23).
+   */
+  trustUserIdCookie?: boolean;
+}
+
 /**
- * Extract context from Astro request.
+ * Extract context from Astro request: the `savvagent_anonymous_id` and
+ * `session_id` cookies and `Accept-Language`.
  *
- * Low-level helper: it reads `user_id` from the `user_id` cookie, which the
- * browser controls, so treat that value as unverified. `Astro.locals.savvagent`
- * ignores it unless `trustUserIdCookie` is set.
+ * **Warning:** `user_id` is read from the `user_id` cookie only with
+ * `trustUserIdCookie: true`. The browser controls that cookie, so any
+ * visitor could claim another user's targeting; enable it only for demos.
+ * This function is synchronous and cannot call `getUserId`: pass the
+ * authenticated user in `overrides` instead.
  *
  * @param request - Astro Request
- * @param overrides - Additional context properties
+ * @param overrides - Additional context properties (win over the request's)
+ * @param options - Whether to trust the `user_id` cookie
  * @returns FlagContext
  */
 export function getRequestContext(
   request: Request,
-  overrides?: FlagContext
+  overrides?: FlagContext,
+  options: RequestContextOptions = {}
 ): FlagContext {
   const cookieHeader = request.headers.get('cookie') || '';
   const cookies = Object.fromEntries(
@@ -672,8 +696,8 @@ export function getRequestContext(
   );
 
   const context: FlagContext = {
-    user_id: cookies.user_id,
-    anonymous_id: cookies.savvagent_anonymous_id,
+    user_id: options.trustUserIdCookie ? cookies[USER_ID_COOKIE] : undefined,
+    anonymous_id: cookies[ANONYMOUS_ID_COOKIE],
     session_id: cookies.session_id,
     language: request.headers.get('accept-language')?.split(',')[0] || undefined,
     ...overrides,
@@ -842,11 +866,41 @@ export function getEnvironment(): string {
 }
 
 /**
+ * Options for {@link evaluateForRequest} and {@link createFlagMiddleware}:
+ * the same `user_id` sources and evaluation bound as `Astro.locals.savvagent`.
+ */
+export interface RequestHelperOptions extends SavvagentMiddlewareOptions {
+  /** `Astro.locals` of the request, passed to `getUserId`. */
+  locals?: App.Locals;
+}
+
+/** The request scope the helpers evaluate with: same rules as `Astro.locals.savvagent`. */
+function helperScope(request: Request, options: RequestHelperOptions): SavvagentLocals {
+  return createSavvagentLocals(getSavvagent(), request, {
+    defaults: clientDefaults,
+    trustUserIdCookie: options.trustUserIdCookie,
+    getUserId: options.getUserId,
+    locals: options.locals,
+    evaluationTimeoutMs: options.evaluationTimeoutMs,
+    reportError: clientReportError,
+  });
+}
+
+/**
  * Helper to evaluate flags with automatic request context extraction.
+ *
+ * Uses the same rules as `Astro.locals.savvagent`: the evaluation is bounded
+ * by `evaluationTimeoutMs` (default 1000) and falls back to the flag's
+ * default, and `user_id` comes from `context`, then `getUserId`.
+ *
+ * **Warning:** the `user_id` cookie is read only with
+ * `trustUserIdCookie: true`. The browser controls that cookie, so any
+ * visitor could claim another user's targeting; enable it only for demos.
  *
  * @param request - Astro Request
  * @param flagKey - The flag key to evaluate
- * @param context - Optional additional context
+ * @param context - Optional additional context (wins over the request's)
+ * @param options - `user_id` sources and evaluation bound
  * @returns Promise<boolean>
  *
  * @example
@@ -854,7 +908,9 @@ export function getEnvironment(): string {
  * ---
  * import { evaluateForRequest } from '@savvagent/astro';
  *
- * const showBeta = await evaluateForRequest(Astro.request, 'beta-ui');
+ * const showBeta = await evaluateForRequest(Astro.request, 'beta-ui', {
+ *   user_id: Astro.locals.user?.id,
+ * });
  * ---
  *
  * {showBeta ? <BetaUI /> : <StandardUI />}
@@ -863,10 +919,10 @@ export function getEnvironment(): string {
 export async function evaluateForRequest(
   request: Request,
   flagKey: string,
-  context?: FlagContext
+  context?: FlagContext,
+  options: RequestHelperOptions = {}
 ): Promise<boolean> {
-  const requestContext = getRequestContext(request, context);
-  return isEnabled(flagKey, requestContext);
+  return helperScope(request, options).isEnabled(flagKey, context);
 }
 
 /**
@@ -878,17 +934,29 @@ export async function evaluateForRequest(
  * import { sequence } from 'astro/middleware';
  * import { createFlagMiddleware } from '@savvagent/astro';
  *
- * const flagMiddleware = createFlagMiddleware({
- *   'maintenance-mode': {
- *     redirect: '/maintenance',
+ * const flagMiddleware = createFlagMiddleware(
+ *   {
+ *     'maintenance-mode': {
+ *       redirect: '/maintenance',
+ *     },
+ *     'beta-access': {
+ *       rewrite: (url) => url.pathname.startsWith('/') ? '/beta' + url.pathname : url.pathname,
+ *     },
  *   },
- *   'beta-access': {
- *     rewrite: (url) => url.pathname.startsWith('/') ? '/beta' + url.pathname : url.pathname,
- *   },
- * });
+ *   { getUserId: ({ locals }) => locals.user?.id }
+ * );
  *
  * export const onRequest = sequence(flagMiddleware);
  * ```
+ *
+ * Each flag is evaluated with the same rules as `Astro.locals.savvagent`:
+ * bounded by `evaluationTimeoutMs` (default 1000, falling back to the flag's
+ * default), with `user_id` from the `context` option, then `getUserId`.
+ *
+ * **Warning:** the `user_id` cookie is read only with
+ * `trustUserIdCookie: true`. The browser controls that cookie, so with it
+ * any visitor could steer redirects, rewrites and handlers gated on another
+ * user's flags; enable it only for demos.
  */
 export interface FlagMiddlewareConfig {
   [flagKey: string]: {
@@ -901,13 +969,29 @@ export interface FlagMiddlewareConfig {
   };
 }
 
-export function createFlagMiddleware(config: FlagMiddlewareConfig) {
+/** Options for {@link createFlagMiddleware}. */
+export interface FlagMiddlewareOptions extends SavvagentMiddlewareOptions {
+  /**
+   * Extra context for every evaluation, or a function of the Astro context
+   * that returns it (for example `({ locals }) => ({ user_id: locals.user?.id })`).
+   * Wins over the request's context and `getUserId`.
+   */
+  context?: FlagContext | ((context: any) => FlagContext | undefined);
+}
+
+export function createFlagMiddleware(
+  config: FlagMiddlewareConfig,
+  middlewareOptions: FlagMiddlewareOptions = {}
+) {
   return async (context: any, next: () => Promise<Response>) => {
-    const client = getSavvagent();
-    const requestContext = getRequestContext(context.request);
+    const scope = helperScope(context.request, { ...middlewareOptions, locals: context.locals });
+    const extraContext =
+      typeof middlewareOptions.context === 'function'
+        ? middlewareOptions.context(context)
+        : middlewareOptions.context;
 
     for (const [flagKey, options] of Object.entries(config)) {
-      const enabled = await client.isEnabled(flagKey, requestContext);
+      const enabled = await scope.isEnabled(flagKey, extraContext);
 
       if (enabled) {
         if (options.redirect) {

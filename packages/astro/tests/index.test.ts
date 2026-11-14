@@ -157,12 +157,25 @@ describe('@savvagent/astro', () => {
 
       const context = getRequestContext(request);
 
+      // The user_id cookie is ignored by default (#23).
       expect(context).toEqual({
-        user_id: 'user123',
+        user_id: undefined,
         anonymous_id: 'anon456',
         session_id: 'sess789',
         language: 'en-US',
       });
+    });
+
+    it('should read the user_id cookie only with trustUserIdCookie', () => {
+      const request = new Request('https://example.com', {
+        headers: { 'cookie': 'user_id=user123; session_id=sess789' },
+      });
+
+      expect(getRequestContext(request, undefined, { trustUserIdCookie: true })).toMatchObject({
+        user_id: 'user123',
+        session_id: 'sess789',
+      });
+      expect(getRequestContext(request).user_id).toBeUndefined();
     });
 
     it('should handle missing cookies gracefully', () => {
@@ -224,7 +237,7 @@ describe('@savvagent/astro', () => {
         },
       });
 
-      const context = getRequestContext(request);
+      const context = getRequestContext(request, undefined, { trustUserIdCookie: true });
 
       expect(context.user_id).toBe('user123');
     });
@@ -420,13 +433,57 @@ describe('@savvagent/astro', () => {
 
       const result = await evaluateForRequest(request, 'test-flag');
 
+      // The user_id cookie is ignored by default (#23).
       expect(mockIsEnabled).toHaveBeenCalledWith('test-flag', {
-        user_id: 'user123',
         anonymous_id: 'anon456',
-        session_id: undefined,
         language: 'en-US',
       });
       expect(result).toBe(true);
+    });
+
+    it('should read the user_id cookie only with trustUserIdCookie', async () => {
+      mockIsEnabled.mockClear();
+      mockIsEnabled.mockResolvedValue(true);
+      const request = new Request('https://example.com', {
+        headers: { 'cookie': 'user_id=user123' },
+      });
+
+      await evaluateForRequest(request, 'test-flag', undefined, { trustUserIdCookie: true });
+
+      expect(mockIsEnabled).toHaveBeenCalledWith('test-flag', { user_id: 'user123' });
+    });
+
+    it('should take the user from getUserId over a trusted cookie', async () => {
+      mockIsEnabled.mockClear();
+      mockIsEnabled.mockResolvedValue(true);
+      const request = new Request('https://example.com', {
+        headers: { 'cookie': 'user_id=forged' },
+      });
+
+      await evaluateForRequest(request, 'test-flag', undefined, {
+        trustUserIdCookie: true,
+        getUserId: () => 'u-session',
+      });
+
+      expect(mockIsEnabled).toHaveBeenCalledWith('test-flag', { user_id: 'u-session' });
+    });
+
+    it('should fall back to the default when the evaluation exceeds evaluationTimeoutMs', async () => {
+      vi.useFakeTimers();
+      try {
+        mockIsEnabled.mockClear();
+        mockIsEnabled.mockReturnValue(new Promise(() => {}));
+
+        const result = evaluateForRequest(new Request('https://example.com'), 'test-flag', undefined, {
+          evaluationTimeoutMs: 500,
+        });
+        await vi.advanceTimersByTimeAsync(500);
+
+        await expect(result).resolves.toBe(false);
+        expect(vi.getTimerCount()).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('should merge additional context with request context', async () => {
@@ -443,10 +500,7 @@ describe('@savvagent/astro', () => {
       await evaluateForRequest(request, 'test-flag', additionalContext);
 
       expect(mockIsEnabled).toHaveBeenCalledWith('test-flag', {
-        user_id: 'user123',
-        anonymous_id: undefined,
         session_id: 'custom-session',
-        language: undefined,
       });
     });
   });
@@ -638,11 +692,102 @@ describe('@savvagent/astro', () => {
 
       await middleware(mockContext, mockNext);
 
+      // The user_id cookie is ignored by default (#23).
       expect(mockIsEnabled).toHaveBeenCalledWith('user-feature', {
-        user_id: 'user123',
-        anonymous_id: undefined,
         session_id: 'sess456',
         language: 'es-ES',
+      });
+    });
+
+    describe('user identity', () => {
+      // An admin-only redirect: on only for user "admin".
+      const adminOnly = (_flagKey: string, context: { user_id?: string }) =>
+        Promise.resolve(context.user_id === 'admin');
+      const forgedRequest = () => ({
+        request: new Request('https://example.com/test', { headers: { cookie: 'user_id=admin' } }),
+        url: new URL('https://example.com/test'),
+        locals: {} as Record<string, unknown>,
+      });
+      const config: FlagMiddlewareConfig = { 'admin-area': { redirect: '/admin' } };
+
+      it('cannot be steered by a forged user_id cookie by default', async () => {
+        mockIsEnabled.mockReset();
+        mockIsEnabled.mockImplementation(adminOnly);
+        const next = vi.fn().mockResolvedValue(new Response('OK'));
+
+        const response = await createFlagMiddleware(config)(forgedRequest(), next);
+
+        expect(next).toHaveBeenCalled();
+        expect(response.headers.get('location')).toBeNull();
+        expect(mockIsEnabled.mock.calls[0][1]).not.toHaveProperty('user_id');
+      });
+
+      it('reads the user_id cookie when trustUserIdCookie is set', async () => {
+        mockIsEnabled.mockReset();
+        mockIsEnabled.mockImplementation(adminOnly);
+        const next = vi.fn();
+
+        const response = await createFlagMiddleware(config, { trustUserIdCookie: true })(
+          forgedRequest(),
+          next
+        );
+
+        expect(response.headers.get('location')).toBe('https://example.com/admin');
+        expect(next).not.toHaveBeenCalled();
+      });
+
+      it('takes the user from getUserId, with the request locals', async () => {
+        mockIsEnabled.mockReset();
+        mockIsEnabled.mockImplementation(adminOnly);
+        const context = forgedRequest();
+        context.locals.user = { id: 'admin' };
+        const getUserId = vi.fn(({ locals }: { locals: any }) => locals.user?.id);
+
+        const response = await createFlagMiddleware(config, { getUserId: getUserId as never })(
+          context,
+          vi.fn()
+        );
+
+        expect(getUserId).toHaveBeenCalledWith(expect.objectContaining({ locals: context.locals }));
+        expect(response.headers.get('location')).toBe('https://example.com/admin');
+      });
+
+      it('accepts an explicit context, static or derived from the Astro context', async () => {
+        mockIsEnabled.mockReset();
+        mockIsEnabled.mockImplementation(adminOnly);
+
+        const staticResponse = await createFlagMiddleware(config, { context: { user_id: 'admin' } })(
+          forgedRequest(),
+          vi.fn()
+        );
+        expect(staticResponse.headers.get('location')).toBe('https://example.com/admin');
+
+        const derived = forgedRequest();
+        derived.locals.user = { id: 'someone-else' };
+        const next = vi.fn().mockResolvedValue(new Response('OK'));
+        await createFlagMiddleware(config, {
+          context: ({ locals }) => ({ user_id: locals.user.id }),
+        })(derived, next);
+        expect(next).toHaveBeenCalled();
+        expect(mockIsEnabled.mock.calls.at(-1)?.[1]).toEqual({ user_id: 'someone-else' });
+      });
+
+      it('falls back to the default when an evaluation exceeds evaluationTimeoutMs', async () => {
+        vi.useFakeTimers();
+        try {
+          mockIsEnabled.mockReset();
+          mockIsEnabled.mockReturnValue(new Promise(() => {}));
+          const next = vi.fn().mockResolvedValue(new Response('OK'));
+
+          const pending = createFlagMiddleware(config, { evaluationTimeoutMs: 300 })(forgedRequest(), next);
+          await vi.advanceTimersByTimeAsync(300);
+
+          await expect(pending).resolves.toBeInstanceOf(Response);
+          expect(next).toHaveBeenCalled();
+          expect(vi.getTimerCount()).toBe(0);
+        } finally {
+          vi.useRealTimers();
+        }
       });
     });
 

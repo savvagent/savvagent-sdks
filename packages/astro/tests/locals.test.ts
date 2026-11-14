@@ -500,14 +500,16 @@ describe('anonymous ID and prerendering', () => {
 describe('getRequestContext cookie decoding', () => {
   it('URL-decodes cookie values', () => {
     const context = getRequestContext(
-      makeRequest({ cookie: 'user_id=user%40example.com; session_id=a%20b' })
+      makeRequest({ cookie: 'user_id=user%40example.com; session_id=a%20b' }),
+      undefined,
+      { trustUserIdCookie: true }
     );
     expect(context.user_id).toBe('user@example.com');
     expect(context.session_id).toBe('a b');
   });
 
   it('keeps malformed encodings as-is', () => {
-    expect(getRequestContext(makeRequest({ cookie: 'user_id=%E0%A4%A' })).user_id).toBe('%E0%A4%A');
+    expect(getRequestContext(makeRequest({ cookie: 'user_id=%E0%A4%A' }), undefined, { trustUserIdCookie: true }).user_id).toBe('%E0%A4%A');
   });
 });
 

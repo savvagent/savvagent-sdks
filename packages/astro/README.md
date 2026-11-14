@@ -97,9 +97,9 @@ export function getUserId({ locals }) {
 savvagent({ configModule: './src/savvagent.config.mjs', trustUserIdCookie: true });
 ```
 
-The low-level `getRequestContext()`, `evaluateForRequest()` and
-`createFlagMiddleware()` helpers still read the `user_id` cookie; treat that
-value as unverified.
+The `getRequestContext()`, `evaluateForRequest()` and `createFlagMiddleware()`
+helpers follow the same rules: they ignore the `user_id` cookie unless you pass
+`trustUserIdCookie: true` (see their sections below).
 
 #### Evaluation on the server
 
@@ -220,15 +220,28 @@ const data = await withFlag('use-new-api', async () => {
 
 #### `evaluateForRequest(request, flagKey, context?)`
 
-Evaluate with automatic request context.
+Evaluate with automatic request context. The fourth argument takes the same
+options as `Astro.locals.savvagent`: `getUserId`, `trustUserIdCookie` and
+`evaluationTimeoutMs`. The evaluation is bounded and falls back to the flag's
+default.
 
 ```astro
 ---
 import { evaluateForRequest } from '@savvagent/astro';
 
-const showBeta = await evaluateForRequest(Astro.request, 'beta-ui');
+const showBeta = await evaluateForRequest(Astro.request, 'beta-ui', {
+  user_id: Astro.locals.user?.id,
+});
 ---
 ```
+
+> **Warning:** the `user_id` cookie is read only with `trustUserIdCookie: true`.
+> The browser sets it, so any visitor can claim another user's targeting (#23).
+
+`getRequestContext(request, overrides?, { trustUserIdCookie? })` returns the
+context these helpers derive from a request. It is synchronous, so it cannot
+call `getUserId`; pass the authenticated user in `overrides`. It reads the
+`user_id` cookie only with `trustUserIdCookie: true`.
 
 ### Middleware
 
@@ -239,17 +252,31 @@ Create middleware for flag-based routing:
 import { sequence } from 'astro/middleware';
 import { createFlagMiddleware } from '@savvagent/astro';
 
-const flagMiddleware = createFlagMiddleware({
-  'maintenance-mode': {
-    redirect: '/maintenance',
+const flagMiddleware = createFlagMiddleware(
+  {
+    'maintenance-mode': {
+      redirect: '/maintenance',
+    },
+    'beta-access': {
+      rewrite: (url) => '/beta' + url.pathname,
+    },
   },
-  'beta-access': {
-    rewrite: (url) => '/beta' + url.pathname,
-  },
-});
+  // Who the visitor is, from your own auth.
+  { getUserId: ({ locals }) => locals.user?.id }
+);
 
 export const onRequest = sequence(flagMiddleware);
 ```
+
+The second argument takes `getUserId`, `trustUserIdCookie`,
+`evaluationTimeoutMs` and `context`: extra context for every evaluation, or a
+function of the Astro context that returns it, such as
+`({ locals }) => ({ user_id: locals.user?.id })`. Each evaluation is bounded and
+falls back to the flag's default.
+
+> **Warning:** the `user_id` cookie is read only with `trustUserIdCookie: true`.
+> The browser sets it, so with it any visitor could steer redirects, rewrites
+> and handlers gated on another user's flags (#23).
 
 ## Using with UI Frameworks
 
