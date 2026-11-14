@@ -90,6 +90,8 @@ export const config = {
 };
 ```
 
+> **Next.js 16:** the `middleware.ts` file convention is deprecated in favor of `proxy.ts` (export a function named `proxy`, or a default export). The helpers in `@savvagent/nextjs/middleware` take a `NextRequest` and return a `NextResponse`, so they work unchanged from either file. `proxy.ts` runs on the Node.js runtime; the Edge runtime is not available there.
+
 ## API Reference
 
 ### Server Components

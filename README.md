@@ -121,7 +121,7 @@ Working example applications are available in the [examples](./examples) directo
 
 ### Client & Framework Examples
 
-- **[React App](./examples/react-app)** - React 18 with Vite and hooks
+- **[React App](./examples/react-app)** - React 19 with Vite and hooks
 - **[Vue App](./examples/vue-app)** - Vue 3 with Composition API
 - **[Solid App](./examples/solid-app)** - SolidJS with reactive primitives
 - **[Svelte App](./examples/svelte-app)** - Svelte 4 with stores
