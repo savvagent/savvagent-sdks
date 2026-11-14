@@ -47,8 +47,10 @@ import savvagent from '@savvagent/astro';
 export default defineConfig({
   integrations: [
     savvagent({
-      apiUrl: process.env.SAVVAGENT_API_URL,
-      sdkKey: process.env.SAVVAGENT_SDK_KEY,
+      config: {
+        apiKey: process.env.SAVVAGENT_SDK_KEY,
+        baseUrl: process.env.SAVVAGENT_API_URL,
+      },
     }),
   ],
 });
