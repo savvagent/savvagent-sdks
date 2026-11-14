@@ -82,8 +82,6 @@ jobs:
       - name: Run E2E tests for ${{ matrix.app }}
         id: e2e
         run: cd examples && pnpm test:e2e:${{ matrix.app }}
-        # astro and angular examples are known-broken; see #3.
-        continue-on-error: ${{ contains(fromJSON('["astro-app","angular-app"]'), matrix.app) }}
         env:
           SAVVAGENT_API_URL: https://api.savvagent.com/flags
           SAVVAGENT_SDK_KEY: ${{ secrets.SAVVAGENT_SDK_KEY }}
