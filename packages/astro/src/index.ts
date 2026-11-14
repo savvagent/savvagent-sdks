@@ -127,11 +127,23 @@ function savvagentConfigPlugin(source: { json: FlagClientConfig } | { modulePath
   };
 }
 
-function reportConfigProblems(logger: AstroIntegrationLogger, problems: string[]): void {
+function reportConfigProblems(
+  logger: AstroIntegrationLogger,
+  problems: string[],
+  source: 'config' | 'configModule'
+): void {
   for (const problem of problems) {
-    logger.error(
-      `Invalid Savvagent config: ${problem}. Astro.locals.savvagent will return flag defaults.`
-    );
+    if (source === 'configModule') {
+      // The module is imported again at server runtime, where its environment may differ.
+      logger.warn(
+        `Savvagent configModule looks invalid at startup: ${problem}. It is checked again ` +
+          `at server runtime; if it is still invalid there, Astro.locals.savvagent returns flag defaults.`
+      );
+    } else {
+      logger.error(
+        `Invalid Savvagent config: ${problem}. Astro.locals.savvagent will return flag defaults.`
+      );
+    }
   }
 }
 
@@ -173,10 +185,14 @@ export default function savvagent(
           const modulePath = isAbsolute(options.configModule)
             ? options.configModule
             : resolvePath(root, options.configModule);
-          updateConfig({ vite: { plugins: [savvagentConfigPlugin({ modulePath })] } });
+          // Forward slashes, as Vite's normalizePath does, so Windows paths
+          // form a valid import specifier.
+          updateConfig({
+            vite: { plugins: [savvagentConfigPlugin({ modulePath: toImportPath(modulePath) })] },
+          });
           try {
             const loaded = await import(pathToFileURL(modulePath).href);
-            reportConfigProblems(logger, validateConfig(loaded.default));
+            reportConfigProblems(logger, validateConfig(loaded.default), 'configModule');
           } catch (error) {
             logger.warn(
               `Could not load configModule "${options.configModule}" to validate it ` +
@@ -191,10 +207,10 @@ export default function savvagent(
                 `ignored: ${dropped.join(', ')}. Use the \`configModule\` option to keep them.`
             );
           }
-          reportConfigProblems(logger, validateConfig(options.config));
+          reportConfigProblems(logger, validateConfig(options.config), 'config');
           updateConfig({ vite: { plugins: [savvagentConfigPlugin({ json: options.config })] } });
         } else {
-          reportConfigProblems(logger, validateConfig(undefined));
+          reportConfigProblems(logger, validateConfig(undefined), 'config');
           updateConfig({ vite: { plugins: [savvagentConfigPlugin({ json: {} as FlagClientConfig })] } });
         }
         addMiddleware({ entrypoint: '@savvagent/astro/middleware', order: 'pre' });
@@ -268,8 +284,25 @@ export function createSavvagentLocals(
   };
 }
 
-function newAnonymousId(): string {
-  return globalThis.crypto?.randomUUID?.() ?? `anon_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+/** Windows-safe import specifier for an absolute file path. */
+export function toImportPath(filePath: string): string {
+  return filePath.replace(/\\/g, '/');
+}
+
+type CryptoLike = { randomUUID?: () => string; getRandomValues?: <T extends ArrayBufferView>(a: T) => T };
+
+/**
+ * A random anonymous ID from a cryptographic source: Web Crypto when
+ * available, else node:crypto (loaded lazily, e.g. on Node 18).
+ */
+export async function newAnonymousId(): Promise<string> {
+  let source = globalThis.crypto as CryptoLike | undefined;
+  if (!source?.randomUUID && !source?.getRandomValues) {
+    source = (await import('node:crypto')) as CryptoLike;
+  }
+  if (source.randomUUID) return source.randomUUID();
+  const bytes = source.getRandomValues!(new Uint8Array(16));
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 /**
@@ -283,7 +316,7 @@ export function createSavvagentMiddleware(config: FlagClientConfig): MiddlewareH
   let client: FlagClient | null = null;
   let failed = false;
 
-  return (context, next) => {
+  return async (context, next) => {
     if (!client && !failed) {
       try {
         client = initSavvagent(toServerConfig(config));
@@ -300,10 +333,14 @@ export function createSavvagentMiddleware(config: FlagClientConfig): MiddlewareH
 
     let anonymousId: string | undefined;
     if (!isPrerendered && !context.cookies.get(ANONYMOUS_ID_COOKIE)?.value) {
-      anonymousId = newAnonymousId();
+      anonymousId = await newAnonymousId();
+      // Not HttpOnly: the browser SDK reads this cookie so client-side
+      // evaluations use the same anonymous ID as the server.
       context.cookies.set(ANONYMOUS_ID_COOKIE, anonymousId, {
         path: '/',
         sameSite: 'lax',
+        secure: context.url?.protocol === 'https:',
+        httpOnly: false,
         maxAge: ANONYMOUS_ID_MAX_AGE,
       });
     }

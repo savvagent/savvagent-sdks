@@ -6,6 +6,11 @@ Astro integration for Savvagent with server-side rendering and middleware suppor
 
 - Astro 4.14 or later, up to Astro 7 (`astro >=4.14.0 <8`); built and tested on Astro 7.
 - An adapter (for example `@astrojs/node`) for on-demand rendered pages, so flags are evaluated per request.
+- On Astro 4, which cannot tell the middleware that a page is being prerendered,
+  each prerendered page is evaluated with a fresh random anonymous ID at build
+  time, so percentage rollouts on prerendered pages can differ from one build
+  to the next. Pass an explicit `user_id` or `anonymous_id` there if that
+  matters, or use Astro 5 or later.
 
 ## Installation
 
@@ -58,8 +63,12 @@ provides `Astro.locals.savvagent` on every request. It also injects the
 `enableRealtime: true`.
 
 Visitors without a `savvagent_anonymous_id` cookie get a new random ID, set as
-that cookie, so each visitor keeps a stable rollout bucket. On prerendered
-pages no request headers or cookies are read (Astro 5 and later).
+that cookie (`SameSite=Lax`, `Secure` over HTTPS, one year), so each visitor
+keeps a stable rollout bucket. The cookie is deliberately not `HttpOnly`: the
+browser SDK (`@savvagent/sdk` and the framework SDKs built on it) reads it and
+uses the same anonymous ID, so server-rendered and client-side evaluations put
+a visitor in the same bucket. It holds only a random ID. On prerendered pages
+no request headers or cookies are read (Astro 5 and later).
 
 ### 2. Use in Astro Components
 

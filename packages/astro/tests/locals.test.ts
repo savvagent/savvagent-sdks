@@ -29,6 +29,8 @@ import savvagent, {
   getSavvagent,
   SAVVAGENT_CONFIG_MODULE_ID,
   toServerConfig,
+  toImportPath,
+  newAnonymousId,
   getRequestContext,
   ANONYMOUS_ID_COOKIE,
   type SavvagentLocals,
@@ -55,6 +57,7 @@ function makeCookies(request: Request) {
 function makeContext(request: Request, isPrerendered = false) {
   return {
     request,
+    url: new URL(request.url),
     isPrerendered,
     cookies: makeCookies(request),
     locals: {} as Record<string, unknown>,
@@ -260,9 +263,11 @@ describe('integration wiring', () => {
     expect(virtualCode).not.toContain('sdk_inline');
   });
 
-  it('reports an invalid configModule at setup with logger.error', async () => {
+  it('warns (not errors) about an invalid configModule, since it is checked again at runtime', async () => {
     const { logger } = await runSetup({ configModule: './invalid-config.mjs' });
-    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('apiKey'));
+    expect(logger.error).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('apiKey'));
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('checked again at server runtime'));
   });
 
   it('warns when configModule cannot be loaded for validation', async () => {
@@ -382,5 +387,41 @@ describe('createSavvagentLocals without a client', () => {
     await expect(locals.withFlag('off', () => 'x')).resolves.toBeNull();
     expect(() => locals.trackError('on', new Error('e'))).not.toThrow();
     expect(locals.client).toBeNull();
+  });
+});
+
+describe('anonymous ID cookie attributes and source', () => {
+  it('sets a non-HttpOnly cookie, Secure only over https', async () => {
+    const onRequest = createSavvagentMiddleware({ apiKey: 'sdk_mw' });
+    const http = makeContext(makeRequest());
+    await onRequest(http as never, async () => new Response('ok'));
+    expect(http.cookies.set.mock.calls[0][2]).toMatchObject({ secure: false, httpOnly: false });
+
+    const https = makeContext(new Request('https://example.com/'));
+    await onRequest(https as never, async () => new Response('ok'));
+    expect(https.cookies.set.mock.calls[0][2]).toMatchObject({ secure: true, httpOnly: false });
+  });
+
+  it('generates IDs from crypto, never Math.random, even without globalThis.crypto', async () => {
+    const random = vi.spyOn(Math, 'random');
+    const original = Object.getOwnPropertyDescriptor(globalThis, 'crypto');
+    expect(await newAnonymousId()).toMatch(/^[0-9a-f-]{32,36}$/);
+    Object.defineProperty(globalThis, 'crypto', { value: undefined, configurable: true });
+    try {
+      const a = await newAnonymousId();
+      const b = await newAnonymousId();
+      expect(a).toMatch(/^[0-9a-f-]{32,36}$/);
+      expect(a).not.toBe(b);
+    } finally {
+      if (original) Object.defineProperty(globalThis, 'crypto', original);
+    }
+    expect(random).not.toHaveBeenCalled();
+  });
+});
+
+describe('toImportPath', () => {
+  it('turns Windows separators into forward slashes', () => {
+    expect(toImportPath('C:\\proj\\src\\savvagent.config.mjs')).toBe('C:/proj/src/savvagent.config.mjs');
+    expect(toImportPath('/proj/src/savvagent.config.mjs')).toBe('/proj/src/savvagent.config.mjs');
   });
 });
