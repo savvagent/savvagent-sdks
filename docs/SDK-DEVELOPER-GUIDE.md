@@ -2,7 +2,7 @@
 
 This guide is for developers building SDKs that integrate with the Savvagent feature flag platform. It covers the API endpoints, authentication, real-time updates, and best practices.
 
-> **Note:** For official SDKs and examples, see the [savvagent-sdks repository](https://github.com/savvagent/savvagent-sdks).
+> **Note:** For official SDKs and examples, see the [flags-sdks repository](https://github.com/savvagent/flags-sdks).
 
 ## Table of Contents
 
@@ -637,4 +637,4 @@ process.on('SIGTERM', () => client.destroy());
 
 - [ADMIN-UI-DOGFOODING.md](./ADMIN-UI-DOGFOODING.md) - How the admin UI uses Savvagent flags internally
 - [PRD.md](./PRD.md) - Product requirements and feature overview
-- External: [savvagent-sdks](https://github.com/savvagent/savvagent-sdks) - Official SDK implementations
+- External: [flags-sdks](https://github.com/savvagent/flags-sdks) - Official SDK implementations

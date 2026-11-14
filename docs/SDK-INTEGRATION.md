@@ -636,5 +636,5 @@ See [SDK-DEVELOPER-GUIDE.md](./SDK-DEVELOPER-GUIDE.md) for complete API document
 ## Support
 
 - Documentation: https://flags-docs.savvagent.com
-- GitHub Issues: https://github.com/yourusername/savvagent-sdks/issues
-- Examples: https://github.com/yourusername/savvagent-sdks/tree/main/examples
+- GitHub Issues: https://github.com/savvagent/flags-sdks/issues
+- Examples: https://github.com/savvagent/flags-sdks/tree/master/examples

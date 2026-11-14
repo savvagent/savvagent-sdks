@@ -327,7 +327,7 @@ Quick steps to integrate generated types:
 
 ```bash
 # 1. Ensure types are generated
-cd ~/dev/savvagent-sdks
+cd ~/dev/flags-sdks
 pnpm run sync:types
 
 # 2. Add type imports

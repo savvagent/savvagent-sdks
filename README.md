@@ -158,14 +158,14 @@ Use AI coding assistants (Claude Code, Cursor, GitHub Copilot) to integrate Savv
 **Claude Code / Cursor:**
 ```
 Add Savvagent feature flags to my React app.
-Reference: https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/llms-full.txt
+Reference: https://raw.githubusercontent.com/savvagent/flags-sdks/master/llms-full.txt
 ```
 
 **Add to project context** for better suggestions:
 ```bash
 # Claude Code - add to .claude/settings.json
 # Cursor - add to Settings > Features > Docs
-https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/llms-full.txt
+https://raw.githubusercontent.com/savvagent/flags-sdks/master/llms-full.txt
 ```
 
 See **[AI-Assisted Development Guide](./docs/AI-ASSISTED-DEVELOPMENT.md)** for detailed instructions.
@@ -183,8 +183,8 @@ This is a pnpm workspace monorepo with independent package versioning.
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/savvagent-sdks.git
-cd savvagent-sdks
+git clone https://github.com/yourusername/flags-sdks.git
+cd flags-sdks
 
 # Install dependencies
 pnpm install
@@ -206,7 +206,7 @@ To use local packages in another project:
 ```json
 {
   "dependencies": {
-    "@savvagent/sdk": "file:../savvagent-sdks/packages/typescript"
+    "@savvagent/sdk": "file:../flags-sdks/packages/typescript"
   }
 }
 ```
@@ -229,7 +229,7 @@ When your PR is merged:
 ### Project Structure
 
 ```
-savvagent-sdks/
+flags-sdks/
 ├── packages/
 │   ├── typescript/          # @savvagent/sdk (base TypeScript SDK)
 │   ├── react/              # @savvagent/react
@@ -333,8 +333,8 @@ MIT License - see [LICENSE](./LICENSE) for details
 
 - **Documentation**: [docs/](./docs)
 - **Examples**: [examples/](./examples)
-- **Issues**: [GitHub Issues](https://github.com/savvagent/savvagent-sdks/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/savvagent/savvagent-sdks/discussions)
+- **Issues**: [GitHub Issues](https://github.com/savvagent/flags-sdks/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/savvagent/flags-sdks/discussions)
 
 ## Related Projects
 

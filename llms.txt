@@ -36,23 +36,23 @@ await client.withFlag('experimental', async () => {
 
 ## SDK Documentation
 
-- [TypeScript/JavaScript SDK](https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/packages/typescript/README.md): Core SDK with caching, real-time updates, telemetry
-- [React SDK](https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/packages/react/README.md): React hooks for feature flags
-- [Vue SDK](https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/packages/vue/README.md): Vue 3 composables
-- [Svelte SDK](https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/packages/svelte/README.md): Svelte stores
-- [Next.js SDK](https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/packages/nextjs/README.md): App Router and Pages Router support
-- [Node.js Server SDK](https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/packages/node-server/README.md): Server-side SDK for Express, Fastify, etc.
-- [Go Server SDK](https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/packages/go-server/README.md): Idiomatic Go with goroutine-safe access
-- [Java Server SDK](https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/packages/java-server/README.md): Thread-safe for Spring Boot, etc.
-- [Rust Server SDK](https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/packages/rust-server/README.md): Async/await with Tokio
-- [iOS SDK](https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/packages/ios-sdk/README.md): Swift with async/await, SwiftUI support
-- [Android SDK](https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/packages/android-sdk/README.md): Kotlin with Jetpack Compose
+- [TypeScript/JavaScript SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/typescript/README.md): Core SDK with caching, real-time updates, telemetry
+- [React SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/react/README.md): React hooks for feature flags
+- [Vue SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/vue/README.md): Vue 3 composables
+- [Svelte SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/svelte/README.md): Svelte stores
+- [Next.js SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/nextjs/README.md): App Router and Pages Router support
+- [Node.js Server SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/node-server/README.md): Server-side SDK for Express, Fastify, etc.
+- [Go Server SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/go-server/README.md): Idiomatic Go with goroutine-safe access
+- [Java Server SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/java-server/README.md): Thread-safe for Spring Boot, etc.
+- [Rust Server SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/rust-server/README.md): Async/await with Tokio
+- [iOS SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/ios-sdk/README.md): Swift with async/await, SwiftUI support
+- [Android SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/android-sdk/README.md): Kotlin with Jetpack Compose
 
 ## Guides
 
-- [SDK Integration Guide](https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/docs/SDK-INTEGRATION.md): Complete setup and usage instructions
-- [Dynamic Configuration](https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/docs/DYNAMIC-CONFIGURATION.md): Advanced flag variations and targeting
-- [Client-Side Overrides](https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/docs/CLIENT-SIDE-OVERRIDES.md): Testing flags in development
+- [SDK Integration Guide](https://raw.githubusercontent.com/savvagent/flags-sdks/master/docs/SDK-INTEGRATION.md): Complete setup and usage instructions
+- [Dynamic Configuration](https://raw.githubusercontent.com/savvagent/flags-sdks/master/docs/DYNAMIC-CONFIGURATION.md): Advanced flag variations and targeting
+- [Client-Side Overrides](https://raw.githubusercontent.com/savvagent/flags-sdks/master/docs/CLIENT-SIDE-OVERRIDES.md): Testing flags in development
 
 ## API Reference
 
@@ -94,6 +94,6 @@ interface EvaluationContext {
 
 ## Optional
 
-- [Examples Repository](https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/examples): Working example apps for all frameworks
-- [Migration Guide](https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/docs/MIGRATION.md): Migrating from other feature flag providers
-- [MCP SDK](https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/packages/mcp-sdk/README.md): Building observability integrations
+- [Examples Repository](https://raw.githubusercontent.com/savvagent/flags-sdks/master/examples): Working example apps for all frameworks
+- [Migration Guide](https://raw.githubusercontent.com/savvagent/flags-sdks/master/docs/MIGRATION.md): Migrating from other feature flag providers
+- [MCP SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/mcp-sdk/README.md): Building observability integrations

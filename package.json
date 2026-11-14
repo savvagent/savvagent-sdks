@@ -5,7 +5,7 @@
   "description": "Savvagent SDKs, MCP servers, and example applications",
   "repository": {
     "type": "git",
-    "url": "https://github.com/savvagent/savvagent-sdks.git"
+    "url": "https://github.com/savvagent/flags-sdks.git"
   },
   "license": "MIT",
   "author": "Savvagent",

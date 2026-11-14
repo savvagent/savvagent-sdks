@@ -25,14 +25,14 @@ Add the following to your `Package.swift` file:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/savvagent/savvagent-sdks", from: "0.1.0")
+    .package(url: "https://github.com/savvagent/flags-sdks", from: "0.1.0")
 ]
 ```
 
 Or in Xcode:
 
 1. File > Add Package Dependencies
-2. Enter package URL: `https://github.com/savvagent/savvagent-sdks`
+2. Enter package URL: `https://github.com/savvagent/flags-sdks`
 3. Select `SavvagentSDK` package
 
 ### CocoaPods
@@ -44,7 +44,7 @@ pod 'SavvagentSDK', '~> 0.1.0'
 ### Carthage
 
 ```
-github "savvagent/savvagent-sdks" ~> 0.1.0
+github "savvagent/flags-sdks" ~> 0.1.0
 ```
 
 ## Quick Start
@@ -358,7 +358,7 @@ See the [iOS example app](../../examples/ios-app) for a complete implementation.
 
 ## Support
 
-- [GitHub Issues](https://github.com/savvagent/savvagent-sdks/issues)
+- [GitHub Issues](https://github.com/savvagent/flags-sdks/issues)
 - [Documentation](https://flags-docs.savvagent.com)
 - [Email](mailto:support@savvagent.com)
 

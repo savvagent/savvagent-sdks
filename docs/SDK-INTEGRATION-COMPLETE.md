@@ -178,7 +178,7 @@ function isFlagResponse(data: unknown): data is ApiTypes['schemas']['FlagEvaluat
 
 ## Files Modified
 
-### SDK Repository (`savvagent-sdks`)
+### SDK Repository (`flags-sdks`)
 
 **Modified:**
 - `packages/typescript/src/client.ts` - Added type-safe API calls

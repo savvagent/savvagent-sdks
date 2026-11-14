@@ -727,8 +727,8 @@ const config = await client.getConfig<MyConfig>('flag');
 - [SDK-DEVELOPER-GUIDE.md](./SDK-DEVELOPER-GUIDE.md) - Official API specification
 - [Dynamic Configuration Guide](./DYNAMIC-CONFIGURATION-GUIDE.md)
 - [SDK Integration Guide](./SDK-INTEGRATION.md)
-- [Community Forum](https://github.com/savvagent/savvagent-sdks/discussions)
-- [Report Issues](https://github.com/savvagent/savvagent-sdks/issues)
+- [Community Forum](https://github.com/savvagent/flags-sdks/discussions)
+- [Report Issues](https://github.com/savvagent/flags-sdks/issues)
 - support@savvagent.com
 
 ---

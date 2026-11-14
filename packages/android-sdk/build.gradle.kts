@@ -92,7 +92,7 @@ publishing {
             pom {
                 name.set("Savvagent Android SDK")
                 description.set("Official Android SDK for Savvagent feature flags")
-                url.set("https://github.com/savvagent/savvagent-sdks")
+                url.set("https://github.com/savvagent/flags-sdks")
 
                 licenses {
                     license {
@@ -110,9 +110,9 @@ publishing {
                 }
 
                 scm {
-                    connection.set("scm:git:git://github.com/savvagent/savvagent-sdks.git")
-                    developerConnection.set("scm:git:ssh://github.com/savvagent/savvagent-sdks.git")
-                    url.set("https://github.com/savvagent/savvagent-sdks")
+                    connection.set("scm:git:git://github.com/savvagent/flags-sdks.git")
+                    developerConnection.set("scm:git:ssh://github.com/savvagent/flags-sdks.git")
+                    url.set("https://github.com/savvagent/flags-sdks")
                 }
             }
         }

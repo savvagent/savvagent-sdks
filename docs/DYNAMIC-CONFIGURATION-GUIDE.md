@@ -973,8 +973,8 @@ See [MIGRATION-GUIDE.md](./MIGRATION-GUIDE.md) for detailed migration instructio
 ## Support
 
 - 📚 [Full API Reference](./SDK-REFERENCE.md)
-- 💬 [GitHub Discussions](https://github.com/savvagent/savvagent-sdks/discussions)
-- 🐛 [Report Issues](https://github.com/savvagent/savvagent-sdks/issues)
+- 💬 [GitHub Discussions](https://github.com/savvagent/flags-sdks/discussions)
+- 🐛 [Report Issues](https://github.com/savvagent/flags-sdks/issues)
 - 📧 Email: support@savvagent.com
 
 ---
