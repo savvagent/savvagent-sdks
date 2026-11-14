@@ -74,7 +74,9 @@ provides `Astro.locals.savvagent` on every request. It also injects the
 1. The `context` you pass to a method, for example `{ user_id: session.userId }`.
 2. A `getUserId({ request, locals })` function exported from your `configModule`.
    It runs once per request, on the first evaluation, so it can read a user that
-   your own auth middleware stored in `Astro.locals`.
+   your own auth middleware stored in `Astro.locals`. It is bounded by
+   `evaluationTimeoutMs`. If it throws, rejects or times out, the error goes to
+   `onError` (throttled) and the request is evaluated without a `user_id`.
 3. The `user_id` cookie, only with `trustUserIdCookie: true`.
 
 ```js

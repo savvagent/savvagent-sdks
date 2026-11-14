@@ -157,6 +157,61 @@ describe('evaluation timer', () => {
   });
 });
 
+describe('getUserId isolation', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const makeClient = () =>
+    ({ isEnabled: vi.fn().mockResolvedValue(true), evaluate: vi.fn() }) as unknown as FlagClient & {
+      isEnabled: ReturnType<typeof vi.fn>;
+    };
+
+  it('bounds a slow getUserId and evaluates without a user_id', async () => {
+    vi.useFakeTimers();
+    const client = makeClient();
+    const reportError = vi.fn();
+    const savvagent = createSavvagentLocals(client, new Request('http://localhost/'), {
+      getUserId: () => new Promise(() => {}),
+      evaluationTimeoutMs: 1000,
+      reportError,
+    });
+
+    const result = savvagent.isEnabled('f');
+    await vi.advanceTimersByTimeAsync(1000);
+    await expect(result).resolves.toBe(true);
+    expect(client.isEnabled).toHaveBeenCalledWith('f', {});
+    expect(reportError).toHaveBeenCalledTimes(1);
+    expect(reportError.mock.calls[0][0].message).toMatch(/getUserId timed out after 1000ms/);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([
+    ['rejects', () => Promise.reject(new Error('session store down'))],
+    [
+      'throws synchronously',
+      () => {
+        throw new Error('session store down');
+      },
+    ],
+  ])('falls back to anonymous when getUserId %s, and reports it once', async (_label, getUserId) => {
+    const client = makeClient();
+    const reportError = vi.fn();
+    const savvagent = createSavvagentLocals(
+      client,
+      new Request('http://localhost/', { headers: { cookie: 'user_id=forged' } }),
+      { getUserId, anonymousId: 'anon_1', reportError }
+    );
+
+    await expect(savvagent.isEnabled('a')).resolves.toBe(true);
+    await expect(savvagent.isEnabled('b')).resolves.toBe(true);
+    expect(client.isEnabled).toHaveBeenNthCalledWith(1, 'a', { anonymous_id: 'anon_1' });
+    expect(client.isEnabled).toHaveBeenNthCalledWith(2, 'b', { anonymous_id: 'anon_1' });
+    expect(reportError).toHaveBeenCalledTimes(1);
+    expect(reportError.mock.calls[0][0].message).toMatch(/getUserId failed \(session store down\)/);
+  });
+});
+
 describe('throttleErrors', () => {
   afterEach(() => {
     vi.useRealTimers();

@@ -216,6 +216,23 @@ describe('createSavvagentMiddleware', () => {
     expect((context.locals.savvagent as SavvagentLocals).context.user_id).toBe('u-session');
   });
 
+  it('reports a failing getUserId through the throttled onError once across requests', async () => {
+    mockIsEnabled.mockResolvedValue(true);
+    const onError = vi.fn();
+    const onRequest = createSavvagentMiddleware(
+      { apiKey: 'sdk_mw', onError },
+      { getUserId: async () => Promise.reject(new Error('auth down')) }
+    );
+    for (let i = 0; i < 3; i++) {
+      const context = makeContext(makeRequest());
+      await onRequest(context as never, async () => new Response('ok'));
+      await expect((context.locals.savvagent as SavvagentLocals).isEnabled('a')).resolves.toBe(true);
+      expect(mockIsEnabled.mock.calls.at(-1)?.[1]).not.toHaveProperty('user_id');
+    }
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError.mock.calls[0][0].message).toContain('auth down');
+  });
+
   it('falls back to no user_id when getUserId returns nothing and the cookie is not trusted', async () => {
     mockIsEnabled.mockResolvedValue(true);
     const onRequest = createSavvagentMiddleware({ apiKey: 'sdk_mw' }, { getUserId: () => undefined });

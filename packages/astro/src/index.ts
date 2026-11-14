@@ -436,16 +436,32 @@ export function createSavvagentLocals(
     };
   }
 
+  const timeoutMs = options.evaluationTimeoutMs ?? DEFAULT_EVALUATION_TIMEOUT_MS;
+  const reportError = options.reportError ?? ((error: Error) => console.error('[Savvagent]', error));
+
   // getUserId runs once, on the first evaluation, so a user that the app's
   // own middleware stores in Astro.locals after this middleware is visible.
+  // It is bounded by its own timer of the same length, and if it throws,
+  // rejects or times out the request continues anonymously (the least
+  // privileged identity) instead of failing every evaluation.
   let userResolved: Promise<void> | undefined;
   const resolveUser = (): Promise<void> => {
-    if (typeof options.getUserId !== 'function' || options.isPrerendered) return Promise.resolve();
-    userResolved ??= Promise.resolve(
-      options.getUserId({ request, locals: options.locals ?? ({} as App.Locals) })
-    ).then((userId) => {
-      if (userId) requestContext.user_id = userId;
-    });
+    const getUserId = options.getUserId;
+    if (typeof getUserId !== 'function' || options.isPrerendered) return Promise.resolve();
+    userResolved ??= (async () => {
+      try {
+        // Inside the async function, a synchronous throw becomes a rejection.
+        const pending = (async () => getUserId({ request, locals: options.locals ?? ({} as App.Locals) }))();
+        const userId = await withTimeout(pending, timeoutMs, () => {
+          reportError(new Error(`getUserId timed out after ${timeoutMs}ms; evaluating without a user_id`));
+          return undefined;
+        });
+        if (userId) requestContext.user_id = userId;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        reportError(new Error(`getUserId failed (${message}); evaluating without a user_id`));
+      }
+    })();
     return userResolved;
   };
   const merge = async (context?: FlagContext): Promise<FlagContext> => {
@@ -453,24 +469,12 @@ export function createSavvagentLocals(
     return { ...requestContext, ...context };
   };
 
-  const timeoutMs = options.evaluationTimeoutMs ?? DEFAULT_EVALUATION_TIMEOUT_MS;
-  const reportError = options.reportError ?? ((error: Error) => console.error('[Savvagent]', error));
-
   // Bound an evaluation so a slow or unreachable API cannot hold up the page.
-  const bounded = async <T>(flagKey: string, evaluation: Promise<T>, fallback: T): Promise<T> => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const timedOut = new Promise<T>((resolve) => {
-      timer = setTimeout(() => {
-        reportError(new Error(`Flag evaluation (${flagKey}) timed out after ${timeoutMs}ms`));
-        resolve(fallback);
-      }, timeoutMs);
+  const bounded = <T>(flagKey: string, evaluation: Promise<T>, fallback: T): Promise<T> =>
+    withTimeout(evaluation, timeoutMs, () => {
+      reportError(new Error(`Flag evaluation (${flagKey}) timed out after ${timeoutMs}ms`));
+      return fallback;
     });
-    try {
-      return await Promise.race([evaluation, timedOut]);
-    } finally {
-      clearTimeout(timer);
-    }
-  };
 
   const isEnabled = async (flagKey: string, context?: FlagContext): Promise<boolean> => {
     const merged = await merge(context);
@@ -506,6 +510,22 @@ export function createSavvagentLocals(
     },
     trackError,
   };
+}
+
+/**
+ * Settle with `work`, or with `onTimeout()` after `ms` milliseconds, whichever
+ * comes first. The timer is always cleared.
+ */
+async function withTimeout<T>(work: Promise<T>, ms: number, onTimeout: () => T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<T>((resolve) => {
+    timer = setTimeout(() => resolve(onTimeout()), ms);
+  });
+  try {
+    return await Promise.race([work, timedOut]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** Windows-safe import specifier for an absolute file path. */
