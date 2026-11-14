@@ -3,10 +3,10 @@
   import { createOverridesStore, getSavvagent } from '@savvagent/svelte';
   import type { FlagDefinition } from '@savvagent/sdk';
 
-  let isOpen = false;
-  let flags: FlagDefinition[] = [];
-  let loading = false;
-  let error: string | null = null;
+  let isOpen = $state(false);
+  let flags: FlagDefinition[] = $state([]);
+  let loading = $state(false);
+  let error: string | null = $state(null);
 
   const client = getSavvagent();
   const overrides = createOverridesStore();
@@ -92,7 +92,7 @@
   });
 </script>
 
-<button class="flag-panel-trigger" on:click={togglePanel} title="Toggle Flag Overrides (Ctrl+Shift+F)">
+<button class="flag-panel-trigger" onclick={togglePanel} title="Toggle Flag Overrides (Ctrl+Shift+F)">
   <span class="flag-icon">⚑</span>
   {#if $overrides.count > 0}
     <span class="override-badge">{$overrides.count}</span>
@@ -100,18 +100,18 @@
 </button>
 
 {#if isOpen}
-  <div class="flag-panel-overlay" on:click={handleOverlayClick} role="presentation">
+  <div class="flag-panel-overlay" onclick={handleOverlayClick} role="presentation">
     <div class="flag-panel">
       <div class="flag-panel-header">
         <h3>Feature Flag Overrides</h3>
         <div class="flag-panel-actions">
-          <button class="flag-panel-btn-secondary" on:click={fetchFlags} disabled={loading}>
+          <button class="flag-panel-btn-secondary" onclick={() => fetchFlags()} disabled={loading}>
             {loading ? 'Loading...' : 'Refresh'}
           </button>
-          <button class="flag-panel-btn-secondary" on:click={clearAllOverrides}>
+          <button class="flag-panel-btn-secondary" onclick={clearAllOverrides}>
             Clear All
           </button>
-          <button class="flag-panel-btn-close" on:click={closePanel}>
+          <button class="flag-panel-btn-close" onclick={closePanel}>
             ×
           </button>
         </div>
@@ -141,19 +141,19 @@
                     <button
                       class="flag-toggle-btn"
                       class:flag-btn-active={flagOverride === true}
-                      on:click={() => setOverride(flag.key, true)}
+                      onclick={() => setOverride(flag.key, true)}
                     >
                       ON
                     </button>
                     <button
                       class="flag-toggle-btn"
                       class:flag-btn-active={flagOverride === false}
-                      on:click={() => setOverride(flag.key, false)}
+                      onclick={() => setOverride(flag.key, false)}
                     >
                       OFF
                     </button>
                     {#if flagIsOverridden}
-                      <button class="flag-clear-btn" on:click={() => clearOverride(flag.key)}>
+                      <button class="flag-clear-btn" onclick={() => clearOverride(flag.key)}>
                         Clear
                       </button>
                     {/if}

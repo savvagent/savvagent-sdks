@@ -124,9 +124,9 @@ Working example applications are available in the [examples](./examples) directo
 - **[React App](./examples/react-app)** - React 19 with Vite and hooks
 - **[Vue App](./examples/vue-app)** - Vue 3 with Composition API
 - **[Solid App](./examples/solid-app)** - SolidJS with reactive primitives
-- **[Svelte App](./examples/svelte-app)** - Svelte 4 with stores
+- **[Svelte App](./examples/svelte-app)** - Svelte 5 with stores
 - **[Next.js App](./examples/nextjs-app)** - React Server Components + Client Components
-- **[SvelteKit App](./examples/sveltekit-app)** - Svelte 5 with runes
+- **[SvelteKit App](./examples/sveltekit-app)** - SvelteKit 3 with Svelte 5 runes
 - **[Astro App](./examples/astro-app)** - Astro with integration
 
 ### Server Examples

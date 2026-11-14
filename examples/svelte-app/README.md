@@ -4,7 +4,7 @@ Example Svelte application demonstrating how to use the Savvagent Svelte SDK wit
 
 ## Features
 
-- Svelte 4 with reactive stores
+- Svelte 5 with reactive stores
 - TypeScript
 - Vite for fast development
 - Savvagent Svelte stores (`featureFlag`, `savvagentContext`)
