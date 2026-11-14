@@ -2,6 +2,11 @@
 
 Astro integration for Savvagent with server-side rendering and middleware support.
 
+## Requirements
+
+- Astro 5, 6 or 7 (`astro >=5.0.0 <8`); built and tested on Astro 7.
+- An adapter (for example `@astrojs/node`) for on-demand rendered pages, so flags are evaluated per request.
+
 ## Installation
 
 ```bash
@@ -29,14 +34,25 @@ export default defineConfig({
 });
 ```
 
+The integration registers middleware that creates one server-side client and
+provides `Astro.locals.savvagent` on every request. It also injects the
+`App.Locals` types, so `Astro.locals.savvagent` is typed once `astro sync` (or
+`astro dev`) has run.
+
+The `config` object is serialized as JSON into the server bundle, so its values
+are read when the config is loaded (at `astro build` for production), and
+function options such as `onError` are not carried over. Realtime updates are
+off on the server unless you set `enableRealtime: true`.
+
 ### 2. Use in Astro Components
 
 ```astro
 ---
-import { isEnabled } from '@savvagent/astro';
-
-const showNewLayout = await isEnabled('new-layout', {
-  user_id: Astro.cookies.get('user_id')?.value,
+// Context from the request (the `user_id`, `session_id` and
+// `savvagent_anonymous_id` cookies and Accept-Language) is merged in;
+// values you pass win.
+const showNewLayout = await Astro.locals.savvagent.isEnabled('new-layout', {
+  attributes: { plan: 'pro' },
 });
 ---
 
@@ -49,7 +65,26 @@ const showNewLayout = await isEnabled('new-layout', {
 
 ## API Reference
 
+### `Astro.locals.savvagent`
+
+Available in pages, endpoints and your own middleware:
+
+| Member | Description |
+| --- | --- |
+| `isEnabled(flagKey, context?)` | `Promise<boolean>` |
+| `evaluate(flagKey, context?)` | `Promise<FlagEvaluationResult>` |
+| `withFlag(flagKey, callback, context?)` | Runs `callback` when the flag is on, else returns `null` |
+| `trackError(flagKey, error, context?)` | Reports an error with flag context |
+| `context` | The `FlagContext` derived from the request |
+| `client` | The shared `FlagClient` |
+
+The type is exported as `SavvagentLocals`. If you compose middleware yourself
+instead of using the integration, `createSavvagentMiddleware(config)` returns
+the same middleware.
+
 ### Server-Side Functions
+
+These use the same shared client as `Astro.locals.savvagent`, without request context.
 
 #### `isEnabled(flagKey, context?)`
 
