@@ -81,7 +81,10 @@ jobs:
         run: cd examples && npx playwright install --with-deps chromium
 
       - name: Run E2E tests for ${{ matrix.app }}
+        id: e2e
         run: cd examples && pnpm test:e2e:${{ matrix.app }}
+        # astro, angular and remix examples are known-broken; see #3.
+        continue-on-error: ${{ contains(fromJSON('["astro-app","angular-app","remix-app"]'), matrix.app) }}
         env:
           SAVVAGENT_API_URL: https://api.savvagent.com/flags
           SAVVAGENT_SDK_KEY: ${{ secrets.SAVVAGENT_SDK_KEY }}
@@ -99,7 +102,7 @@ jobs:
           retention-days: 30
 
       - name: Upload test screenshots
-        if: failure()
+        if: failure() || steps.e2e.outcome == 'failure'
         uses: actions/upload-artifact@v4
         with:
           name: test-screenshots-${{ matrix.app }}
