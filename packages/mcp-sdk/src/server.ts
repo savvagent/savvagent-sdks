@@ -411,7 +411,7 @@ export function createStdioHandler(server: MCPServer) {
       const request = JSON.parse(line) as JsonRpcRequest;
       const response = await server.handleRequest(request);
       console.log(JSON.stringify(response));
-    } catch (error) {
+    } catch {
       console.log(
         JSON.stringify(createErrorResponse(null, MCPErrorCodes.PARSE_ERROR, 'Parse error'))
       );

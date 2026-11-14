@@ -80,7 +80,7 @@ export class RealtimeService {
       try {
         const data: FlagUpdateEvent = JSON.parse(event.data);
         this.notifySubscribers(data);
-      } catch (error) {
+      } catch {
         // Ignore parse errors for non-JSON messages (like heartbeats)
       }
     };
