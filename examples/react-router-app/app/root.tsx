@@ -18,8 +18,11 @@ export const middleware: Route.MiddlewareFunction[] = [savvagent.middleware];
  * HTML and hydrated into <SavvagentProvider>, so there is no flash of defaults.
  */
 export async function loader({ context }: Route.LoaderArgs) {
-  const flags = await getSavvagent(context).evaluateFlags(FLAG_KEYS);
-  return { flags, browser: browserConfig() };
+  const savvagent = getSavvagent(context);
+  const flags = await savvagent.evaluateFlags(FLAG_KEYS);
+  // The language the server evaluated with (from Accept-Language), so the
+  // browser SDK evaluates with the same one.
+  return { flags, browser: browserConfig(), language: savvagent.context.language ?? null };
 }
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -73,7 +76,9 @@ export default function App({ loaderData }: Route.ComponentProps) {
   return (
     <SavvagentProvider
       config={config}
-      defaultContext={browserContext}
+      defaultContext={
+        loaderData.language ? { ...browserContext, language: loaderData.language } : browserContext
+      }
       initialOverrides={initialOverrides}
       flags={loaderData.flags}
     >
