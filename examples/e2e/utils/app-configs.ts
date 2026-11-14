@@ -102,11 +102,14 @@ export const APP_CONFIGS: Record<string, AppConfig> = {
   },
 };
 
+const E2E_API_URL = process.env.SAVVAGENT_API_URL || 'https://api.savvagent.com/flags';
+const E2E_SDK_KEY = process.env.SAVVAGENT_SDK_KEY || 'sdk_dev_ca6aeb1de1308034e5fcb23db66cb35f';
+
 export const BETA_ENV = {
-  SAVVAGENT_API_URL: 'https://flags-api-beta.savvagent.com',
-  SAVVAGENT_SDK_KEY: 'sdk_dev_ca6aeb1de1308034e5fcb23db66cb35f',
-  VITE_SAVVAGENT_API_URL: 'https://flags-api-beta.savvagent.com',
-  VITE_SAVVAGENT_SDK_KEY: 'sdk_dev_ca6aeb1de1308034e5fcb23db66cb35f',
-  NEXT_PUBLIC_SAVVAGENT_API_URL: 'https://flags-api-beta.savvagent.com',
-  NEXT_PUBLIC_SAVVAGENT_SDK_KEY: 'sdk_dev_ca6aeb1de1308034e5fcb23db66cb35f',
+  SAVVAGENT_API_URL: E2E_API_URL,
+  SAVVAGENT_SDK_KEY: E2E_SDK_KEY,
+  VITE_SAVVAGENT_API_URL: E2E_API_URL,
+  VITE_SAVVAGENT_SDK_KEY: E2E_SDK_KEY,
+  NEXT_PUBLIC_SAVVAGENT_API_URL: E2E_API_URL,
+  NEXT_PUBLIC_SAVVAGENT_SDK_KEY: E2E_SDK_KEY,
 };
