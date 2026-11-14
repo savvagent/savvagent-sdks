@@ -18,6 +18,10 @@ export const savvagent = createSavvagentServer(
     // Replace with your session lookup, e.g.
     // `(await getSession(request.headers.get('Cookie'))).get('userId')`.
     getUserId: () => DEMO_USER_ID,
+    // The library default is 1000 ms. The example raises it only to absorb
+    // dev-server cold starts (first request compiles modules and opens the
+    // connection to the Flags API) in the E2E suite.
+    evaluationTimeoutMs: 5000,
   }
 );
 

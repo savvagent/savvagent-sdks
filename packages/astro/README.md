@@ -112,6 +112,10 @@ is slow or down, it resolves with the flag's default (`reason: 'error'`) instead
 of holding up the page. `onError` (default `console.error`) hears about the same
 error message at most once a minute.
 
+The bound applies to each evaluation, not to the page: evaluations awaited one
+after another add up, while evaluations started together with `Promise.all`
+cost about one bound.
+
 #### Anonymous ID
 
 Visitors without a `savvagent_anonymous_id` cookie get a new random ID (`anon_<uuid>`, the same format as the browser SDK), set as

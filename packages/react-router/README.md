@@ -215,6 +215,8 @@ The server applies these defaults, so a slow or unreachable Flags API cannot sta
 | `config.enableRealtime` | `false` | No SSE connection from the server. |
 | `config.disableLanguageDetection` | `true` | `language` comes from `Accept-Language`, not the server's locale. |
 
+The bound applies to each evaluation, not to the page: evaluations awaited one after another add up, while `evaluateFlags` (or `Promise.all`) runs them in parallel and costs about one bound.
+
 When evaluation fails or times out, loaders still resolve: `evaluate` and `evaluateFlags` return `config.defaults` (or `false`) with `reason: 'error'`, and these results are not hydrated.
 
 `SavvagentServer` members:
