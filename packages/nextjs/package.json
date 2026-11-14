@@ -40,8 +40,8 @@
     "format": "prettier --write \"src/**/*.{ts,tsx}\""
   },
   "peerDependencies": {
-    "next": ">=13.0.0",
-    "react": ">=18.0.0"
+    "next": ">=13.0.0 <15",
+    "react": ">=18.0.0 <19"
   },
   "dependencies": {
     "@savvagent/react": "workspace:*",
