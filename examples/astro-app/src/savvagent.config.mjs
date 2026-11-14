@@ -21,10 +21,8 @@ export function browserConfig() {
   return {
     ...savvagentConfig,
     apiKey: process.env.PUBLIC_SAVVAGENT_SDK_KEY || 'sdk_your_key_here',
-    baseUrl:
-      process.env.PUBLIC_SAVVAGENT_API_URL ||
-      process.env.SAVVAGENT_API_URL ||
-      'https://api.savvagent.com/flags',
+    // Never the server's SAVVAGENT_API_URL: it can be an internal address.
+    baseUrl: process.env.PUBLIC_SAVVAGENT_API_URL || 'https://api.savvagent.com/flags',
   };
 }
 

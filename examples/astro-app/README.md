@@ -34,7 +34,9 @@ Example Astro application demonstrating how to use the Savvagent Astro integrati
    `SAVVAGENT_SDK_KEY` and `SAVVAGENT_API_URL` are used by the server. The page
    sends `PUBLIC_SAVVAGENT_SDK_KEY` (a public client `sdk_` key, visible to every
    visitor) and `PUBLIC_SAVVAGENT_API_URL` to the browser client. The browser
-   never falls back to the server's key.
+   never falls back to the server's key or URL (the server's URL can be an
+   internal address); without `PUBLIC_SAVVAGENT_API_URL` it uses
+   `https://api.savvagent.com/flags`.
 
 3. **Run the development server:**
    ```bash
