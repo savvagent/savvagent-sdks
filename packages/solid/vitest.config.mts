@@ -7,11 +7,13 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./src/test-setup.ts'],
-    transformMode: {
-      web: [/\.[jt]sx?$/],
-    },
-    deps: {
-      inline: [/solid-js/, /@solidjs\/testing-library/],
+    // `transformMode` and `deps.inline` were removed from Vitest; the jsdom
+    // environment already transforms for the browser, and inlining moved
+    // under `server.deps`.
+    server: {
+      deps: {
+        inline: [/solid-js/, /@solidjs\/testing-library/],
+      },
     },
     coverage: {
       provider: 'v8',

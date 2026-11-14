@@ -106,7 +106,7 @@ describe('Savvagent Solid SDK', () => {
             <div>Test</div>
           </SavvagentProvider>
         ));
-      } catch (e) {
+      } catch {
         // Expected to throw during render
       }
 
