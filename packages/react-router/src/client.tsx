@@ -82,9 +82,16 @@ function withOverride(
   return { key: flagKey, value: override, reason: 'default', metadata: { description: 'Local override active' } };
 }
 
+/** True when the browser client tried to evaluate a flag and failed. */
+function failed(result: FlagEvaluationResult | null | undefined): boolean {
+  return result?.reason === 'error';
+}
+
 /**
  * True once the live hook has finished its first evaluation. From then on its
- * own values (with overrides and realtime updates) are returned.
+ * own values (with overrides and realtime updates) are returned, except for
+ * flags whose browser evaluation failed (an ad blocker, CSP or CORS), which
+ * keep the server's value.
  */
 function useResolvedOnce(loading: boolean): boolean {
   const resolved = useRef(false);
@@ -102,7 +109,7 @@ export function useFlag(flagKey: string, options: UseFlagOptions = {}): UseFlagR
   const hydrated = useHydratedFlags()[flagKey];
   const resolved = useResolvedOnce(live.loading);
 
-  if (resolved || !hydratable(hydrated)) return live;
+  if ((resolved && !failed(live.result)) || !hydratable(hydrated)) return live;
   const result = withOverride(client, flagKey, hydrated);
   return { ...live, value: result.value, loading: false, error: null, result };
 }
@@ -117,16 +124,22 @@ export function useFlags(flagKeys: string[], options: UseFlagsOptions = {}): Use
   const hydrated = useHydratedFlags();
   const resolved = useResolvedOnce(live.loading);
 
-  if (resolved || !flagKeys.every((key) => hydratable(hydrated[key]))) return live;
+  // Before the first live evaluation: all keys from the server, or none.
+  if (!resolved && !flagKeys.every((key) => hydratable(hydrated[key]))) return live;
+  // After it: the server's value only for keys whose browser evaluation failed.
+  const fromServer = (key: string) =>
+    hydratable(hydrated[key]) && (!resolved || failed(live.results[key]));
+  if (!flagKeys.some(fromServer)) return live;
 
-  const values: Record<string, boolean> = {};
-  const errors: Record<string, Error | null> = {};
-  const results: Record<string, FlagEvaluationResult | null> = {};
+  const values = { ...live.values };
+  const errors = { ...live.errors };
+  const results = { ...live.results };
   for (const key of flagKeys) {
+    if (!fromServer(key)) continue;
     const result = withOverride(client, key, hydrated[key]);
     values[key] = result.value;
     errors[key] = null;
     results[key] = result;
   }
-  return { ...live, values, loading: false, errors, results };
+  return { ...live, values, loading: resolved ? live.loading : false, errors, results };
 }

@@ -125,7 +125,7 @@ describe('server rendering with hydrated flags', () => {
   });
 });
 
-describe('framework-mode loader to hydrated client', () => {
+describe('loader to hydrated client (data mode)', () => {
   it('evaluates in the loader, then hydrates without a flash of default values', async () => {
     // The server and the browser see the same flag state; browser responses are slow.
     const { calls } = mockFlagsApi((flagKey) => flagKey === 'new-feature', { delayMs: 30 });
@@ -180,6 +180,77 @@ describe('framework-mode loader to hydrated client', () => {
       expect(snapshot).toEqual({ loading: false, values: { 'new-feature': true, 'beta-feature': false } });
     }
     router.dispose();
+  });
+});
+
+describe('browser evaluation failures', () => {
+  /** Browser fetches fail as an ad blocker, CSP or CORS failure would. */
+  function failBrowserFetch(status = 500) {
+    const fetchMock = vi.fn(async () => new Response('error', { status }));
+    vi.stubGlobal('fetch', fetchMock);
+    return fetchMock;
+  }
+
+  it('keeps the server values on screen when the browser evaluation fails (useFlags)', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const fetchMock = failBrowserFetch();
+    const renders: Snapshot[] = [];
+    const element = (
+      <SavvagentProvider config={clientConfig} flags={serverFlags}>
+        <Demo renders={renders} />
+      </SavvagentProvider>
+    );
+    const html = renderToString(element);
+    const container = document.createElement('div');
+    container.innerHTML = html;
+    document.body.appendChild(container);
+    hydrate(container, element);
+
+    await settle();
+    expect(fetchMock).toHaveBeenCalled();
+    expect(container.querySelector('[data-flag="new-feature"]')?.textContent).toBe('new-feature: Enabled (server)');
+    for (const snapshot of renders) {
+      expect(snapshot).toEqual({ loading: false, values: { 'new-feature': true, 'beta-feature': false } });
+    }
+  });
+
+  it('keeps the server value when the browser evaluation fails (useFlag)', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    failBrowserFetch();
+    function Single() {
+      const { value, result } = useFlag('new-feature');
+      return <p>{`${value ? 'on' : 'off'} ${result?.reason}`}</p>;
+    }
+    const element = (
+      <SavvagentProvider config={clientConfig} flags={serverFlags}>
+        <Single />
+      </SavvagentProvider>
+    );
+    const container = document.createElement('div');
+    container.innerHTML = renderToString(element);
+    document.body.appendChild(container);
+    hydrate(container, element);
+
+    await settle();
+    expect(container.textContent).toBe('on evaluated');
+  });
+
+  it('still lets a local override win over the kept server value', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    failBrowserFetch();
+    const element = (
+      <SavvagentProvider config={clientConfig} flags={serverFlags} initialOverrides={{ 'new-feature': false }}>
+        <Demo />
+      </SavvagentProvider>
+    );
+    const container = document.createElement('div');
+    container.innerHTML = renderToString(element);
+    document.body.appendChild(container);
+    hydrate(container, element);
+
+    await settle();
+    expect(container.querySelector('[data-flag="new-feature"]')?.textContent).toBe('new-feature: Disabled');
+    expect(container.querySelector('[data-flag="beta-feature"]')?.textContent).toBe('beta-feature: Disabled');
   });
 });
 
