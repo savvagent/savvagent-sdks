@@ -184,6 +184,53 @@ describe('SavvagentService', () => {
       );
       expect(values).toEqual([false, true]);
     });
+
+    it('should release a stream after its last subscriber unsubscribes', async () => {
+      const unsubscribeRealtime = jest.fn();
+      service = TestBed.inject(SavvagentService);
+      mockClient = (service as any).client;
+      mockClient.subscribe.mockReturnValue(unsubscribeRealtime);
+      mockClient.evaluate.mockResolvedValue({ key: 'test-flag', value: true, reason: 'evaluated' });
+      const overrideCallback = mockClient.onOverrideChange.mock.calls[0][0] as () => void;
+
+      const first = service.flag$('test-flag').subscribe();
+      const second = service.flag$('test-flag').subscribe();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(mockClient.evaluate).toHaveBeenCalledTimes(1);
+      expect((service as any).flagSubjects.size).toBe(1);
+
+      first.unsubscribe();
+      expect((service as any).flagSubjects.size).toBe(1);
+      expect(unsubscribeRealtime).not.toHaveBeenCalled();
+
+      second.unsubscribe();
+      expect((service as any).flagSubjects.size).toBe(0);
+      expect(unsubscribeRealtime).toHaveBeenCalledTimes(1);
+
+      service.setOverride('test-flag', false);
+      overrideCallback();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(mockClient.evaluate).toHaveBeenCalledTimes(1);
+    });
+
+    it('should fall back to the configured default, not the last value, when re-evaluation fails', async () => {
+      service = TestBed.inject(SavvagentService);
+      mockClient = (service as any).client;
+      const overrideCallback = mockClient.onOverrideChange.mock.calls[0][0] as () => void;
+
+      mockClient.evaluate.mockResolvedValueOnce({ key: 'test-flag', value: false, reason: 'evaluated' });
+      const values: boolean[] = [];
+      service.flag$('test-flag', { defaultValue: true }).subscribe((r) => {
+        if (!r.loading) values.push(r.value);
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      mockClient.evaluate.mockRejectedValueOnce(new Error('network'));
+      overrideCallback();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(values).toEqual([false, true]);
+    });
   });
 
   describe('Ready State', () => {
@@ -425,8 +472,9 @@ describe('SavvagentService', () => {
         reason: 'evaluated',
       });
 
-      service.flag$('test-flag', { context: { user_id: 'user-1' } });
-      service.flag$('test-flag', { context: { user_id: 'user-1' } });
+      // Streams are lazy: the shared entry exists while it has subscribers.
+      service.flag$('test-flag', { context: { user_id: 'user-1' } }).subscribe();
+      service.flag$('test-flag', { context: { user_id: 'user-1' } }).subscribe();
 
       expect(mockClient.evaluate).toHaveBeenCalledTimes(1);
     });
@@ -438,8 +486,8 @@ describe('SavvagentService', () => {
         reason: 'evaluated',
       });
 
-      service.flag$('test-flag', { context: { user_id: 'user-1' } });
-      service.flag$('test-flag', { context: { user_id: 'user-2' } });
+      service.flag$('test-flag', { context: { user_id: 'user-1' } }).subscribe();
+      service.flag$('test-flag', { context: { user_id: 'user-2' } }).subscribe();
 
       expect(mockClient.evaluate).toHaveBeenCalledTimes(2);
     });

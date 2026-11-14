@@ -10,14 +10,18 @@
   "exports": {
     ".": {
       "types": "./dist/types/savvagent-angular.d.ts",
-      "esm2022": "./dist/fesm2022/savvagent-angular.mjs",
-      "esm": "./dist/fesm2022/savvagent-angular.mjs",
       "default": "./dist/fesm2022/savvagent-angular.mjs"
     },
     "./package.json": {
       "default": "./package.json"
     }
   },
+  "files": [
+    "dist/fesm2022",
+    "dist/types",
+    "README.md",
+    "CHANGELOG.md"
+  ],
   "peerDependencies": {
     "@angular/common": ">=14.0.0 <23",
     "@angular/core": ">=14.0.0 <23",
@@ -32,14 +36,12 @@
     "@angular/compiler": "^22.2.6",
     "@angular/compiler-cli": "^22.2.6",
     "@angular/core": "^22.2.6",
-    "@angular/platform-browser": "^22.2.6",
     "@types/jest": "^30.0.0",
     "@typescript-eslint/eslint-plugin": "^7.18.0",
     "@typescript-eslint/parser": "^7.18.0",
     "eslint": "^8.57.0",
     "jest": "^30.5.2",
     "jest-environment-jsdom": "30.5.2",
-    "jest-preset-angular": "17.0.3",
     "ng-packagr": "^22.2.6",
     "reflect-metadata": "0.2.2",
     "rxjs": "^7.8.2",
