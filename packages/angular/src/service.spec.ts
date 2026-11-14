@@ -137,6 +137,53 @@ describe('SavvagentService', () => {
       mockClient = (service as any).client;
       expect(mockClient.onOverrideChange).toHaveBeenCalled();
     });
+
+    it('should seed the client user ID from the default context', () => {
+      service = TestBed.inject(SavvagentService);
+      mockClient = (service as any).client;
+      expect(mockClient.setUserId).toHaveBeenCalledWith('user-123');
+    });
+
+    it('should not set a user ID when the default context has none', () => {
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({
+        providers: [
+          SavvagentService,
+          { provide: SAVVAGENT_CONFIG, useValue: { config: mockConfig.config, defaultContext: { environment: 'test' } } },
+        ],
+      });
+      service = TestBed.inject(SavvagentService);
+      mockClient = (service as any).client;
+      expect(mockClient.setUserId).not.toHaveBeenCalled();
+    });
+
+    it('should re-evaluate active flags with their full context and emit the new value on override change', async () => {
+      service = TestBed.inject(SavvagentService);
+      mockClient = (service as any).client;
+      const overrideCallback = mockClient.onOverrideChange.mock.calls[0][0] as () => void;
+
+      mockClient.evaluate.mockResolvedValueOnce({ key: 'test-flag', value: false, reason: 'default' });
+      const values: boolean[] = [];
+      service.flag$('test-flag', { context: { attributes: { plan: 'pro' } } }).subscribe((r) => {
+        if (!r.loading) values.push(r.value);
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(values).toEqual([false]);
+
+      const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+      mockClient.evaluate.mockResolvedValueOnce({ key: 'test-flag', value: true, reason: 'evaluated' });
+      overrideCallback();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(consoleSpy).not.toHaveBeenCalled();
+      consoleSpy.mockRestore();
+      expect(mockClient.evaluate).toHaveBeenCalledTimes(2);
+      expect(mockClient.evaluate.mock.calls[1]).toEqual(mockClient.evaluate.mock.calls[0]);
+      expect(mockClient.evaluate.mock.calls[1][1]).toEqual(
+        expect.objectContaining({ application_id: 'test-app', attributes: { plan: 'pro' } })
+      );
+      expect(values).toEqual([false, true]);
+    });
   });
 
   describe('Ready State', () => {

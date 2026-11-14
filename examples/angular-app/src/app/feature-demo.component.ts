@@ -25,10 +25,10 @@ import { SavvagentService, FlagObservableResult, FlagEvaluationResult } from '@s
 
       <ng-template #content>
         <!-- New Feature Card -->
-        <div class="feature-card" [class.feature-card-overridden]="isNewFeatureOverridden">
+        <div class="feature-card" [class.feature-card-overridden]="isOverridden('new-feature')">
           <h2>
             New Feature
-            <span *ngIf="isNewFeatureOverridden" class="override-badge-inline">LOCAL OVERRIDE</span>
+            <span *ngIf="isOverridden('new-feature')" class="override-badge-inline">LOCAL OVERRIDE</span>
           </h2>
           <p>
             Status:
@@ -36,7 +36,7 @@ import { SavvagentService, FlagObservableResult, FlagEvaluationResult } from '@s
               {{ newFeatureEnabled ? 'Enabled' : 'Disabled' }}
             </span>
           </p>
-          <p *ngIf="isNewFeatureOverridden" class="server-value">
+          <p *ngIf="isOverridden('new-feature')" class="server-value">
             Server value: {{ newFeatureEnabled ? 'Enabled' : 'Disabled' }}
           </p>
           <p *ngIf="newFeatureResult?.metadata?.variation" class="variation">
@@ -48,10 +48,10 @@ import { SavvagentService, FlagObservableResult, FlagEvaluationResult } from '@s
         </div>
 
         <!-- Beta Feature Card -->
-        <div class="feature-card" [class.feature-card-overridden]="isBetaFeatureOverridden">
+        <div class="feature-card" [class.feature-card-overridden]="isOverridden('beta-feature')">
           <h2>
             Beta Feature
-            <span *ngIf="isBetaFeatureOverridden" class="override-badge-inline">LOCAL OVERRIDE</span>
+            <span *ngIf="isOverridden('beta-feature')" class="override-badge-inline">LOCAL OVERRIDE</span>
           </h2>
           <p>
             Status:
@@ -59,7 +59,7 @@ import { SavvagentService, FlagObservableResult, FlagEvaluationResult } from '@s
               {{ betaFeatureEnabled ? 'Enabled' : 'Disabled' }}
             </span>
           </p>
-          <p *ngIf="isBetaFeatureOverridden" class="server-value">
+          <p *ngIf="isOverridden('beta-feature')" class="server-value">
             Server value: {{ betaFeatureEnabled ? 'Enabled' : 'Disabled' }}
           </p>
           <p *ngIf="betaFeatureResult?.metadata?.variation" class="variation">
@@ -68,10 +68,10 @@ import { SavvagentService, FlagObservableResult, FlagEvaluationResult } from '@s
         </div>
 
         <!-- Enterprise One Card -->
-        <div class="feature-card" [class.feature-card-overridden]="isEnterpriseOneOverridden">
+        <div class="feature-card" [class.feature-card-overridden]="isOverridden('enterprise-one')">
           <h2>
             Enterprise One
-            <span *ngIf="isEnterpriseOneOverridden" class="override-badge-inline">LOCAL OVERRIDE</span>
+            <span *ngIf="isOverridden('enterprise-one')" class="override-badge-inline">LOCAL OVERRIDE</span>
           </h2>
           <p>
             Status:
@@ -79,7 +79,7 @@ import { SavvagentService, FlagObservableResult, FlagEvaluationResult } from '@s
               {{ enterpriseOneEnabled ? 'Enabled' : 'Disabled' }}
             </span>
           </p>
-          <p *ngIf="isEnterpriseOneOverridden" class="server-value">
+          <p *ngIf="isOverridden('enterprise-one')" class="server-value">
             Server value: {{ enterpriseOneEnabled ? 'Enabled' : 'Disabled' }}
           </p>
           <p *ngIf="enterpriseOneResult?.metadata?.variation" class="variation">
@@ -127,11 +127,6 @@ export class FeatureDemoComponent implements OnInit, OnDestroy {
   betaFeatureResult: FlagEvaluationResult | null = null;
   enterpriseOneResult: FlagEvaluationResult | null = null;
 
-  // Override states
-  isNewFeatureOverridden = false;
-  isBetaFeatureOverridden = false;
-  isEnterpriseOneOverridden = false;
-
   // Loading state
   loading = true;
 
@@ -149,7 +144,6 @@ export class FeatureDemoComponent implements OnInit, OnDestroy {
         this.newFeatureEnabled = result.value;
         this.newFeatureResult = result.result;
         this.loading = result.loading;
-        this.isNewFeatureOverridden = this.savvagent.hasOverride('new-feature');
       });
 
     // Subscribe to beta-feature flag
@@ -159,7 +153,6 @@ export class FeatureDemoComponent implements OnInit, OnDestroy {
       .subscribe((result: FlagObservableResult) => {
         this.betaFeatureEnabled = result.value;
         this.betaFeatureResult = result.result;
-        this.isBetaFeatureOverridden = this.savvagent.hasOverride('beta-feature');
       });
 
     // Subscribe to enterprise-one flag
@@ -169,11 +162,18 @@ export class FeatureDemoComponent implements OnInit, OnDestroy {
       .subscribe((result: FlagObservableResult) => {
         this.enterpriseOneEnabled = result.value;
         this.enterpriseOneResult = result.result;
-        this.isEnterpriseOneOverridden = this.savvagent.hasOverride('enterprise-one');
       });
 
     // Get initial user ID
     this.currentUserId = this.savvagent.getUserId();
+  }
+
+  /**
+   * Whether a flag has a local override. Read on every change detection pass, so the
+   * badge follows override changes even when the evaluated value does not change.
+   */
+  isOverridden(flagKey: string): boolean {
+    return this.savvagent.hasOverride(flagKey);
   }
 
   ngOnDestroy(): void {

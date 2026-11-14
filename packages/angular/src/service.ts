@@ -68,6 +68,17 @@ export interface FlagOptions {
 }
 
 /**
+ * An active flag$ stream, keyed by flag key and merged context.
+ * The key and context are kept alongside the subject so re-evaluation does not
+ * have to parse them back out of the cache key (the context JSON contains colons).
+ */
+interface FlagSubscription {
+  flagKey: string;
+  context: FlagContext;
+  subject: BehaviorSubject<FlagObservableResult>;
+}
+
+/**
  * Angular service for Savvagent feature flags.
  * Provides reactive flag evaluation using RxJS Observables.
  *
@@ -95,7 +106,7 @@ export class SavvagentService implements OnDestroy {
   private destroy$ = new Subject<void>();
   private isReady$ = new BehaviorSubject<boolean>(false);
   private defaultContext: FlagContext = {};
-  private flagSubjects = new Map<string, BehaviorSubject<FlagObservableResult>>();
+  private flagSubjects = new Map<string, FlagSubscription>();
 
   constructor(
     @Optional() @Inject(SAVVAGENT_CONFIG) config?: SavvagentConfig
@@ -151,6 +162,12 @@ export class SavvagentService implements OnDestroy {
           language: savvagentConfig.defaultContext.language,
           attributes: savvagentConfig.defaultContext.attributes,
         };
+
+        // Seed the client's user ID from the default context, as the React and Vue SDKs do,
+        // so getUserId() reflects it and it is sent with every evaluation.
+        if (savvagentConfig.defaultContext.userId) {
+          this.client.setUserId(savvagentConfig.defaultContext.userId);
+        }
       }
 
       this.isReady$.next(true);
@@ -238,7 +255,7 @@ export class SavvagentService implements OnDestroy {
         error: null,
         result: null,
       });
-      this.flagSubjects.set(cacheKey, subject);
+      this.flagSubjects.set(cacheKey, { flagKey, context: mergedContext, subject });
 
       // Initial evaluation
       this.evaluateAndEmit(flagKey, mergedContext, defaultValue, subject);
@@ -256,7 +273,7 @@ export class SavvagentService implements OnDestroy {
       }
     }
 
-    return this.flagSubjects.get(cacheKey)!.asObservable().pipe(
+    return this.flagSubjects.get(cacheKey)!.subject.asObservable().pipe(
       takeUntil(this.destroy$),
       distinctUntilChanged((a, b) =>
         a.value === b.value &&
@@ -315,11 +332,8 @@ export class SavvagentService implements OnDestroy {
    * Called when overrides change.
    */
   private reEvaluateAllFlags(): void {
-    this.flagSubjects.forEach((subject, cacheKey) => {
-      const [flagKey, contextJson] = cacheKey.split(':', 2);
-      const context = JSON.parse(contextJson || '{}');
-      const currentValue = subject.value;
-      this.evaluateAndEmit(flagKey, context, currentValue.value, subject);
+    this.flagSubjects.forEach(({ flagKey, context, subject }) => {
+      this.evaluateAndEmit(flagKey, context, subject.value.value, subject);
     });
   }
 
@@ -592,7 +606,7 @@ export class SavvagentService implements OnDestroy {
     this.client?.close();
     this.client = null;
     this.isReady$.next(false);
-    this.flagSubjects.forEach((subject) => subject.complete());
+    this.flagSubjects.forEach(({ subject }) => subject.complete());
     this.flagSubjects.clear();
   }
 
