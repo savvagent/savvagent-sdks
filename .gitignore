@@ -38,6 +38,10 @@ target/
 **/*.rs.bk
 *.pdb
 
+# Python
+__pycache__/
+*.py[cod]
+
 # Swift/iOS (in case not caught by package-level .gitignore)
 .build/
 .swiftpm/
