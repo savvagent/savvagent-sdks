@@ -5,10 +5,10 @@ import {
   createSavvagentServer,
   getSavvagent,
   parseCookies,
-  throttleErrors,
   toServerConfig,
   savvagentContext,
 } from '../src';
+import { throttleErrors } from '../src/server';
 import type { FlagClientConfig, SavvagentFlags } from '../src';
 import { config, mockFlagsApi, request } from './helpers';
 
@@ -464,7 +464,9 @@ describe('Flags API failures in a loader', () => {
     const flags = await load(handler);
     const elapsed = Date.now() - started;
     expect(elapsed).toBeGreaterThanOrEqual(950);
-    expect(elapsed).toBeLessThan(1500);
+    // Generous upper bound: the point is "about the timeout, not ~33 s",
+    // and loaded CI runners add scheduling delay.
+    expect(elapsed).toBeLessThan(4000);
     expect(flags['new-feature']).toEqual({ key: 'new-feature', value: true, reason: 'error' });
     expect(onError).toHaveBeenCalledTimes(1);
     expect(onError.mock.calls[0][0].message).toMatch(/timed out after 1000ms/);
@@ -491,5 +493,20 @@ describe('Flags API failures in a loader', () => {
     const scope = await savvagent.forRequest(request());
     expect(await scope.isEnabled('a')).toBe(true);
     expect(clearSpy).toHaveBeenCalled();
+  });
+});
+
+describe('throttleErrors cap', () => {
+  it('keeps at most 100 distinct messages, dropping the oldest', () => {
+    const onError = vi.fn();
+    const report = throttleErrors(onError, 60_000);
+    for (let i = 0; i < 250; i++) report(new Error(`failure ${i}`));
+    expect(onError).toHaveBeenCalledTimes(250);
+    // The oldest message was evicted, so it is reported again.
+    report(new Error('failure 0'));
+    expect(onError).toHaveBeenCalledTimes(251);
+    // A recent message is still throttled.
+    report(new Error('failure 249'));
+    expect(onError).toHaveBeenCalledTimes(251);
   });
 });

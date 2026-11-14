@@ -162,6 +162,9 @@ export function toServerConfig(config: FlagClientConfig): FlagClientConfig {
  * per `intervalMs`. When the Flags API is down, every request fails the same
  * way; this keeps the logs readable.
  */
+const MAX_THROTTLED_MESSAGES = 100;
+
+/** @internal Exported for tests only. */
 export function throttleErrors(
   onError: (error: Error) => void,
   intervalMs: number = ERROR_REPORT_INTERVAL_MS
@@ -172,9 +175,14 @@ export function throttleErrors(
     const key = error?.message ?? String(error);
     const last = lastReported.get(key);
     if (last !== undefined && now - last < intervalMs) return;
-    if (lastReported.size >= 100) {
+    if (lastReported.size >= MAX_THROTTLED_MESSAGES) {
       for (const [message, time] of lastReported) {
         if (now - time >= intervalMs) lastReported.delete(message);
+      }
+      // Hard cap: messages can carry dynamic text (URLs, IDs), so drop the
+      // oldest entries rather than letting the map grow during an outage.
+      while (lastReported.size >= MAX_THROTTLED_MESSAGES) {
+        lastReported.delete(lastReported.keys().next().value as string);
       }
     }
     lastReported.set(key, now);
