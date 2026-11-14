@@ -25,7 +25,7 @@
     "format": "prettier --write \"src/**/*.{ts,tsx}\""
   },
   "peerDependencies": {
-    "react": ">=16.8.0"
+    "react": ">=16.8.0 <19"
   },
   "dependencies": {
     "@savvagent/sdk": "workspace:*"

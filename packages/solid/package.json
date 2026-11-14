@@ -25,7 +25,7 @@
     "format": "prettier --write \"src/**/*.{ts,tsx}\""
   },
   "peerDependencies": {
-    "solid-js": ">=1.0.0"
+    "solid-js": ">=1.0.0 <2"
   },
   "dependencies": {
     "@savvagent/sdk": "workspace:*"
