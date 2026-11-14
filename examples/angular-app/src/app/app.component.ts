@@ -1,5 +1,4 @@
-import { Component } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { Component, ChangeDetectionStrategy } from '@angular/core';
 import { FeatureDemoComponent } from './feature-demo.component';
 import { FlagOverridePanelComponent } from './flag-override-panel.component';
 
@@ -10,8 +9,8 @@ import { FlagOverridePanelComponent } from './flag-override-panel.component';
  */
 @Component({
   selector: 'app-root',
-  standalone: true,
-  imports: [CommonModule, FeatureDemoComponent, FlagOverridePanelComponent],
+  imports: [FeatureDemoComponent, FlagOverridePanelComponent],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <app-feature-demo></app-feature-demo>
     <app-flag-override-panel></app-flag-override-panel>
