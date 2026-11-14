@@ -1,6 +1,15 @@
 import { defineConfig } from 'vitest/config';
+import { fileURLToPath } from 'node:url';
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      // Served by the integration's Vite plugin at runtime; a fixture in tests.
+      'virtual:@savvagent/astro/config': fileURLToPath(
+        new URL('./tests/fixtures/virtual-config.ts', import.meta.url)
+      ),
+    },
+  },
   test: {
     globals: true,
     environment: 'node',

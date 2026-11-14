@@ -6,19 +6,88 @@
  * @packageDocumentation
  */
 
-import type { AstroIntegration } from 'astro';
+import type { AstroIntegration, MiddlewareHandler } from 'astro';
 import { FlagClient, FlagClientConfig, FlagContext, FlagEvaluationResult } from '@savvagent/sdk';
 
 let clientInstance: FlagClient | null = null;
 
 export interface SavvagentIntegrationOptions {
-  /** Savvagent configuration */
+  /**
+   * Savvagent configuration for the server-side client.
+   *
+   * The integration serializes this object as JSON into the server bundle so
+   * the middleware can build the client at request time. Function values
+   * (such as `onError`) are therefore not carried over; call
+   * `initSavvagent()` yourself from your own middleware if you need them.
+   */
   config: FlagClientConfig;
 }
 
 /**
+ * Request-scoped Savvagent API, available as `Astro.locals.savvagent` in
+ * pages, endpoints and middleware once the integration is installed.
+ *
+ * Every method merges the context derived from the current request (cookies
+ * and `Accept-Language`, see {@link getRequestContext}) with the context you
+ * pass; values you pass win.
+ */
+export interface SavvagentLocals {
+  /** The shared server-side FlagClient. */
+  client: FlagClient;
+  /** Context derived from the current request. */
+  context: FlagContext;
+  isEnabled(flagKey: string, context?: FlagContext): Promise<boolean>;
+  evaluate(flagKey: string, context?: FlagContext): Promise<FlagEvaluationResult>;
+  withFlag<T>(
+    flagKey: string,
+    callback: () => T | Promise<T>,
+    context?: FlagContext
+  ): Promise<T | null>;
+  trackError(flagKey: string, error: Error, context?: FlagContext): void;
+}
+
+declare global {
+  // Astro's documented way to type `Astro.locals` is to augment `App.Locals`.
+  // eslint-disable-next-line @typescript-eslint/no-namespace
+  namespace App {
+    interface Locals {
+      savvagent: SavvagentLocals;
+    }
+  }
+}
+
+/** Id of the virtual module that carries the integration config to the middleware. */
+export const SAVVAGENT_CONFIG_MODULE_ID = 'virtual:@savvagent/astro/config';
+const RESOLVED_CONFIG_MODULE_ID = '\0' + SAVVAGENT_CONFIG_MODULE_ID;
+
+/**
+ * Apply server-side defaults to a client config. Realtime (SSE) updates rely
+ * on browser globals, so they are off unless explicitly enabled.
+ */
+export function toServerConfig(config: FlagClientConfig): FlagClientConfig {
+  return { ...config, enableRealtime: config.enableRealtime ?? false };
+}
+
+function savvagentConfigPlugin(config: FlagClientConfig) {
+  return {
+    name: '@savvagent/astro:config',
+    resolveId(id: string) {
+      return id === SAVVAGENT_CONFIG_MODULE_ID ? RESOLVED_CONFIG_MODULE_ID : undefined;
+    },
+    load(id: string) {
+      return id === RESOLVED_CONFIG_MODULE_ID
+        ? `export default ${JSON.stringify(config)};`
+        : undefined;
+    },
+  };
+}
+
+/**
  * Astro integration for Savvagent.
- * Automatically initializes the client and makes it available in all components.
+ *
+ * Registers middleware that initializes a shared server-side client and
+ * provides `Astro.locals.savvagent` (see {@link SavvagentLocals}) on every
+ * request, and injects the matching `App.Locals` types.
  *
  * @param options - Integration options
  * @returns Astro integration
@@ -33,7 +102,7 @@ export interface SavvagentIntegrationOptions {
  *   integrations: [
  *     savvagent({
  *       config: {
- *         apiKey: process.env.SAVVAGENT_API_KEY,
+ *         apiKey: process.env.SAVVAGENT_SDK_KEY,
  *         applicationId: process.env.SAVVAGENT_APP_ID,
  *       },
  *     }),
@@ -47,20 +116,66 @@ export default function savvagent(
   return {
     name: '@savvagent/astro',
     hooks: {
-      'astro:config:setup': () => {
-        // Initialize client
-        if (!clientInstance) {
-          clientInstance = new FlagClient(options.config);
-        }
+      'astro:config:setup': ({ addMiddleware, updateConfig }) => {
+        updateConfig({
+          vite: { plugins: [savvagentConfigPlugin(options.config)] },
+        });
+        addMiddleware({ entrypoint: '@savvagent/astro/middleware', order: 'pre' });
+      },
+      'astro:config:done': ({ injectTypes }) => {
+        injectTypes({
+          filename: 'types.d.ts',
+          content: '/// <reference types="@savvagent/astro" />\n',
+        });
       },
       'astro:build:done': () => {
-        // Cleanup
+        // Prerendering runs the middleware in the build process; release its client.
         if (clientInstance) {
           clientInstance.close();
           clientInstance = null;
         }
       },
     },
+  };
+}
+
+/**
+ * Build the request-scoped API exposed as `Astro.locals.savvagent`.
+ *
+ * @param client - The FlagClient to evaluate with
+ * @param request - The current request
+ */
+export function createSavvagentLocals(client: FlagClient, request: Request): SavvagentLocals {
+  const requestContext = Object.fromEntries(
+    Object.entries(getRequestContext(request)).filter(
+      ([key, value]) => key !== '' && value !== undefined && value !== ''
+    )
+  ) as FlagContext;
+
+  const merge = (context?: FlagContext): FlagContext => ({ ...requestContext, ...context });
+
+  return {
+    client,
+    context: requestContext,
+    isEnabled: (flagKey, context) => client.isEnabled(flagKey, merge(context)),
+    evaluate: (flagKey, context) => client.evaluate(flagKey, merge(context)),
+    withFlag: (flagKey, callback, context) => client.withFlag(flagKey, callback, merge(context)),
+    trackError: (flagKey, error, context) => client.trackError(flagKey, error, merge(context)),
+  };
+}
+
+/**
+ * Create the middleware that provides `Astro.locals.savvagent`.
+ * The integration registers this automatically; use it directly only when
+ * composing your own middleware with `sequence()` instead of the integration.
+ *
+ * @param config - Client configuration (server defaults applied via {@link toServerConfig})
+ */
+export function createSavvagentMiddleware(config: FlagClientConfig): MiddlewareHandler {
+  return (context, next) => {
+    const client = initSavvagent(toServerConfig(config));
+    context.locals.savvagent = createSavvagentLocals(client, context.request);
+    return next();
   };
 }
 
