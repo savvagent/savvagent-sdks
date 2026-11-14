@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-This is a Remix example application demonstrating the integration of the Savvagent SDK for feature flag management. It's part of a larger monorepo (`savvagent-sdks`) managed with pnpm workspaces.
+This is a Remix example application demonstrating the integration of the Savvagent SDK for feature flag management. It's part of a larger monorepo (`flags-sdks`) managed with pnpm workspaces.
 
 ## Development Commands
 

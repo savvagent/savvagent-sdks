@@ -19,14 +19,14 @@ Claude Code can fetch and use these files directly. Simply ask it to integrate S
 
 ```
 Add Savvagent feature flags to my React app.
-Reference: https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/llms-full.txt
+Reference: https://raw.githubusercontent.com/savvagent/flags-sdks/master/llms-full.txt
 ```
 
 Or for quick lookups:
 
 ```
 How do I use Savvagent's useFlag hook?
-Check https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/llms.txt
+Check https://raw.githubusercontent.com/savvagent/flags-sdks/master/llms.txt
 ```
 
 **Pro tip**: Add Savvagent docs to your project's context by creating a `.claude/settings.json`:
@@ -35,7 +35,7 @@ Check https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/llms.txt
 {
   "context": {
     "urls": [
-      "https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/llms-full.txt"
+      "https://raw.githubusercontent.com/savvagent/flags-sdks/master/llms-full.txt"
     ]
   }
 }
@@ -47,7 +47,7 @@ In Cursor, you can add the documentation to your project's AI context:
 
 1. Open Settings (Cmd/Ctrl + ,)
 2. Go to "Features" > "Docs"
-3. Add: `https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/llms-full.txt`
+3. Add: `https://raw.githubusercontent.com/savvagent/flags-sdks/master/llms-full.txt`
 
 Now when you ask Cursor to add feature flags, it will use accurate Savvagent patterns.
 
@@ -61,7 +61,7 @@ Now when you ask Cursor to add feature flags, it will use accurate Savvagent pat
 Reference the documentation in your prompt:
 
 ```
-# Context: Using Savvagent SDK from https://github.com/savvagent/savvagent-sdks
+# Context: Using Savvagent SDK from https://github.com/savvagent/flags-sdks
 # Add feature flag check for 'new-dashboard' feature
 ```
 
@@ -74,7 +74,7 @@ Add to your workspace configuration:
 ```json
 {
   "ai.contextFiles": [
-    "https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/llms-full.txt"
+    "https://raw.githubusercontent.com/savvagent/flags-sdks/master/llms-full.txt"
   ]
 }
 ```
@@ -98,7 +98,7 @@ Set up Savvagent feature flags in my Next.js 14 app.
 - Use App Router
 - Add provider to root layout
 - Create a useFeatureFlag hook
-Reference: https://raw.githubusercontent.com/savvagent/savvagent-sdks/main/llms-full.txt
+Reference: https://raw.githubusercontent.com/savvagent/flags-sdks/master/llms-full.txt
 ```
 
 ### Adding a Feature Flag
@@ -234,8 +234,8 @@ We'll update our AI-friendly documentation to address common issues.
 
 ## Resources
 
-- **llms.txt**: [View on GitHub](https://github.com/savvagent/savvagent-sdks/blob/main/llms.txt)
-- **llms-full.txt**: [View on GitHub](https://github.com/savvagent/savvagent-sdks/blob/main/llms-full.txt)
+- **llms.txt**: [View on GitHub](https://github.com/savvagent/flags-sdks/blob/master/llms.txt)
+- **llms-full.txt**: [View on GitHub](https://github.com/savvagent/flags-sdks/blob/master/llms-full.txt)
 - **llms.txt Standard**: [llmstxt.org](https://llmstxt.org)
 - **SDK Developer Guide**: [docs/SDK-DEVELOPER-GUIDE.md](./SDK-DEVELOPER-GUIDE.md) - Complete API specification
 - **SDK Integration Guide**: [docs/SDK-INTEGRATION.md](./SDK-INTEGRATION.md)

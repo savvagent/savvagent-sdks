@@ -49,9 +49,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/savvagent/savvagent-sdks/tree/main/packages/python-server"
-Repository = "https://github.com/savvagent/savvagent-sdks"
-Issues = "https://github.com/savvagent/savvagent-sdks/issues"
+Homepage = "https://github.com/savvagent/flags-sdks/tree/master/packages/python-server"
+Repository = "https://github.com/savvagent/flags-sdks"
+Issues = "https://github.com/savvagent/flags-sdks/issues"
 
 [build-system]
 requires = ["hatchling"]

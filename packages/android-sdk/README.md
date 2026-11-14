@@ -374,7 +374,7 @@ See the [Android example app](../../examples/android-app) for a complete impleme
 
 ## Support
 
-- [GitHub Issues](https://github.com/savvagent/savvagent-sdks/issues)
+- [GitHub Issues](https://github.com/savvagent/flags-sdks/issues)
 - [Documentation](https://flags-docs.savvagent.com)
 - [Email](mailto:support@savvagent.com)
 

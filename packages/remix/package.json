@@ -57,13 +57,13 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/savvagent/savvagent-sdks",
+    "url": "https://github.com/savvagent/flags-sdks",
     "directory": "packages/remix"
   },
   "bugs": {
-    "url": "https://github.com/savvagent/savvagent-sdks/issues"
+    "url": "https://github.com/savvagent/flags-sdks/issues"
   },
-  "homepage": "https://github.com/savvagent/savvagent-sdks/tree/main/packages/remix#readme",
+  "homepage": "https://github.com/savvagent/flags-sdks/tree/master/packages/remix#readme",
   "publishConfig": {
     "access": "public"
   }

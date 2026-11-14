@@ -20,13 +20,13 @@ By participating in this project, you agree to maintain a respectful and inclusi
 
 2. **Clone your fork:**
    ```bash
-   git clone https://github.com/YOUR_USERNAME/savvagent-sdks.git
-   cd savvagent-sdks
+   git clone https://github.com/YOUR_USERNAME/flags-sdks.git
+   cd flags-sdks
    ```
 
 3. **Add upstream remote:**
    ```bash
-   git remote add upstream https://github.com/yourusername/savvagent-sdks.git
+   git remote add upstream https://github.com/yourusername/flags-sdks.git
    ```
 
 4. **Install dependencies:**

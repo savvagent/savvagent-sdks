@@ -380,5 +380,5 @@ MIT
 
 - Documentation: https://flags-docs.savvagent.com
 - API Docs: https://docs.rs/savvagent
-- Issues: https://github.com/savvagent/savvagent-sdks/issues
+- Issues: https://github.com/savvagent/flags-sdks/issues
 - Email: support@savvagent.com

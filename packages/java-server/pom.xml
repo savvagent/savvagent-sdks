@@ -11,7 +11,7 @@
 
     <name>Savvagent Java Server SDK</name>
     <description>Java Server SDK for Savvagent feature flags with AI-powered error detection</description>
-    <url>https://github.com/savvagent/savvagent-sdks</url>
+    <url>https://github.com/savvagent/flags-sdks</url>
 
     <licenses>
         <license>
@@ -30,9 +30,9 @@
     </developers>
 
     <scm>
-        <connection>scm:git:git://github.com/savvagent/savvagent-sdks.git</connection>
-        <developerConnection>scm:git:ssh://github.com:savvagent/savvagent-sdks.git</developerConnection>
-        <url>https://github.com/savvagent/savvagent-sdks/tree/main/packages/java-server</url>
+        <connection>scm:git:git://github.com/savvagent/flags-sdks.git</connection>
+        <developerConnection>scm:git:ssh://git@github.com/savvagent/flags-sdks.git</developerConnection>
+        <url>https://github.com/savvagent/flags-sdks/tree/master/packages/java-server</url>
     </scm>
 
     <properties>

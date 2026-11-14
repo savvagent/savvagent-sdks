@@ -1,6 +1,6 @@
 # Migration Guide
 
-This guide helps you migrate from using the SDKs in the main `savvagent-flags` repository to the new `savvagent-sdks` repository.
+This guide helps you migrate from using the SDKs in the main `savvagent-flags` repository to the new `flags-sdks` repository.
 
 ## Overview
 
@@ -74,12 +74,12 @@ pnpm add @savvagent/sdk
 ```bash
 cd ~/dev
 git clone https://github.com/yourusername/savvagent-flags.git
-git clone https://github.com/yourusername/savvagent-sdks.git
+git clone https://github.com/yourusername/flags-sdks.git
 ```
 
 2. **Install dependencies:**
 ```bash
-cd savvagent-sdks
+cd flags-sdks
 pnpm install
 ```
 
@@ -96,7 +96,7 @@ To test SDK changes with the platform, use pnpm's `file:` protocol:
 ```json
 {
   "dependencies": {
-    "@savvagent/sdk": "file:../../savvagent-sdks/packages/typescript"
+    "@savvagent/sdk": "file:../../flags-sdks/packages/typescript"
   }
 }
 ```
@@ -153,7 +153,7 @@ pnpm add @savvagent/mcp-sentry
 ## Repository Structure
 
 ```
-savvagent-sdks/
+flags-sdks/
 ├── packages/
 │   ├── typescript/       # @savvagent/sdk
 │   ├── mcp-sdk/          # @savvagent/mcp-sdk
@@ -204,7 +204,7 @@ Ensure you're using the `file:` protocol with the correct relative path:
 ```json
 {
   "dependencies": {
-    "@savvagent/sdk": "file:../../savvagent-sdks/packages/typescript"
+    "@savvagent/sdk": "file:../../flags-sdks/packages/typescript"
   }
 }
 ```
@@ -218,6 +218,6 @@ Then run `pnpm install` to create the symlink.
 
 ## Support
 
-- GitHub Issues: https://github.com/savvagent/savvagent-sdks/issues
-- Documentation: https://github.com/savvagent/savvagent-sdks/tree/main/docs
-- Examples: https://github.com/savvagent/savvagent-sdks/tree/main/examples
+- GitHub Issues: https://github.com/savvagent/flags-sdks/issues
+- Documentation: https://github.com/savvagent/flags-sdks/tree/master/docs
+- Examples: https://github.com/savvagent/flags-sdks/tree/master/examples
