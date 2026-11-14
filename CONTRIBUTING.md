@@ -11,7 +11,7 @@ By participating in this project, you agree to maintain a respectful and inclusi
 ### Prerequisites
 
 - Node.js 22.23.4 or higher
-- pnpm 8 or higher
+- pnpm 9 or higher
 - Git
 
 ### Setup

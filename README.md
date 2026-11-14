@@ -177,7 +177,7 @@ This is a pnpm workspace monorepo with independent package versioning.
 ### Prerequisites
 
 - Node.js 22.23.4+
-- pnpm 8+
+- pnpm 9+
 
 ### Setup
 
