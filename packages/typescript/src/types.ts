@@ -113,6 +113,8 @@ export interface CacheEntry {
   value: boolean;
   expiresAt: number;
   flagId?: string;
+  /** Metadata (variation, configuration, ...) of the cached evaluation */
+  metadata?: FlagEvaluationResult['metadata'];
 }
 
 /**

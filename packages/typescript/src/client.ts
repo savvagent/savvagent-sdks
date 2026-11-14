@@ -1,4 +1,4 @@
-import { FlagCache } from './cache';
+import { FlagCache, contextCacheKey } from './cache';
 import { TelemetryService } from './telemetry';
 import { RealtimeService } from './realtime';
 import {
@@ -37,7 +37,7 @@ export class FlagClient {
       baseUrl: (config.baseUrl || 'https://api.savvagent.com/flags').replace(/\/+$/, ''),
       environment: config.environment || 'production',
       enableRealtime: config.enableRealtime ?? true,
-      cacheTtl: config.cacheTtl || 60000,
+      cacheTtl: config.cacheTtl ?? 60000,
       enableTelemetry: config.enableTelemetry ?? true,
       defaults: config.defaults || {},
       onError: config.onError || ((error) => console.error('[Savvagent]', error)),
@@ -360,18 +360,22 @@ export class FlagClient {
         };
       }
 
-      // Check cache second
-      const cachedValue = this.cache.get(flagKey);
-      if (cachedValue !== null) {
-        return {
-          key: flagKey,
-          value: cachedValue,
-          reason: 'cached',
-        };
-      }
-
       // Build context with user identifiers
       const evaluationContext = this.buildContext(context);
+      // Cache entries are per flag AND per evaluation context, so one user's
+      // result is never served to another.
+      const contextKey = contextCacheKey(evaluationContext);
+
+      // Check cache second
+      const cached = this.cache.getEntry(flagKey, contextKey);
+      if (cached !== null) {
+        return {
+          key: flagKey,
+          value: cached.value,
+          reason: 'cached',
+          ...(cached.metadata ? { metadata: cached.metadata } : {}),
+        };
+      }
 
       // Build type-safe request body
       // Cast to any for JsonValue compatibility (all fields are JSON-serializable)
@@ -406,8 +410,15 @@ export class FlagClient {
       const data: ApiEvaluateResponse = await response.json();
       const value = data.enabled || false;
 
-      // Cache the result (use key as ID since response doesn't include UUID)
-      this.cache.set(flagKey, value, data.key);
+      const metadata: FlagEvaluationResult['metadata'] = {
+        scope: data.scope,
+        configuration: data.configuration,
+        variation: data.variation,
+        timestamp: data.timestamp,
+      };
+
+      // Cache the result for this context (use key as ID since response doesn't include UUID)
+      this.cache.set(flagKey, value, data.key, contextKey, metadata);
 
       // Track evaluation
       const durationMs = Date.now() - startTime;
@@ -424,12 +435,7 @@ export class FlagClient {
         key: flagKey,
         value,
         reason: 'evaluated',
-        metadata: {
-          scope: data.scope,
-          configuration: data.configuration,
-          variation: data.variation,
-          timestamp: data.timestamp,
-        },
+        metadata,
       };
     } catch (error) {
       // Use default value if provided
@@ -720,11 +726,9 @@ export class FlagClient {
 
       const data: FlagListResponse = await response.json();
 
-      // Optionally cache all flags
-      data.flags.forEach((flag) => {
-        this.cache.set(flag.key, flag.enabled, flag.key);
-      });
-
+      // Not cached: `enabled` is the environment-level state, not a result
+      // evaluated for any particular context, so serving it from the
+      // evaluation cache would bypass targeting.
       return data.flags;
     } catch (error) {
       this.config.onError(error as Error);

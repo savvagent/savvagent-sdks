@@ -1,4 +1,4 @@
-import { FlagCache } from './cache';
+import { FlagCache, contextCacheKey } from './cache';
 
 describe('FlagCache', () => {
   let cache: FlagCache;
@@ -146,5 +146,40 @@ describe('FlagCache', () => {
       expect(cache.get('flag-50')).toBe(true);
       expect(cache.get('flag-99')).toBe(true);
     });
+  });
+});
+
+describe('FlagCache per-context entries', () => {
+  it('keeps separate entries per context key', () => {
+    const cache = new FlagCache(1000);
+    cache.set('flag', true, 'flag', undefined, undefined, 'ctx-a');
+    cache.set('flag', false, 'flag', undefined, undefined, 'ctx-b');
+    expect(cache.get('flag', 'ctx-a')).toBe(true);
+    expect(cache.get('flag', 'ctx-b')).toBe(false);
+    expect(cache.get('flag', 'ctx-c')).toBeNull();
+  });
+
+  it('invalidate(flagKey) clears the flag for every context', () => {
+    const cache = new FlagCache(1000);
+    cache.set('flag', true, 'flag', undefined, undefined, 'ctx-a');
+    cache.set('flag', false, 'flag', undefined, undefined, 'ctx-b');
+    cache.set('other', true, 'other', undefined, undefined, 'ctx-a');
+    cache.invalidate('flag');
+    expect(cache.get('flag', 'ctx-a')).toBeNull();
+    expect(cache.get('flag', 'ctx-b')).toBeNull();
+    expect(cache.get('other', 'ctx-a')).toBe(true);
+  });
+
+  it('a TTL of 0 never caches', () => {
+    const cache = new FlagCache(0);
+    cache.set('flag', true);
+    expect(cache.get('flag')).toBeNull();
+  });
+
+  it('contextCacheKey ignores key order and undefined values', () => {
+    expect(contextCacheKey({ user_id: 'u', attributes: { b: 2, a: 1 }, language: undefined })).toBe(
+      contextCacheKey({ attributes: { a: 1, b: 2 }, user_id: 'u' })
+    );
+    expect(contextCacheKey({ user_id: 'a' })).not.toBe(contextCacheKey({ user_id: 'b' }));
   });
 });

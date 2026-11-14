@@ -1,4 +1,4 @@
-import { FlagCache } from './cache';
+import { FlagCache, contextCacheKey } from './cache';
 import { TelemetryService } from './telemetry';
 import { RealtimeService } from './realtime';
 import {
@@ -31,7 +31,7 @@ export class FlagClient {
       baseUrl: (config.baseUrl || 'https://api.savvagent.com/flags').replace(/\/+$/, ''),
       environment: config.environment || 'production',
       enableRealtime: config.enableRealtime ?? true,
-      cacheTtl: config.cacheTtl || 60000,
+      cacheTtl: config.cacheTtl ?? 60000,
       enableTelemetry: config.enableTelemetry ?? true,
       defaults: config.defaults || {},
       onError: config.onError || ((error) => console.error('[Savvagent]', error)),
@@ -73,6 +73,18 @@ export class FlagClient {
   }
 
   /**
+   * Context sent to the API: the caller's context plus the configured
+   * application and environment.
+   */
+  private buildEvalContext(context?: FlagContext): FlagContext {
+    return {
+      ...context,
+      application_id: context?.application_id || this.config.applicationId,
+      environment: context?.environment || this.config.environment,
+    };
+  }
+
+  /**
    * Evaluate a feature flag
    */
   async evaluate(flagKey: string, context?: FlagContext): Promise<FlagEvaluationResult> {
@@ -82,8 +94,14 @@ export class FlagClient {
       // Check for variation override first
       const variationOverride = this.variationOverrides.get(flagKey);
 
+      // Prepare context - inject environment from config if not provided
+      const evalContext = this.buildEvalContext(context);
+      // Cache entries are per flag AND per evaluation context, so one user's
+      // result is never served to another.
+      const contextKey = contextCacheKey(evalContext);
+
       // Check cache
-      const cachedEntry = this.cache.getEntry(flagKey);
+      const cachedEntry = this.cache.getEntry(flagKey, contextKey);
       if (cachedEntry !== null) {
         let configuration = cachedEntry.configuration;
         let variation = cachedEntry.variation;
@@ -123,13 +141,6 @@ export class FlagClient {
         return result;
       }
 
-      // Prepare context - inject environment from config if not provided
-      const evalContext: FlagContext = {
-        ...context,
-        application_id: context?.application_id || this.config.applicationId,
-        environment: context?.environment || this.config.environment,
-      };
-
       // Call API
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), this.config.timeout);
@@ -162,7 +173,7 @@ export class FlagClient {
       const value = data.enabled ?? this.config.defaults[flagKey] ?? false;
 
       // Cache the result (including configuration and variation)
-      this.cache.set(flagKey, value, data.flagId, data.configuration, data.variation);
+      this.cache.set(flagKey, value, data.flagId, data.configuration, data.variation, contextKey);
 
       // Apply overrides to evaluated result
       let finalConfiguration = data.configuration;
@@ -286,7 +297,8 @@ export class FlagClient {
    * Track an error that occurred in flagged code
    */
   trackError(flagKey: string, error: Error, context?: FlagContext): void {
-    const flagEnabled = this.cache.get(flagKey) ?? false;
+    const flagEnabled =
+      this.cache.get(flagKey, contextCacheKey(this.buildEvalContext(context))) ?? false;
 
     this.telemetry.trackError({
       flagKey,
@@ -536,11 +548,9 @@ export class FlagClient {
 
       const data = (await response.json()) as FlagListResponse;
 
-      // Cache all flags
-      data.flags.forEach((flag) => {
-        this.cache.set(flag.key, flag.enabled, flag.key, flag.configuration);
-      });
-
+      // Not cached: `enabled` is the environment-level state, not a result
+      // evaluated for any particular context, so serving it from the
+      // evaluation cache would bypass targeting.
       return data.flags;
     } catch (error) {
       this.config.onError(error as Error);
