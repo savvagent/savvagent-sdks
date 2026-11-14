@@ -100,11 +100,6 @@ coverage/
 .tmp/
 *.tmp
 
-# Changesets
-.changeset/*.md
-!.changeset/README.md
-!.changeset/config.json
-
 # ===========================================
 # Framework-specific (Examples & SDKs)
 # ===========================================
