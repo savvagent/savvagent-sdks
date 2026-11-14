@@ -14,6 +14,8 @@ module.exports = {
     '^.+\\.tsx?$': ['ts-jest', {
       tsconfig: {
         jsx: 'react',
+        // TypeScript 6 no longer loads every @types package by default.
+        types: ['jest'],
       },
     }],
   },
