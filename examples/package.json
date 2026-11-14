@@ -14,7 +14,6 @@
     "test:e2e:svelte-app": "PLAYWRIGHT_PROJECT=svelte-app playwright test --project=svelte-app",
     "test:e2e:sveltekit-app": "PLAYWRIGHT_PROJECT=sveltekit-app playwright test --project=sveltekit-app",
     "test:e2e:astro-app": "PLAYWRIGHT_PROJECT=astro-app playwright test --project=astro-app",
-    "test:e2e:remix-app": "PLAYWRIGHT_PROJECT=remix-app playwright test --project=remix-app",
     "test:e2e:solid-app": "PLAYWRIGHT_PROJECT=solid-app playwright test --project=solid-app"
   },
   "devDependencies": {
