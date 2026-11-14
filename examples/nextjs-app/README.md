@@ -4,7 +4,7 @@ Example Next.js application demonstrating how to use the Savvagent SDK with Reac
 
 ## Features
 
-- Next.js 14 with App Router
+- Next.js 16 with App Router
 - TypeScript
 - Client-side feature flag evaluation
 - Real-time updates (optional)

@@ -4,7 +4,7 @@ Example React application demonstrating how to use the Savvagent React SDK with 
 
 ## Features
 
-- React 18 with Vite
+- React 19 with Vite
 - TypeScript
 - Savvagent React hooks (`useFeatureFlag`, `useSavvagent`)
 - Real-time feature flag updates
