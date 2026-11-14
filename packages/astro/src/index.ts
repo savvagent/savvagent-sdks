@@ -184,6 +184,9 @@ export function throttleErrors(
         lastReported.delete(lastReported.keys().next().value as string);
       }
     }
+    // Delete first so a re-reported message moves to the end: the cap then
+    // evicts the least recently reported message.
+    lastReported.delete(key);
     lastReported.set(key, now);
     onError(error);
   };

@@ -188,4 +188,29 @@ describe('throttleErrors', () => {
     report(new Error('m100'));
     expect(sink).toHaveBeenCalledTimes(102);
   });
+
+  it('evicts the least recently reported message, not the first one ever seen', () => {
+    vi.useFakeTimers();
+    try {
+      const onError = vi.fn();
+      const report = throttleErrors(onError, 60_000);
+      report(new Error('m0')); // t = 0
+      vi.advanceTimersByTime(59_000);
+      for (let i = 1; i < 99; i++) report(new Error(`m${i}`)); // t = 59 s, 99 tracked
+      vi.advanceTimersByTime(2_000); // t = 61 s: only m0 is outside the window
+      report(new Error('m0')); // reported again, and now the most recent entry
+      report(new Error('fill')); // 100 tracked
+      expect(onError).toHaveBeenCalledTimes(101);
+      // The map is full and nothing is stale, so a new message evicts the
+      // least recently reported entry: m1, not m0.
+      report(new Error('new'));
+      expect(onError).toHaveBeenCalledTimes(102);
+      report(new Error('m0'));
+      expect(onError).toHaveBeenCalledTimes(102);
+      report(new Error('m1'));
+      expect(onError).toHaveBeenCalledTimes(103);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
