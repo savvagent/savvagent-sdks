@@ -269,3 +269,40 @@ describe('contextCacheKey edge values', () => {
     expect(contextCacheKey(withProto)).not.toBe(contextCacheKey({ attributes: {} }));
   });
 });
+
+describe('contextCacheKey toJSON and cycles', () => {
+  it('calls toJSON once, like JSON.stringify, so a toJSON returning this does not recurse', () => {
+    const selfJson = { a: 1, toJSON() { return this; } };
+    expect(() => contextCacheKey({ attributes: { x: selfJson } })).not.toThrow();
+    expect(contextCacheKey({ attributes: { x: selfJson } })).toBe(contextCacheKey({ attributes: { x: { a: 1 } } }));
+  });
+
+  it('throws a TypeError for a cyclic context, as JSON.stringify would', () => {
+    const cyclic: Record<string, unknown> = { a: 1 };
+    cyclic.self = cyclic;
+    expect(() => contextCacheKey({ attributes: cyclic })).toThrow(TypeError);
+  });
+
+  it('accepts a shared, non-cyclic reference', () => {
+    const shared = { k: 'v' };
+    expect(() => contextCacheKey({ attributes: { one: shared, two: shared } })).not.toThrow();
+  });
+});
+
+describe('FlagCache cap handling', () => {
+  it('falls back to the default cap when maxEntries is NaN', () => {
+    const cache = new FlagCache(60000, Number.NaN);
+    for (let i = 0; i < 10050; i++) {
+      (cache as any).store('flag', `ctx-${i}`, { value: true, expiresAt: Date.now() + 60000 });
+    }
+    expect(cache.size).toBe(10000);
+  });
+
+  it('sweeps expired entries at most once per TTL when the cache is full', () => {
+    const cache = new FlagCache(60000, 10);
+    const sweep = jest.spyOn(cache as any, 'sweepExpired');
+    for (let i = 0; i < 200; i++) (cache as any).store('flag', `ctx-${i}`, { value: true, expiresAt: Date.now() + 60000 });
+    expect(cache.size).toBe(10);
+    expect(sweep.mock.calls.length).toBeLessThanOrEqual(1);
+  });
+});

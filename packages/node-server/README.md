@@ -55,7 +55,7 @@ const client = new FlagClient({
   baseUrl: 'https://api.savvagent.com/flags', // optional
   enableRealtime: true, // default: true
   cacheTtl: 60000, // default: 60 seconds; 0 disables caching
-  cacheMaxEntries: 10000, // default: 10000 cached (flag, context) results, LRU-evicted
+  cacheMaxEntries: 10000, // default: 10000 cached (flag, context) results, LRU-evicted; 0 disables caching
   enableTelemetry: true, // default: true
   timeout: 5000, // request timeout in ms, default: 5000
   defaults: {

@@ -195,7 +195,7 @@ const client = new FlagClient({
   environment: 'staging', // Use staging environment flags
   enableRealtime: true,
   cacheTtl: 30000, // 30 seconds
-  cacheMaxEntries: 10000, // per-(flag, context) results kept, LRU-evicted
+  cacheMaxEntries: 10000, // per-(flag, context) results kept, LRU-evicted; 0 disables caching
   enableTelemetry: true,
   defaults: {
     'new-ui': false, // Default to false if evaluation fails

@@ -298,8 +298,13 @@ export class FlagClient {
    * Track an error that occurred in flagged code
    */
   trackError(flagKey: string, error: Error, context?: FlagContext): void {
-    const flagEnabled =
-      this.cache.get(flagKey, contextCacheKey(this.buildEvalContext(context))) ?? false;
+    let flagEnabled = false;
+    try {
+      flagEnabled = this.cache.get(flagKey, contextCacheKey(this.buildEvalContext(context))) ?? false;
+    } catch {
+      // A context that cannot be keyed (e.g. cyclic) must not turn error
+      // tracking itself into a thrown error; report the flag as off.
+    }
 
     this.telemetry.trackError({
       flagKey,

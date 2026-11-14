@@ -8,27 +8,42 @@ import { CacheEntry, FlagEvaluationResult } from './types';
  * bodies never share one.
  */
 export function contextCacheKey(context: unknown): string {
-  return JSON.stringify(normalize(context)) ?? '';
+  return JSON.stringify(normalize(context, new WeakSet())) ?? '';
 }
 
-function normalize(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map((item) => (item === undefined ? null : normalize(item)));
-  }
-  if (value !== null && typeof value === 'object') {
+/**
+ * Mirrors JSON.stringify: `toJSON` is called at most once per value (its
+ * result is not asked for `toJSON` again, so a `toJSON` returning `this`
+ * cannot recurse), and a cyclic context throws a TypeError, as
+ * JSON.stringify would when building the request body.
+ */
+function normalize(value: unknown, seen: WeakSet<object>, applyToJSON = true): unknown {
+  if (value === null || typeof value !== 'object') return value;
+  if (applyToJSON) {
     const toJSON = (value as { toJSON?: unknown }).toJSON;
     if (typeof toJSON === 'function') {
-      return normalize(toJSON.call(value));
+      return normalize(toJSON.call(value), seen, false);
     }
+  }
+  if (seen.has(value)) {
+    throw new TypeError('Cannot build a cache key for a cyclic evaluation context');
+  }
+  seen.add(value);
+  let out: unknown;
+  if (Array.isArray(value)) {
+    out = value.map((item) => (item === undefined ? null : normalize(item, seen)));
+  } else {
     // A null-prototype object keeps an own "__proto__" key as plain data.
-    const out: Record<string, unknown> = Object.create(null);
+    const obj: Record<string, unknown> = Object.create(null);
     for (const key of Object.keys(value as Record<string, unknown>).sort()) {
       const item = (value as Record<string, unknown>)[key];
-      if (item !== undefined) out[key] = normalize(item);
+      if (item !== undefined) obj[key] = normalize(item, seen);
     }
-    return out;
+    out = obj;
   }
-  return value;
+  // Only ancestors count as a cycle; a shared (non-cyclic) reference is fine.
+  seen.delete(value);
+  return out;
 }
 
 /** Default maximum number of cached (flag, context) entries. */
@@ -51,10 +66,18 @@ export class FlagCache {
   private byFlag: Map<string, Set<string>> = new Map();
   private ttl: number;
   private maxEntries: number;
+  private lastSweep = 0;
 
   constructor(ttl: number = 60000, maxEntries: number = DEFAULT_CACHE_MAX_ENTRIES) {
     this.ttl = ttl;
-    this.maxEntries = Math.max(0, Math.floor(maxEntries));
+    // Infinity means "no cap"; NaN (e.g. Number(undefinedEnvVar)) falls back
+    // to the default rather than silently disabling the cap.
+    this.maxEntries =
+      maxEntries === Infinity
+        ? Infinity
+        : Number.isFinite(maxEntries)
+          ? Math.max(0, Math.floor(maxEntries))
+          : DEFAULT_CACHE_MAX_ENTRIES;
   }
 
   /** Number of cached (flag, context) entries. */
@@ -115,7 +138,11 @@ export class FlagCache {
     }
     keys.add(entryKey);
 
-    if (this.entries.size > this.maxEntries) {
+    // Sweeping is O(size), so do it at most once per TTL: with a full cache
+    // and nothing expired, sweeping on every write would scan the whole map
+    // each time. All entries share one TTL, so evicting the least recently
+    // used entry below is close to evicting the next one to expire anyway.
+    if (this.entries.size > this.maxEntries && Date.now() - this.lastSweep >= this.ttl) {
       this.sweepExpired();
     }
     // Evict least recently used entries until within the cap.
@@ -127,6 +154,7 @@ export class FlagCache {
 
   private sweepExpired(): void {
     const now = Date.now();
+    this.lastSweep = now;
     for (const [entryKey, entry] of this.entries) {
       if (now > entry.expiresAt) {
         this.remove(entryKey.slice(0, entryKey.lastIndexOf('\0')), entryKey);
