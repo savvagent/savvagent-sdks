@@ -15,6 +15,10 @@ export const USER_ID_COOKIE = 'user_id';
 export const SESSION_ID_COOKIE = 'session_id';
 
 const ANONYMOUS_ID_MAX_AGE = 60 * 60 * 24 * 365;
+/** Default bound on one server-side evaluation, in milliseconds. */
+export const DEFAULT_EVALUATION_TIMEOUT_MS = 1000;
+/** Window in which the same error message is reported to `onError` only once. */
+export const ERROR_REPORT_INTERVAL_MS = 60_000;
 
 /**
  * Flag results evaluated on the server, keyed by flag key. Return this from a
@@ -54,6 +58,12 @@ export interface SavvagentServerOptions {
    * server and the browser SDK bucket a visitor the same way (default: true).
    */
   setAnonymousIdCookie?: boolean;
+  /**
+   * Upper bound on one flag evaluation, in milliseconds (default: 1000). When
+   * the Flags API is slow or down, the evaluation resolves with the flag's
+   * default (`reason: 'error'`) instead of holding up the page.
+   */
+  evaluationTimeoutMs?: number;
 }
 
 /** Options for {@link SavvagentServer.forRequest}. */
@@ -135,13 +145,40 @@ export function getSavvagent(context: Readonly<RouterContextProvider>): Savvagen
 
 /**
  * Apply server-side defaults to a client config: no realtime (SSE)
- * connection, and no language detection from the server's own locale.
+ * connection, no language detection from the server's own locale, and a
+ * single attempt per evaluation (no retries while a page waits).
  */
 export function toServerConfig(config: FlagClientConfig): FlagClientConfig {
   return {
     ...config,
     enableRealtime: config.enableRealtime ?? false,
     disableLanguageDetection: config.disableLanguageDetection ?? true,
+    retryAttempts: config.retryAttempts ?? 1,
+  };
+}
+
+/**
+ * Wrap an error handler so the same error message is reported at most once
+ * per `intervalMs`. When the Flags API is down, every request fails the same
+ * way; this keeps the logs readable.
+ */
+export function throttleErrors(
+  onError: (error: Error) => void,
+  intervalMs: number = ERROR_REPORT_INTERVAL_MS
+): (error: Error) => void {
+  const lastReported = new Map<string, number>();
+  return (error: Error) => {
+    const now = Date.now();
+    const key = error?.message ?? String(error);
+    const last = lastReported.get(key);
+    if (last !== undefined && now - last < intervalMs) return;
+    if (lastReported.size >= 100) {
+      for (const [message, time] of lastReported) {
+        if (now - time >= intervalMs) lastReported.delete(message);
+      }
+    }
+    lastReported.set(key, now);
+    onError(error);
   };
 }
 
@@ -209,11 +246,13 @@ export function createSavvagentServer(
 ): SavvagentServer {
   let client: FlagClient | null = null;
   let failed = false;
+  const timeoutMs = options.evaluationTimeoutMs ?? DEFAULT_EVALUATION_TIMEOUT_MS;
+  const reportError = throttleErrors(config.onError ?? ((error) => console.error('[Savvagent]', error)));
 
   const getClient = (): FlagClient | null => {
     if (!client && !failed) {
       try {
-        client = new FlagClient(toServerConfig(config));
+        client = new FlagClient(toServerConfig({ ...config, onError: reportError }));
       } catch (error) {
         // Report once instead of failing every request.
         failed = true;
@@ -238,10 +277,32 @@ export function createSavvagentServer(
     const merge = (context?: FlagContext) => mergeContext(requestContext, context);
     const defaultFor = (flagKey: string) => config.defaults?.[flagKey] ?? false;
 
+    const fallback = (flagKey: string): FlagEvaluationResult => ({
+      key: flagKey,
+      value: defaultFor(flagKey),
+      reason: 'error',
+    });
+
     const evaluate = async (flagKey: string, context?: FlagContext): Promise<FlagEvaluationResult> => {
       const flagClient = getClient();
-      if (!flagClient) return { key: flagKey, value: defaultFor(flagKey), reason: 'error' };
-      return flagClient.evaluate(flagKey, merge(context));
+      if (!flagClient) return fallback(flagKey);
+      // Bound the evaluation so a slow or unreachable API cannot hold up the page.
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timedOut = new Promise<FlagEvaluationResult>((resolve) => {
+        timer = setTimeout(() => {
+          reportError(new Error(`Flag evaluation (${flagKey}) timed out after ${timeoutMs}ms`));
+          resolve(fallback(flagKey));
+        }, timeoutMs);
+      });
+      try {
+        return await Promise.race([flagClient.evaluate(flagKey, merge(context)), timedOut]);
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+
+    const trackError = (flagKey: string, error: Error, context?: FlagContext) => {
+      getClient()?.trackError(flagKey, error, merge(context));
     };
 
     return {
@@ -254,13 +315,16 @@ export function createSavvagentServer(
         return Object.fromEntries(results.map((result, i) => [flagKeys[i], result]));
       },
       withFlag: async (flagKey, callback, context) => {
-        const flagClient = getClient();
-        if (!flagClient) return defaultFor(flagKey) ? callback() : null;
-        return flagClient.withFlag(flagKey, callback, merge(context));
+        // Uses the bounded evaluation; errors are tracked against the flag, then re-thrown.
+        if (!(await evaluate(flagKey, context)).value) return null;
+        try {
+          return await callback();
+        } catch (error) {
+          trackError(flagKey, error as Error, context);
+          throw error;
+        }
       },
-      trackError: (flagKey, error, context) => {
-        getClient()?.trackError(flagKey, error, merge(context));
-      },
+      trackError,
     };
   };
 

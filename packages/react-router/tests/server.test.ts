@@ -1,14 +1,23 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { createStaticHandler, RouterContextProvider } from 'react-router';
-import type { StaticHandlerContext } from 'react-router';
+import type { MiddlewareFunction, RouteObject, StaticHandlerContext } from 'react-router';
 import {
   createSavvagentServer,
   getSavvagent,
   parseCookies,
+  throttleErrors,
   toServerConfig,
   savvagentContext,
 } from '../src';
+import type { FlagClientConfig, SavvagentFlags } from '../src';
 import { config, mockFlagsApi, request } from './helpers';
+
+/**
+ * The SDK's middleware is typed for framework mode (`MiddlewareFunction<Response>`,
+ * as route modules export it); data-mode route objects expect
+ * `MiddlewareFunction<unknown>`. Same function, so cast for these tests.
+ */
+const dataMode = (middleware: MiddlewareFunction<Response>) => middleware as unknown as MiddlewareFunction;
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -30,8 +39,14 @@ describe('parseCookies', () => {
 });
 
 describe('toServerConfig', () => {
-  it('turns off realtime and language detection unless set', () => {
-    expect(toServerConfig(config)).toMatchObject({ enableRealtime: false, disableLanguageDetection: true });
+  it('turns off realtime, language detection and retries unless set', () => {
+    const { retryAttempts: _ignored, ...withoutRetries } = config;
+    expect(toServerConfig(withoutRetries)).toMatchObject({
+      enableRealtime: false,
+      disableLanguageDetection: true,
+      retryAttempts: 1,
+    });
+    expect(toServerConfig({ ...config, retryAttempts: 3 }).retryAttempts).toBe(3);
     expect(toServerConfig({ ...config, enableRealtime: true, disableLanguageDetection: false })).toMatchObject({
       enableRealtime: true,
       disableLanguageDetection: false,
@@ -244,11 +259,11 @@ describe('per-request context isolation', () => {
 });
 
 describe('middleware', () => {
-  const routes = (savvagent: ReturnType<typeof createSavvagentServer>) => [
+  const routes = (savvagent: ReturnType<typeof createSavvagentServer>): RouteObject[] => [
     {
       id: 'root',
       path: '/',
-      middleware: [savvagent.middleware],
+      middleware: [dataMode(savvagent.middleware)],
       loader: async ({ context }: { context: Readonly<RouterContextProvider> }) => {
         const scope = getSavvagent(context);
         return Response.json({
@@ -302,12 +317,12 @@ describe('middleware', () => {
       {
         id: 'root',
         path: '/',
-        middleware: [savvagent.middleware],
+        middleware: [dataMode(savvagent.middleware)],
         children: [
           {
             id: 'child',
             index: true,
-            middleware: [savvagent.middleware],
+            middleware: [dataMode(savvagent.middleware)],
             loader: ({ context }: { context: Readonly<RouterContextProvider> }) =>
               Response.json({ anonymousId: getSavvagent(context).context.anonymous_id }),
           },
@@ -357,5 +372,124 @@ describe('invalid configuration', () => {
     expect(savvagent.client).toBeNull();
     expect(error).toHaveBeenCalledTimes(1);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('throttleErrors', () => {
+  it('reports the same message at most once per interval', () => {
+    vi.useFakeTimers();
+    try {
+      const onError = vi.fn();
+      const report = throttleErrors(onError, 60_000);
+      report(new Error('down'));
+      report(new Error('down'));
+      report(new Error('other'));
+      expect(onError).toHaveBeenCalledTimes(2);
+      vi.advanceTimersByTime(60_000);
+      report(new Error('down'));
+      expect(onError).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('Flags API failures in a loader', () => {
+  // The SDK defaults for retries, so the server defaults apply.
+  const { retryAttempts: _r, retryDelay: _d, ...serverConfig } = config;
+  const failingConfig = (onError: (error: Error) => void): FlagClientConfig => ({
+    ...serverConfig,
+    defaults: { 'new-feature': true, 'beta-feature': false },
+    onError,
+  });
+
+  const routes = (savvagent: ReturnType<typeof createSavvagentServer>) => [
+    {
+      id: 'root',
+      path: '/',
+      loader: async ({ request: req }: { request: Request }) => {
+        const scope = await savvagent.forRequest(req, { userId: 'user-1' });
+        return { flags: await scope.evaluateFlags(['new-feature']) };
+      },
+    },
+  ];
+
+  const load = async (handler: ReturnType<typeof createStaticHandler>) => {
+    const context = (await handler.query(
+      request('http://localhost/', { cookie: 'savvagent_anonymous_id=anon-1' })
+    )) as StaticHandlerContext;
+    expect(context.errors).toBeNull();
+    return (context.loaderData.root as { flags: SavvagentFlags }).flags;
+  };
+
+  it('returns config defaults when the API answers 503, without retries', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetchMock = vi.fn(async () => new Response('unavailable', { status: 503 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const onError = vi.fn();
+    const savvagent = createSavvagentServer(failingConfig(onError));
+    const handler = createStaticHandler(routes(savvagent));
+
+    for (let i = 0; i < 3; i++) {
+      const started = Date.now();
+      const flags = await load(handler);
+      expect(Date.now() - started).toBeLessThan(500);
+      expect(flags['new-feature']).toEqual({ key: 'new-feature', value: true, reason: 'error' });
+    }
+
+    expect(fetchMock).toHaveBeenCalledTimes(3); // one attempt per request
+    expect(onError).toHaveBeenCalledTimes(1); // same message, reported once
+    expect(warn).not.toHaveBeenCalled(); // no retry log lines
+  });
+
+  it('returns config defaults when fetch rejects', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => Promise.reject(new TypeError('fetch failed'))));
+    const onError = vi.fn();
+    const savvagent = createSavvagentServer(failingConfig(onError));
+    const handler = createStaticHandler(routes(savvagent));
+
+    for (let i = 0; i < 3; i++) {
+      expect((await load(handler))['new-feature']).toMatchObject({ value: true, reason: 'error' });
+    }
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives up after the evaluation timeout (default 1000 ms) when the API hangs', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => {})));
+    const onError = vi.fn();
+    const savvagent = createSavvagentServer(failingConfig(onError));
+    const handler = createStaticHandler(routes(savvagent));
+
+    const started = Date.now();
+    const flags = await load(handler);
+    const elapsed = Date.now() - started;
+    expect(elapsed).toBeGreaterThanOrEqual(950);
+    expect(elapsed).toBeLessThan(1500);
+    expect(flags['new-feature']).toEqual({ key: 'new-feature', value: true, reason: 'error' });
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError.mock.calls[0][0].message).toMatch(/timed out after 1000ms/);
+  });
+
+  it('honours evaluationTimeoutMs and reports a hanging API once across requests', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => {})));
+    const onError = vi.fn();
+    const savvagent = createSavvagentServer(failingConfig(onError), { evaluationTimeoutMs: 50 });
+    const handler = createStaticHandler(routes(savvagent));
+
+    for (let i = 0; i < 3; i++) {
+      const started = Date.now();
+      expect((await load(handler))['new-feature']).toMatchObject({ value: true, reason: 'error' });
+      expect(Date.now() - started).toBeLessThan(300);
+    }
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears the timer when the evaluation finishes first', async () => {
+    mockFlagsApi(() => true);
+    const clearSpy = vi.spyOn(globalThis, 'clearTimeout');
+    const savvagent = createSavvagentServer(config, { evaluationTimeoutMs: 5000 });
+    const scope = await savvagent.forRequest(request());
+    expect(await scope.isEnabled('a')).toBe(true);
+    expect(clearSpy).toHaveBeenCalled();
   });
 });

@@ -9,9 +9,14 @@
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.mjs",
-      "require": "./dist/index.js"
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
     }
   },
   "files": [
@@ -23,11 +28,15 @@
     "dev": "tsup src/index.ts --format cjs,esm --dts --external react --external react-router --watch",
     "test": "vitest run",
     "lint": "eslint src --ext .ts,.tsx",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
     "format": "prettier --write \"src/**/*.{ts,tsx}\""
   },
   "peerDependencies": {
     "react": ">=19.2.7 <20",
     "react-router": ">=8.5.1 <9"
+  },
+  "engines": {
+    "node": ">=22.22"
   },
   "dependencies": {
     "@savvagent/react": "workspace:*",

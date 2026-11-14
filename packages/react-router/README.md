@@ -119,6 +119,7 @@ export function Checkout() {
 1. Until the browser client has evaluated a flag, they return the server's result with `loading: false`. The server render and the hydration render therefore match, and both show real values.
 2. When the browser client exists, a local override (`client.setOverride`, `initialOverrides`) takes effect at once, as it does in `client.evaluate`.
 3. After the browser client's first evaluation, they return the live `@savvagent/react` result, which includes realtime updates and override changes.
+4. If the browser's evaluation of a flag fails (`reason: 'error'`, for example when an ad blocker, CSP or CORS blocks the request), the hooks keep the server's value for that flag instead of switching to the default. Local overrides still win.
 
 `useFlags` uses hydrated values only when every requested key was hydrated. Results the server failed to evaluate (`reason: 'error'`) are not hydrated. In both cases the hooks behave like plain `@savvagent/react` hooks and start in `loading: true`. To read the raw server results, for example to show "server value" next to an override, use `useHydratedFlags()`.
 
@@ -202,7 +203,21 @@ Never mutate the shared client per request (`setUserId`, `setOverride`, `setEnvi
 
 ### `createSavvagentServer(config, options?)`
 
-`config` is a [`FlagClientConfig`](../typescript/README.md). On the server, `enableRealtime` defaults to `false` and `disableLanguageDetection` to `true`. Returns a `SavvagentServer`:
+`config` is a [`FlagClientConfig`](../typescript/README.md). Returns a `SavvagentServer`.
+
+The server applies these defaults, so a slow or unreachable Flags API cannot stall page loads or flood the logs:
+
+| Setting | Server default | Why |
+|---|---|---|
+| `config.retryAttempts` | `1` (the browser SDK default is 3, with backoff) | A page waits on these evaluations, so there are no retries. |
+| `evaluationTimeoutMs` (option) | `1000` | Each evaluation resolves with the flag's default (`reason: 'error'`) after this many milliseconds. |
+| `config.onError` | Called at most once per 60 seconds for the same error message | When the API is down, every request fails the same way. Without `onError`, errors go to `console.error`. |
+| `config.enableRealtime` | `false` | No SSE connection from the server. |
+| `config.disableLanguageDetection` | `true` | `language` comes from `Accept-Language`, not the server's locale. |
+
+When evaluation fails or times out, loaders still resolve: `evaluate` and `evaluateFlags` return `config.defaults` (or `false`) with `reason: 'error'`, and these results are not hydrated.
+
+`SavvagentServer` members:
 
 | Member | Description |
 |---|---|
@@ -212,7 +227,7 @@ Never mutate the shared client per request (`setUserId`, `setOverride`, `setEnvi
 | `client` | The shared `FlagClient`, created on first use. `null` if it could not be created (for example a missing API key); evaluations then return `config.defaults`. |
 | `close()` | Closes the shared client. |
 
-Options: `defaultContext`, `getUserId`, `trustUserIdCookie` (default `false`), `setAnonymousIdCookie` (default `true`).
+Options: `defaultContext`, `getUserId`, `trustUserIdCookie` (default `false`), `setAnonymousIdCookie` (default `true`), `evaluationTimeoutMs` (default `1000`).
 
 ### `SavvagentRequest`
 
@@ -221,7 +236,7 @@ Options: `defaultContext`, `getUserId`, `trustUserIdCookie` (default `false`), `
 | `isEnabled(flagKey, context?)` | `Promise<boolean>` |
 | `evaluate(flagKey, context?)` | `Promise<FlagEvaluationResult>` |
 | `evaluateFlags(flagKeys, context?)` | `Promise<SavvagentFlags>` (results keyed by flag key), for `<SavvagentProvider flags>` |
-| `withFlag(flagKey, callback, context?)` | Runs `callback` if the flag is on. Errors are tracked, then re-thrown. Returns `null` when the flag is off. |
+| `withFlag(flagKey, callback, context?)` | Runs `callback` if the flag is on (using the same bounded evaluation). Errors are tracked, then re-thrown. Returns `null` when the flag is off. |
 | `trackError(flagKey, error, context?)` | Reports an error against a flag. |
 | `context` | The request's evaluation context. |
 | `headers` | `Set-Cookie` headers for the response, if any. |
