@@ -1,4 +1,4 @@
-import { FlagCache, contextCacheKey } from './cache';
+import { FlagCache, contextCacheKey, DEFAULT_CACHE_MAX_ENTRIES } from './cache';
 import { TelemetryService } from './telemetry';
 import { RealtimeService } from './realtime';
 import {
@@ -32,6 +32,7 @@ export class FlagClient {
       environment: config.environment || 'production',
       enableRealtime: config.enableRealtime ?? true,
       cacheTtl: config.cacheTtl ?? 60000,
+      cacheMaxEntries: config.cacheMaxEntries ?? DEFAULT_CACHE_MAX_ENTRIES,
       enableTelemetry: config.enableTelemetry ?? true,
       defaults: config.defaults || {},
       onError: config.onError || ((error) => console.error('[Savvagent]', error)),
@@ -45,7 +46,7 @@ export class FlagClient {
     }
 
     // Initialize services
-    this.cache = new FlagCache(this.config.cacheTtl);
+    this.cache = new FlagCache(this.config.cacheTtl, this.config.cacheMaxEntries);
     this.telemetry = new TelemetryService(
       this.config.baseUrl,
       this.config.apiKey,

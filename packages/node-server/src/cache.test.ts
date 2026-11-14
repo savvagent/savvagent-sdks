@@ -183,3 +183,89 @@ describe('FlagCache per-context entries', () => {
     expect(contextCacheKey({ user_id: 'a' })).not.toBe(contextCacheKey({ user_id: 'b' }));
   });
 });
+
+describe('FlagCache size cap (LRU)', () => {
+  it('keeps at most maxEntries entries across many distinct contexts', () => {
+    const cache = new FlagCache(60000, 100);
+    for (let i = 0; i < 5000; i++) {
+      cache.set('flag', i % 2 === 0, undefined, undefined, undefined, `ctx-${i}`);
+      expect(cache.size).toBeLessThanOrEqual(100);
+    }
+    expect(cache.size).toBe(100);
+    // The most recent entries survive, the oldest were evicted.
+    expect(cache.get('flag', 'ctx-4999')).toBe(false);
+    expect(cache.get('flag', 'ctx-0')).toBeNull();
+  });
+
+  it('evicts the least recently used entry; a hit refreshes recency', () => {
+    const cache = new FlagCache(60000, 3);
+    cache.set('f', true, undefined, undefined, undefined, 'a');
+    cache.set('f', true, undefined, undefined, undefined, 'b');
+    cache.set('f', true, undefined, undefined, undefined, 'c');
+    expect(cache.get('f', 'a')).toBe(true); // a is now most recent
+    cache.set('f', true, undefined, undefined, undefined, 'd'); // evicts b
+    expect(cache.get('f', 'b')).toBeNull();
+    expect(cache.get('f', 'a')).toBe(true);
+    expect(cache.get('f', 'c')).toBe(true);
+    expect(cache.get('f', 'd')).toBe(true);
+  });
+
+  it('sweeps expired entries before evicting live ones', () => {
+    const now = jest.spyOn(Date, 'now');
+    now.mockReturnValue(1000);
+    const cache = new FlagCache(100, 2);
+    cache.set('f', true, undefined, undefined, undefined, 'old');
+    now.mockReturnValue(1050);
+    cache.set('f', true, undefined, undefined, undefined, 'live');
+    now.mockReturnValue(1150); // 'old' expired, 'live' still valid
+    cache.set('f', true, undefined, undefined, undefined, 'new');
+    expect(cache.get('f', 'live')).toBe(true);
+    expect(cache.get('f', 'new')).toBe(true);
+    expect(cache.size).toBe(2);
+    now.mockRestore();
+  });
+
+  it('invalidate clears exactly one flag, with no prefix collisions', () => {
+    const cache = new FlagCache(60000, 100);
+    cache.set('flag', true, undefined, undefined, undefined, 'x');
+    cache.set('flag', true, undefined, undefined, undefined, 'y');
+    cache.set('flag-2', true, undefined, undefined, undefined, 'x');
+    cache.set('fla', true, undefined, undefined, undefined, 'gx');
+    cache.set('flag\0x', true, undefined, undefined, undefined, 'y');
+    cache.invalidate('flag');
+    expect(cache.get('flag', 'x')).toBeNull();
+    expect(cache.get('flag', 'y')).toBeNull();
+    expect(cache.get('flag-2', 'x')).toBe(true);
+    expect(cache.get('fla', 'gx')).toBe(true);
+    expect(cache.get('flag\0x', 'y')).toBe(true);
+    expect(cache.size).toBe(3);
+  });
+
+  it('evicting the last entry of a flag forgets the flag', () => {
+    const cache = new FlagCache(60000, 1);
+    cache.set('a', true, undefined, undefined, undefined, '1');
+    cache.set('b', true, undefined, undefined, undefined, '1');
+    expect(cache.get('a', '1')).toBeNull();
+    cache.invalidate('b');
+    expect(cache.size).toBe(0);
+  });
+});
+
+describe('contextCacheKey edge values', () => {
+  it('distinguishes Date values the way the request body does', () => {
+    const a = { attributes: { since: new Date('2024-01-01T00:00:00Z') } };
+    const b = { attributes: { since: new Date('2025-06-01T00:00:00Z') } };
+    expect(contextCacheKey(a)).not.toBe(contextCacheKey(b));
+    expect(contextCacheKey(a)).toBe(
+      contextCacheKey({ attributes: { since: '2024-01-01T00:00:00.000Z' } })
+    );
+  });
+
+  it('keeps an own "__proto__" attribute as data', () => {
+    const withProto = JSON.parse('{"attributes":{"__proto__":{"plan":"pro"}}}');
+    const other = JSON.parse('{"attributes":{"__proto__":{"plan":"free"}}}');
+    expect(contextCacheKey(withProto)).toContain('__proto__');
+    expect(contextCacheKey(withProto)).not.toBe(contextCacheKey(other));
+    expect(contextCacheKey(withProto)).not.toBe(contextCacheKey({ attributes: {} }));
+  });
+});

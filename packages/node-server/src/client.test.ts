@@ -515,6 +515,20 @@ describe('FlagClient evaluation cache (cross-user isolation, #22)', () => {
     client.close();
   });
 
+  it('cacheMaxEntries caps the cache across many distinct contexts', async () => {
+    const client = new FlagClient({
+      apiKey: 'sdk_test_key',
+      enableRealtime: false,
+      enableTelemetry: false,
+      cacheMaxEntries: 5,
+    });
+    for (let i = 0; i < 50; i++) {
+      await client.evaluate('flag', { user_id: `user-${i}` });
+    }
+    expect((client as any).cache.size).toBe(5);
+    client.close();
+  });
+
   it('cacheTtl: 0 never caches', async () => {
     const client = makeClient(0);
     await client.evaluate('flag', { user_id: 'alice' });

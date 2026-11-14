@@ -165,8 +165,15 @@ interface FlagClientConfig {
   /** Enable real-time flag updates via SSE (default: true) */
   enableRealtime?: boolean;
 
-  /** Cache TTL in milliseconds (default: 60000 = 1 minute) */
+  /** Cache TTL in milliseconds (default: 60000 = 1 minute; 0 disables caching) */
   cacheTtl?: number;
+
+  /**
+   * Maximum number of cached evaluation results (default: 10000). Results are
+   * cached per flag and per evaluation context; the least recently used are
+   * evicted, so a server-side client seeing many users stays bounded.
+   */
+  cacheMaxEntries?: number;
 
   /** Enable telemetry tracking (default: true) */
   enableTelemetry?: boolean;
@@ -188,6 +195,7 @@ const client = new FlagClient({
   environment: 'staging', // Use staging environment flags
   enableRealtime: true,
   cacheTtl: 30000, // 30 seconds
+  cacheMaxEntries: 10000, // per-(flag, context) results kept, LRU-evicted
   enableTelemetry: true,
   defaults: {
     'new-ui': false, // Default to false if evaluation fails

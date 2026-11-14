@@ -161,6 +161,21 @@ describe('FlagClient evaluation cache (cross-user isolation, #22)', () => {
     client.close();
   });
 
+  test('cacheMaxEntries caps the cache across many distinct contexts', async () => {
+    const client = new FlagClient({
+      apiKey: 'sdk_test_key',
+      enableRealtime: false,
+      enableTelemetry: false,
+      retryAttempts: 1,
+      cacheMaxEntries: 5,
+    });
+    for (let i = 0; i < 50; i++) {
+      await client.evaluate('flag', { user_id: `user-${i}` });
+    }
+    expect((client as any).cache.size).toBe(5);
+    client.close();
+  });
+
   test('getAllFlags does not seed the evaluation cache', async () => {
     const client = makeClient();
     fetchMock.mockImplementationOnce(async () => ({

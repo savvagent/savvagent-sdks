@@ -1,4 +1,4 @@
-import { FlagCache, contextCacheKey } from './cache';
+import { FlagCache, contextCacheKey, DEFAULT_CACHE_MAX_ENTRIES } from './cache';
 import { TelemetryService } from './telemetry';
 import { RealtimeService } from './realtime';
 import {
@@ -38,6 +38,7 @@ export class FlagClient {
       environment: config.environment || 'production',
       enableRealtime: config.enableRealtime ?? true,
       cacheTtl: config.cacheTtl ?? 60000,
+      cacheMaxEntries: config.cacheMaxEntries ?? DEFAULT_CACHE_MAX_ENTRIES,
       enableTelemetry: config.enableTelemetry ?? true,
       defaults: config.defaults || {},
       onError: config.onError || ((error) => console.error('[Savvagent]', error)),
@@ -62,7 +63,7 @@ export class FlagClient {
     }
 
     // Initialize services
-    this.cache = new FlagCache(this.config.cacheTtl);
+    this.cache = new FlagCache(this.config.cacheTtl, this.config.cacheMaxEntries);
     this.telemetry = new TelemetryService(
       this.config.baseUrl,
       this.config.apiKey,
@@ -94,8 +95,31 @@ export class FlagClient {
   }
 
   /**
-   * Get or create an anonymous ID for consistent flag evaluation
-   * @returns Anonymous ID from localStorage or newly generated
+   * Read the anonymous ID cookie (set by server integrations), if any.
+   */
+  private static readAnonymousIdCookie(name: string): string | null {
+    if (typeof document === 'undefined' || typeof document.cookie !== 'string') {
+      return null;
+    }
+    for (const part of document.cookie.split(';')) {
+      const [rawKey, ...rest] = part.trim().split('=');
+      if (rawKey === name) {
+        const raw = rest.join('=');
+        try {
+          return decodeURIComponent(raw) || null;
+        } catch {
+          return raw || null;
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Get or create an anonymous ID for consistent flag evaluation.
+   * Uses the `savvagent_anonymous_id` cookie when present (and mirrors it to
+   * localStorage), otherwise the ID stored in localStorage, otherwise a new one.
+   * @returns Anonymous ID from the cookie, localStorage, or newly generated
    */
   private getOrCreateAnonymousId(): string {
     // Check if we're in a browser environment
@@ -105,6 +129,19 @@ export class FlagClient {
     }
 
     const storageKey = 'savvagent_anonymous_id';
+
+    // Prefer the cookie a server integration (such as @savvagent/astro) set,
+    // so server-rendered and client-side evaluations bucket a visitor the same.
+    const cookieId = FlagClient.readAnonymousIdCookie(storageKey);
+    if (cookieId) {
+      try {
+        localStorage.setItem(storageKey, cookieId);
+      } catch (e) {
+        console.warn('[Savvagent] Could not save anonymous ID to localStorage:', e);
+      }
+      return cookieId;
+    }
+
     let anonId = localStorage.getItem(storageKey);
 
     if (!anonId) {

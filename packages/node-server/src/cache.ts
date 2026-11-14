@@ -2,8 +2,10 @@ import { CacheEntry } from './types';
 
 /**
  * Deterministic cache key for an evaluation context: object keys are sorted
- * at every level and undefined values are dropped, so equal contexts always
- * produce the same key regardless of property order.
+ * at every level, undefined values are dropped and values with `toJSON`
+ * (such as Date) are serialized the way the request body serializes them,
+ * so equal contexts always produce the same key and different request
+ * bodies never share one.
  */
 export function contextCacheKey(context: unknown): string {
   return JSON.stringify(normalize(context)) ?? '';
@@ -14,7 +16,12 @@ function normalize(value: unknown): unknown {
     return value.map((item) => (item === undefined ? null : normalize(item)));
   }
   if (value !== null && typeof value === 'object') {
-    const out: Record<string, unknown> = {};
+    const toJSON = (value as { toJSON?: unknown }).toJSON;
+    if (typeof toJSON === 'function') {
+      return normalize(toJSON.call(value));
+    }
+    // A null-prototype object keeps an own "__proto__" key as plain data.
+    const out: Record<string, unknown> = Object.create(null);
     for (const key of Object.keys(value as Record<string, unknown>).sort()) {
       const item = (value as Record<string, unknown>)[key];
       if (item !== undefined) out[key] = normalize(item);
@@ -24,47 +31,107 @@ function normalize(value: unknown): unknown {
   return value;
 }
 
+/** Default maximum number of cached (flag, context) entries. */
+export const DEFAULT_CACHE_MAX_ENTRIES = 10000;
+
 /**
- * In-memory cache for flag values with TTL.
+ * In-memory cache for flag values with TTL and LRU eviction.
  *
  * Entries are keyed by flag key AND evaluation context (see
  * {@link contextCacheKey}), so a result evaluated for one user is never
- * served to another. Invalidating a flag key clears its entries for every
- * context. A TTL of 0 (or less) disables caching.
+ * served to another. At most `maxEntries` entries are kept (least recently
+ * used are evicted), so a server seeing many distinct contexts stays
+ * bounded. Invalidating a flag key clears its entries for every context.
+ * A TTL of 0 (or less) disables caching.
  */
 export class FlagCache {
-  private cache: Map<string, Map<string, CacheEntry>>;
+  /** Entries in least-recently-used order (Map iteration order). */
+  private entries: Map<string, CacheEntry> = new Map();
+  /** Entry keys per flag key, so a flag can be invalidated exactly. */
+  private byFlag: Map<string, Set<string>> = new Map();
   private ttl: number;
+  private maxEntries: number;
 
-  constructor(ttl: number = 60000) {
-    this.cache = new Map();
+  constructor(ttl: number = 60000, maxEntries: number = DEFAULT_CACHE_MAX_ENTRIES) {
     this.ttl = ttl;
+    this.maxEntries = Math.max(0, Math.floor(maxEntries));
+  }
+
+  /** Number of cached (flag, context) entries. */
+  get size(): number {
+    return this.entries.size;
+  }
+
+  private static entryKey(key: string, contextKey: string): string {
+    return `${key}\0${contextKey}`;
+  }
+
+  private remove(key: string, entryKey: string): void {
+    this.entries.delete(entryKey);
+    const keys = this.byFlag.get(key);
+    if (keys) {
+      keys.delete(entryKey);
+      if (keys.size === 0) this.byFlag.delete(key);
+    }
   }
 
   /**
-   * Get a cached flag value
+   * Get a cached entry for a flag and context key. A hit becomes the most
+   * recently used entry.
+   */
+  getEntry(key: string, contextKey: string = ''): CacheEntry | null {
+    const entryKey = FlagCache.entryKey(key, contextKey);
+    const entry = this.entries.get(entryKey);
+    if (!entry) return null;
+
+    if (Date.now() > entry.expiresAt) {
+      this.remove(key, entryKey);
+      return null;
+    }
+
+    // Refresh LRU position.
+    this.entries.delete(entryKey);
+    this.entries.set(entryKey, entry);
+    return entry;
+  }
+
+  /**
+   * Get a cached flag value for a flag and context key.
    */
   get(key: string, contextKey: string = ''): boolean | null {
     const entry = this.getEntry(key, contextKey);
     return entry ? entry.value : null;
   }
 
-  /**
-   * Get a complete cached entry (includes configuration and variation)
-   */
-  getEntry(key: string, contextKey: string = ''): CacheEntry | null {
-    const byContext = this.cache.get(key);
-    const entry = byContext?.get(contextKey);
-    if (!byContext || !entry) return null;
-
-    // Check if expired
-    if (Date.now() > entry.expiresAt) {
-      byContext.delete(contextKey);
-      if (byContext.size === 0) this.cache.delete(key);
-      return null;
+  private store(key: string, contextKey: string, entry: CacheEntry): void {
+    if (this.ttl <= 0 || this.maxEntries === 0) return;
+    const entryKey = FlagCache.entryKey(key, contextKey);
+    this.entries.delete(entryKey);
+    this.entries.set(entryKey, entry);
+    let keys = this.byFlag.get(key);
+    if (!keys) {
+      keys = new Set();
+      this.byFlag.set(key, keys);
     }
+    keys.add(entryKey);
 
-    return entry;
+    if (this.entries.size > this.maxEntries) {
+      this.sweepExpired();
+    }
+    // Evict least recently used entries until within the cap.
+    while (this.entries.size > this.maxEntries) {
+      const oldest = this.entries.keys().next().value as string;
+      this.remove(oldest.slice(0, oldest.lastIndexOf('\0')), oldest);
+    }
+  }
+
+  private sweepExpired(): void {
+    const now = Date.now();
+    for (const [entryKey, entry] of this.entries) {
+      if (now > entry.expiresAt) {
+        this.remove(entryKey.slice(0, entryKey.lastIndexOf('\0')), entryKey);
+      }
+    }
   }
 
   /**
@@ -78,13 +145,7 @@ export class FlagCache {
     variation?: string,
     contextKey: string = ''
   ): void {
-    if (this.ttl <= 0) return;
-    let byContext = this.cache.get(key);
-    if (!byContext) {
-      byContext = new Map();
-      this.cache.set(key, byContext);
-    }
-    byContext.set(contextKey, {
+    this.store(key, contextKey, {
       value,
       configuration,
       variation,
@@ -97,17 +158,21 @@ export class FlagCache {
    * Invalidate a specific flag (for every context) or all flags
    */
   invalidate(key?: string): void {
-    if (key) {
-      this.cache.delete(key);
-    } else {
-      this.cache.clear();
+    if (!key) {
+      this.clear();
+      return;
     }
+    const keys = this.byFlag.get(key);
+    if (!keys) return;
+    for (const entryKey of keys) this.entries.delete(entryKey);
+    this.byFlag.delete(key);
   }
 
   /**
    * Clear all cached values
    */
   clear(): void {
-    this.cache.clear();
+    this.entries.clear();
+    this.byFlag.clear();
   }
 }
