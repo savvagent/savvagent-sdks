@@ -23,9 +23,18 @@ Example Astro application demonstrating how to use the Savvagent Astro integrati
 
    Edit `.env`:
    ```bash
+   # Server-side evaluation (Astro.locals.savvagent)
    SAVVAGENT_API_URL=http://localhost:8080
    SAVVAGENT_SDK_KEY=your-sdk-key-here
+   # Browser client
+   PUBLIC_SAVVAGENT_API_URL=http://localhost:8080
+   PUBLIC_SAVVAGENT_SDK_KEY=your-public-sdk-key-here
    ```
+
+   `SAVVAGENT_SDK_KEY` and `SAVVAGENT_API_URL` are used by the server. The page
+   sends `PUBLIC_SAVVAGENT_SDK_KEY` (a public client `sdk_` key, visible to every
+   visitor) and `PUBLIC_SAVVAGENT_API_URL` to the browser client. The browser
+   never falls back to the server's key.
 
 3. **Run the development server:**
    ```bash
@@ -47,9 +56,17 @@ import savvagent from '@savvagent/astro';
 export default defineConfig({
   output: 'server',
   adapter: node({ mode: 'standalone' }),
-  // src/savvagent.config.mjs default-exports the client config; the
-  // middleware imports it at server runtime, so process.env is read then.
-  integrations: [savvagent({ configModule: './src/savvagent.config.mjs' })],
+  integrations: [
+    savvagent({
+      // src/savvagent.config.mjs default-exports the client config; the
+      // middleware imports it at server runtime, so process.env is read then.
+      configModule: './src/savvagent.config.mjs',
+      // Demo only: trust the `user_id` cookie set by the user switcher. Any
+      // visitor can set it; a real app exports `getUserId` from the config
+      // module instead (see the package README).
+      trustUserIdCookie: true,
+    }),
+  ],
 });
 ```
 

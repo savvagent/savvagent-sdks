@@ -1,11 +1,8 @@
 // Savvagent client config, read at server runtime: astro.config.mjs passes
 // this file to the integration as `configModule`, so the middleware imports
 // it when the server starts (process.env is read then, not at build time)
-// and function options such as onError are kept. The page also reuses it for
-// the browser client; SDK keys start with `sdk_` and are safe to ship there.
+// and function options such as onError are kept.
 export const savvagentConfig = {
-  apiKey: process.env.SAVVAGENT_SDK_KEY || 'sdk_your_key_here',
-  baseUrl: process.env.SAVVAGENT_API_URL || 'https://api.savvagent.com/flags',
   applicationId: 'f8209ef5-a661-4f46-8b84-4c855a97d5ef',
   environment: 'development',
   defaults: {
@@ -15,7 +12,26 @@ export const savvagentConfig = {
   },
 };
 
+/**
+ * Settings the browser client needs; the page sends them to the browser. The
+ * key must be a public client SDK key (`sdk_...`): it is visible to every
+ * visitor. It is read from its own variable, never from the server's key.
+ */
+export function browserConfig() {
+  return {
+    ...savvagentConfig,
+    apiKey: process.env.PUBLIC_SAVVAGENT_SDK_KEY || 'sdk_your_key_here',
+    baseUrl:
+      process.env.PUBLIC_SAVVAGENT_API_URL ||
+      process.env.SAVVAGENT_API_URL ||
+      'https://api.savvagent.com/flags',
+  };
+}
+
+// The server-side client (Astro.locals.savvagent).
 export default {
   ...savvagentConfig,
+  apiKey: process.env.SAVVAGENT_SDK_KEY || 'sdk_your_key_here',
+  baseUrl: process.env.SAVVAGENT_API_URL || 'https://api.savvagent.com/flags',
   onError: (error) => console.error('[Astro example] Savvagent error:', error),
 };

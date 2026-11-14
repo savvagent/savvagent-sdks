@@ -6,7 +6,7 @@
  * applies local overrides, user changes and realtime updates.
  */
 import '../styles/global.css';
-import { savvagentConfig } from '../savvagent.config.mjs';
+import { browserConfig } from '../savvagent.config.mjs';
 
 const FLAGS = [
   { key: 'new-feature', name: 'New Feature', showConfig: true },
@@ -16,7 +16,8 @@ const FLAGS = [
 
 const DEFAULT_USER_ID = 'user-123';
 const { savvagent } = Astro.locals;
-// The integration reads `user_id` from cookies; fall back to the demo's default user.
+// The demo trusts the `user_id` cookie (trustUserIdCookie in astro.config.mjs);
+// fall back to the demo's default user.
 const userId = savvagent.context.user_id ?? DEFAULT_USER_ID;
 const flagContext = {
   user_id: userId,
@@ -32,13 +33,7 @@ const results = await Promise.all(
 );
 const newFeatureEnabled = results.find((r) => r.key === 'new-feature')?.value ?? false;
 
-const clientConfig = {
-  apiKey: savvagentConfig.apiKey,
-  baseUrl: savvagentConfig.baseUrl,
-  applicationId: savvagentConfig.applicationId,
-  environment: savvagentConfig.environment,
-  defaults: savvagentConfig.defaults,
-};
+const clientConfig = browserConfig();
 const initialState = {
   config: clientConfig,
   defaultUserId: DEFAULT_USER_ID,
