@@ -135,9 +135,6 @@ next-env.d.ts
 .nuxt/
 .output/
 
-# Remix
-.remix/
-
 # Solid
 .solid/
 

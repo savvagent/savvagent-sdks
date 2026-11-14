@@ -4,7 +4,7 @@ export interface AppConfig {
   port: number;
   devCommand: string;
   envPrefix: 'VITE_' | 'NEXT_PUBLIC_' | '';
-  framework: 'react' | 'nextjs' | 'angular' | 'vue' | 'svelte' | 'sveltekit' | 'astro' | 'remix' | 'solid';
+  framework: 'react' | 'nextjs' | 'angular' | 'vue' | 'svelte' | 'sveltekit' | 'astro' | 'solid';
   isSSR: boolean;
   startupTimeout: number;
 }
@@ -79,16 +79,6 @@ export const APP_CONFIGS: Record<string, AppConfig> = {
     framework: 'astro',
     isSSR: true,
     startupTimeout: 30000,
-  },
-  'remix-app': {
-    name: 'Remix',
-    directory: 'remix-app',
-    port: 5178,
-    devCommand: 'pnpm dev',
-    envPrefix: 'VITE_',
-    framework: 'remix',
-    isSSR: true,
-    startupTimeout: 45000,
   },
   'solid-app': {
     name: 'SolidJS',

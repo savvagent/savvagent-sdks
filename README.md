@@ -19,7 +19,7 @@ Official SDKs, MCP servers, and example applications for [Savvagent](https://fla
 - **[@savvagent/solid](./packages/solid)** - SolidJS primitives for feature flags
 - **[@savvagent/svelte](./packages/svelte)** - Svelte stores for feature flags
 - **[@savvagent/nextjs](./packages/nextjs)** - Next.js integration with App Router & Pages Router
-- **[@savvagent/remix](./packages/remix)** - Remix loaders and actions integration
+- **Using Remix?** Remix is now React Router. Use `@savvagent/react-router` (coming in this release).
 - **[@savvagent/sveltekit](./packages/sveltekit)** - SvelteKit server-side integration
 - **[@savvagent/astro](./packages/astro)** - Astro integration for feature flags
 
@@ -126,7 +126,6 @@ Working example applications are available in the [examples](./examples) directo
 - **[Solid App](./examples/solid-app)** - SolidJS with reactive primitives
 - **[Svelte App](./examples/svelte-app)** - Svelte 4 with stores
 - **[Next.js App](./examples/nextjs-app)** - React Server Components + Client Components
-- **[Remix App](./examples/remix-app)** - Remix with loaders and server-side evaluation
 - **[SvelteKit App](./examples/sveltekit-app)** - Svelte 5 with runes
 - **[Astro App](./examples/astro-app)** - Astro with integration
 
@@ -176,7 +175,7 @@ This is a pnpm workspace monorepo with independent package versioning.
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js 22.12+
 - pnpm 8+
 
 ### Setup
@@ -237,7 +236,6 @@ flags-sdks/
 │   ├── solid/              # @savvagent/solid
 │   ├── svelte/             # @savvagent/svelte
 │   ├── nextjs/             # @savvagent/nextjs
-│   ├── remix/              # @savvagent/remix
 │   ├── sveltekit/          # @savvagent/sveltekit
 │   ├── astro/              # @savvagent/astro
 │   ├── ios-sdk/            # iOS SDK (Swift)
@@ -256,7 +254,6 @@ flags-sdks/
 │   ├── solid-app/          # SolidJS example
 │   ├── svelte-app/         # Svelte example
 │   ├── nextjs-app/         # Next.js example
-│   ├── remix-app/          # Remix example
 │   ├── sveltekit-app/      # SvelteKit example
 │   ├── astro-app/          # Astro example
 │   ├── node-backend/       # Node.js example
@@ -360,9 +357,10 @@ MIT License - see [LICENSE](./LICENSE) for details
 | [@savvagent/solid](./packages/solid) | [![npm](https://img.shields.io/npm/v/@savvagent/solid)](https://www.npmjs.com/package/@savvagent/solid) | Beta |
 | [@savvagent/svelte](./packages/svelte) | [![npm](https://img.shields.io/npm/v/@savvagent/svelte)](https://www.npmjs.com/package/@savvagent/svelte) | Beta |
 | [@savvagent/nextjs](./packages/nextjs) | [![npm](https://img.shields.io/npm/v/@savvagent/nextjs)](https://www.npmjs.com/package/@savvagent/nextjs) | Beta |
-| [@savvagent/remix](./packages/remix) | [![npm](https://img.shields.io/npm/v/@savvagent/remix)](https://www.npmjs.com/package/@savvagent/remix) | Beta |
 | [@savvagent/sveltekit](./packages/sveltekit) | [![npm](https://img.shields.io/npm/v/@savvagent/sveltekit)](https://www.npmjs.com/package/@savvagent/sveltekit) | Beta |
 | [@savvagent/astro](./packages/astro) | [![npm](https://img.shields.io/npm/v/@savvagent/astro)](https://www.npmjs.com/package/@savvagent/astro) | Beta |
+
+> Remix is now React Router. Use `@savvagent/react-router` (coming in this release) instead of `@savvagent/remix`.
 
 ### Server SDKs
 
