@@ -77,6 +77,11 @@ provides `Astro.locals.savvagent` on every request. It also injects the
    your own auth middleware stored in `Astro.locals`. It is bounded by
    `evaluationTimeoutMs`. If it throws, rejects or times out, the error goes to
    `onError` (throttled) and the request is evaluated without a `user_id`.
+   Because it runs on the first evaluation, `trackError()` called before any
+   evaluation in a request carries no `user_id`; pass one in its context if
+   you need it. The integration checks whether the module exports `getUserId`
+   when the server starts, so after adding the export during `astro dev`,
+   restart the dev server.
 3. The `user_id` cookie, only with `trustUserIdCookie: true`.
 
 ```js
