@@ -18,11 +18,7 @@ test.describe('Flag Override Panel', () => {
     await expect(overridePanel.header).toContainText('Feature Flag Overrides');
   });
 
-  test('should open panel with keyboard shortcut', async ({ overridePanel, appConfig }) => {
-    // Skip for SSR frameworks that might not support this
-    if (appConfig.framework === 'astro') {
-      test.skip();
-    }
+  test('should open panel with keyboard shortcut', async ({ overridePanel }) => {
     await overridePanel.openWithKeyboard();
     await expect(overridePanel.panel).toBeVisible();
   });
