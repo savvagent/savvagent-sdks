@@ -156,6 +156,41 @@ describe('createSavvagentLocals', () => {
   });
 });
 
+describe('withFlag errors', () => {
+  it('tracks a throwing callback exactly once and re-throws it', async () => {
+    mockIsEnabled.mockReset();
+    mockTrackError.mockReset();
+    mockIsEnabled.mockResolvedValue(true);
+    const client = new FlagClient({ apiKey: 'sdk_test' });
+    const locals = createSavvagentLocals(client, makeRequest({ cookie: 'session_id=s-1' }));
+    const boom = new Error('boom');
+
+    await expect(
+      locals.withFlag('f', () => {
+        throw boom;
+      }, { attributes: { plan: 'pro' } })
+    ).rejects.toBe(boom);
+
+    expect(mockTrackError).toHaveBeenCalledTimes(1);
+    expect(mockTrackError).toHaveBeenCalledWith('f', boom, {
+      session_id: 's-1',
+      attributes: { plan: 'pro' },
+    });
+  });
+
+  it('does not run or track the callback when the flag is off', async () => {
+    mockIsEnabled.mockReset();
+    mockTrackError.mockReset();
+    mockIsEnabled.mockResolvedValue(false);
+    const client = new FlagClient({ apiKey: 'sdk_test' });
+    const callback = vi.fn();
+
+    await expect(createSavvagentLocals(client, makeRequest()).withFlag('f', callback)).resolves.toBeNull();
+    expect(callback).not.toHaveBeenCalled();
+    expect(mockTrackError).not.toHaveBeenCalled();
+  });
+});
+
 describe('createSavvagentMiddleware', () => {
   it('sets context.locals.savvagent and calls next, ignoring the user_id cookie by default', async () => {
     mockIsEnabled.mockResolvedValue(true);
@@ -231,6 +266,34 @@ describe('createSavvagentMiddleware', () => {
     }
     expect(onError).toHaveBeenCalledTimes(1);
     expect(onError.mock.calls[0][0].message).toContain('auth down');
+  });
+
+  it('gives two requests through one middleware their own getUserId users', async () => {
+    mockIsEnabled.mockReset();
+    mockIsEnabled.mockResolvedValue(true);
+    const onRequest = createSavvagentMiddleware(
+      { apiKey: 'sdk_mw' },
+      { getUserId: ({ request }) => request.headers.get('x-test-user') ?? undefined }
+    );
+    const alice = makeContext(makeRequest({ 'x-test-user': 'alice' }));
+    const bob = makeContext(makeRequest({ 'x-test-user': 'bob' }));
+    const next = async () => new Response('ok');
+    await onRequest(alice as never, next);
+    await onRequest(bob as never, next);
+
+    // Evaluate interleaved, so a shared scope would show up as a leak.
+    await Promise.all([
+      (alice.locals.savvagent as SavvagentLocals).isEnabled('f'),
+      (bob.locals.savvagent as SavvagentLocals).isEnabled('f'),
+    ]);
+
+    const users = mockIsEnabled.mock.calls.map(([, context]) => context.user_id).sort();
+    expect(users).toEqual(['alice', 'bob']);
+    expect((alice.locals.savvagent as SavvagentLocals).context.user_id).toBe('alice');
+    expect((bob.locals.savvagent as SavvagentLocals).context.user_id).toBe('bob');
+    expect((alice.locals.savvagent as SavvagentLocals).context.anonymous_id).not.toBe(
+      (bob.locals.savvagent as SavvagentLocals).context.anonymous_id
+    );
   });
 
   it('falls back to no user_id when getUserId returns nothing and the cookie is not trusted', async () => {
