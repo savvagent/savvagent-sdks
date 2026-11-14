@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, HostListener } from '@angular/core';
+import { Component, OnInit, OnDestroy, HostListener, ChangeDetectionStrategy } from '@angular/core';
 import { Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 import { SavvagentService, FlagDefinition } from '@savvagent/angular';
@@ -15,6 +15,7 @@ const STORAGE_KEY = 'savvagent_local_overrides';
  */
 @Component({
   selector: 'app-flag-override-panel',
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <!-- Trigger Button -->
     @if (!isOpen) {
