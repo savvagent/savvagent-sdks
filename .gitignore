@@ -83,6 +83,9 @@ lerna-debug.log*
 *.swo
 *~
 
+# Claude Code worktrees
+.claude/worktrees/
+
 # OS
 .DS_Store
 Thumbs.db
