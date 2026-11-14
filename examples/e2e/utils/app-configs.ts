@@ -103,7 +103,7 @@ export const APP_CONFIGS: Record<string, AppConfig> = {
 };
 
 const E2E_API_URL = process.env.SAVVAGENT_API_URL || 'https://api.savvagent.com/flags';
-const E2E_SDK_KEY = process.env.SAVVAGENT_SDK_KEY || 'sdk_dev_ca6aeb1de1308034e5fcb23db66cb35f';
+const E2E_SDK_KEY = process.env.SAVVAGENT_SDK_KEY || 'sdk_a3502e7e39a2ba3692a7f86823adacd5e06325b1a0b574d964fb19f9922b2e5d';
 
 export const BETA_ENV = {
   SAVVAGENT_API_URL: E2E_API_URL,
