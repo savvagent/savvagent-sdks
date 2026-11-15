@@ -33,7 +33,8 @@ export const savvagent = createSavvagentServer(
 export function browserConfig() {
   return {
     apiKey: process.env.VITE_SAVVAGENT_SDK_KEY || 'sdk_your_key_here',
-    baseUrl:
-      process.env.VITE_SAVVAGENT_API_URL || process.env.SAVVAGENT_API_URL || 'https://api.savvagent.com/flags',
+    // Never fall back to the server's SAVVAGENT_API_URL: it may be an
+    // internal address, and this value is rendered for every visitor.
+    baseUrl: process.env.VITE_SAVVAGENT_API_URL || 'https://api.savvagent.com/flags',
   };
 }
