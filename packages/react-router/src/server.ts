@@ -189,7 +189,13 @@ export function throttleErrors(
     // evicts the least recently reported message.
     lastReported.delete(key);
     lastReported.set(key, now);
-    onError(error);
+    // The app's handler runs inside timer callbacks too, so a throw here
+    // would become an uncaught exception and stop the process.
+    try {
+      onError(error);
+    } catch (handlerError) {
+      console.error('[Savvagent] onError handler threw', handlerError);
+    }
   };
 }
 

@@ -265,7 +265,10 @@ describe('createSavvagentMiddleware', () => {
       expect(mockIsEnabled.mock.calls.at(-1)?.[1]).not.toHaveProperty('user_id');
     }
     expect(onError).toHaveBeenCalledTimes(1);
-    expect(onError.mock.calls[0][0].message).toContain('auth down');
+    // The message is fixed (no attacker-influenced text in logs or throttle
+    // keys); the original error travels as `cause`.
+    expect(onError.mock.calls[0][0].message).toBe('getUserId failed; evaluating without a user_id');
+    expect(onError.mock.calls[0][0].cause?.message).toBe('auth down');
   });
 
   it('gives two requests through one middleware their own getUserId users', async () => {

@@ -108,6 +108,9 @@ helpers follow the same rules: they ignore the `user_id` cookie unless you pass
 
 #### Evaluation on the server
 
+When `getUserId` is configured it has its own timer of the same length, so the
+first evaluation of a request can take up to twice `evaluationTimeoutMs`.
+
 The server-side client makes one attempt per evaluation (`retryAttempts: 1`),
 does not detect a language from the server's own locale
 (`disableLanguageDetection: true`) and opens no realtime connection, unless your
@@ -227,12 +230,16 @@ const data = await withFlag('use-new-api', async () => {
 ---
 ```
 
-#### `evaluateForRequest(request, flagKey, context?)`
+#### `evaluateForRequest(request, flagKey, context?, options?)`
 
-Evaluate with automatic request context. The fourth argument takes the same
-options as `Astro.locals.savvagent`: `getUserId`, `trustUserIdCookie` and
-`evaluationTimeoutMs`. The evaluation is bounded and falls back to the flag's
-default.
+Evaluate with automatic request context. `options` takes the same options as
+`Astro.locals.savvagent` (`getUserId`, `trustUserIdCookie` and
+`evaluationTimeoutMs`) plus `locals`: pass `Astro.locals` when your
+`getUserId` reads from it, otherwise it receives an empty object and the
+request is evaluated anonymously. (`createFlagMiddleware` passes the request's
+locals for you.) The integration's `configModule` `getUserId` is not applied
+here automatically; pass it again. The evaluation is bounded and falls back to
+the flag's default.
 
 ```astro
 ---

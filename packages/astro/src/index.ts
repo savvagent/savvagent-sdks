@@ -191,7 +191,13 @@ export function throttleErrors(
     // evicts the least recently reported message.
     lastReported.delete(key);
     lastReported.set(key, now);
-    onError(error);
+    // The app's handler runs inside timer callbacks too, so a throw here
+    // would become an uncaught exception and stop the process.
+    try {
+      onError(error);
+    } catch (handlerError) {
+      console.error('[Savvagent] onError handler threw', handlerError);
+    }
   };
 }
 
@@ -458,14 +464,23 @@ export function createSavvagentLocals(
       try {
         // Inside the async function, a synchronous throw becomes a rejection.
         const pending = (async () => getUserId({ request, locals: options.locals ?? ({} as App.Locals) }))();
+        let timedOut = false;
         const userId = await withTimeout(pending, timeoutMs, () => {
+          timedOut = true;
           reportError(new Error(`getUserId timed out after ${timeoutMs}ms; evaluating without a user_id`));
           return undefined;
         });
         if (userId) requestContext.user_id = userId;
+        // "Without a user_id" includes a trusted cookie's: getUserId is the
+        // authority once it is configured, so its failure is anonymous.
+        else if (timedOut) delete requestContext.user_id;
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        reportError(new Error(`getUserId failed (${message}); evaluating without a user_id`));
+        delete requestContext.user_id;
+        // A fixed message keeps attacker-influenced error text out of log
+        // lines and throttle keys; the original error travels as `cause`.
+        reportError(
+          Object.assign(new Error('getUserId failed; evaluating without a user_id'), { cause: error })
+        );
       }
     })();
     return userResolved;

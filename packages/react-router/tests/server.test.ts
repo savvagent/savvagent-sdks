@@ -535,3 +535,15 @@ describe('throttleErrors cap', () => {
     }
   });
 });
+
+describe('throttleErrors with a throwing handler', () => {
+  it('does not let the handler throw out of the reporter', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const report = throttleErrors(() => {
+      throw new Error('sink offline');
+    }, 60_000);
+    expect(() => report(new Error('flag API down'))).not.toThrow();
+    expect(spy).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
+  });
+});

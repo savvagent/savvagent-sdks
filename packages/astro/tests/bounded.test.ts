@@ -208,7 +208,24 @@ describe('getUserId isolation', () => {
     expect(client.isEnabled).toHaveBeenNthCalledWith(1, 'a', { anonymous_id: 'anon_1' });
     expect(client.isEnabled).toHaveBeenNthCalledWith(2, 'b', { anonymous_id: 'anon_1' });
     expect(reportError).toHaveBeenCalledTimes(1);
-    expect(reportError.mock.calls[0][0].message).toMatch(/getUserId failed \(session store down\)/);
+    expect(reportError.mock.calls[0][0].message).toBe('getUserId failed; evaluating without a user_id');
+    expect((reportError.mock.calls[0][0] as Error & { cause?: Error }).cause?.message).toBe('session store down');
+  });
+
+  it('drops a trusted cookie user when getUserId fails', async () => {
+    const client = makeClient();
+    const savvagent = createSavvagentLocals(
+      client,
+      new Request('http://localhost/', { headers: { cookie: 'user_id=forged' } }),
+      {
+        trustUserIdCookie: true,
+        getUserId: () => Promise.reject(new Error('down')),
+        anonymousId: 'anon_1',
+        reportError: vi.fn(),
+      }
+    );
+    await savvagent.isEnabled('a');
+    expect(client.isEnabled).toHaveBeenCalledWith('a', { anonymous_id: 'anon_1' });
   });
 });
 
@@ -267,5 +284,17 @@ describe('throttleErrors', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('throttleErrors with a throwing handler', () => {
+  it('does not let the handler throw out of the reporter', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const report = throttleErrors(() => {
+      throw new Error('sink offline');
+    }, 60_000);
+    expect(() => report(new Error('flag API down'))).not.toThrow();
+    expect(spy).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
   });
 });
