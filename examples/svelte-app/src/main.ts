@@ -1,6 +1,7 @@
 import './app.css';
 import { initSavvagent } from '@savvagent/svelte';
 import type { FlagClientConfig, DefaultFlagContext } from '@savvagent/svelte';
+import { mount } from 'svelte';
 import App from './App.svelte';
 
 // Storage key for local overrides (must match FlagOverridePanel)
@@ -84,7 +85,7 @@ if (Object.keys(initialOverrides).length > 0) {
   client.setOverrides(initialOverrides);
 }
 
-const app = new App({
+const app = mount(App, {
   target: document.getElementById('app')!,
 });
 

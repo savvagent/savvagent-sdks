@@ -1,11 +1,12 @@
 import { bootstrapApplication } from '@angular/platform-browser';
-import { importProvidersFrom } from '@angular/core';
+import { importProvidersFrom, provideZoneChangeDetection } from '@angular/core';
 import { SavvagentModule } from '@savvagent/angular';
 import { AppComponent } from './app/app.component';
 import { environment } from './environments/environment';
 
 bootstrapApplication(AppComponent, {
   providers: [
+    provideZoneChangeDetection(),
     importProvidersFrom(
       SavvagentModule.forRoot({
         config: {
@@ -44,7 +45,7 @@ bootstrapApplication(AppComponent, {
             country: 'US',
           },
         },
-      })
+      }),
     ),
   ],
 }).catch((err) => console.error(err));

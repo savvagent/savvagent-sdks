@@ -1,0 +1,31 @@
+{
+  "name": "react-router-example",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Example React Router 8 (framework mode) app using the Savvagent SDK",
+  "type": "module",
+  "scripts": {
+    "dev": "react-router dev",
+    "build": "react-router build",
+    "start": "react-router-serve ./build/server/index.js",
+    "typecheck": "react-router typegen && tsc",
+    "lint": "react-router typegen && tsc"
+  },
+  "dependencies": {
+    "@react-router/node": "^8.5.1",
+    "@react-router/serve": "^8.5.1",
+    "@savvagent/react-router": "workspace:*",
+    "isbot": "^5.1.40",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-router": "^8.5.1"
+  },
+  "devDependencies": {
+    "@react-router/dev": "^8.5.1",
+    "@types/node": "^24.10.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "typescript": "~6.0.3",
+    "vite": "^8.3.8"
+  }
+}

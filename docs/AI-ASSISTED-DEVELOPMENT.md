@@ -94,7 +94,7 @@ Here are effective prompts for common Savvagent integration tasks:
 ### Initial Setup
 
 ```
-Set up Savvagent feature flags in my Next.js 14 app.
+Set up Savvagent feature flags in my Next.js 16 app.
 - Use App Router
 - Add provider to root layout
 - Create a useFeatureFlag hook

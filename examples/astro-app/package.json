@@ -10,11 +10,12 @@
     "preview": "astro preview"
   },
   "dependencies": {
+    "@astrojs/node": "^11.1.13",
     "@savvagent/astro": "workspace:*",
     "@savvagent/sdk": "workspace:*",
-    "astro": "^4.14.0"
+    "astro": "^7.4.12"
   },
   "devDependencies": {
-    "typescript": "^5.5.0"
+    "typescript": "~6.0.3"
   }
 }

@@ -9,7 +9,7 @@
     type FlagClientConfig,
     type DefaultFlagContext,
   } from '@savvagent/svelte';
-  import FlagOverridePanel from '$lib/FlagOverridePanel.svelte';
+  import FlagOverridePanel from '#lib/FlagOverridePanel.svelte';
 
   let initialized = $state(false);
   let client: ReturnType<typeof getSavvagent> | null = null;

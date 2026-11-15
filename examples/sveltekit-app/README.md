@@ -4,7 +4,7 @@ Example SvelteKit application demonstrating how to use the Savvagent SDK with Sv
 
 ## Features
 
-- SvelteKit 2 with Svelte 5
+- SvelteKit 3 with Svelte 5
 - TypeScript
 - Runes for reactivity
 - Client-side feature flag evaluation

@@ -23,7 +23,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'pnpm'
 
       - name: Install dependencies
@@ -53,8 +53,8 @@ jobs:
           - svelte-app
           - sveltekit-app
           - astro-app
-          - remix-app
           - solid-app
+          - react-router-app
 
     steps:
       - name: Checkout
@@ -68,7 +68,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'pnpm'
 
       - name: Install dependencies
@@ -83,8 +83,6 @@ jobs:
       - name: Run E2E tests for ${{ matrix.app }}
         id: e2e
         run: cd examples && pnpm test:e2e:${{ matrix.app }}
-        # astro, angular and remix examples are known-broken; see #3.
-        continue-on-error: ${{ contains(fromJSON('["astro-app","angular-app","remix-app"]'), matrix.app) }}
         env:
           SAVVAGENT_API_URL: https://api.savvagent.com/flags
           SAVVAGENT_SDK_KEY: ${{ secrets.SAVVAGENT_SDK_KEY }}

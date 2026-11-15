@@ -18,6 +18,8 @@ export interface FlagClientConfig {
   enableRealtime?: boolean;
   /** Cache TTL in milliseconds (default: 60000 = 1 minute) */
   cacheTtl?: number;
+  /** Maximum number of cached (flag, context) evaluation results; least recently used are evicted (default: 10000) */
+  cacheMaxEntries?: number;
   /** Enable telemetry tracking (default: true) */
   enableTelemetry?: boolean;
   /** Default flag values when evaluation fails */
@@ -113,6 +115,8 @@ export interface CacheEntry {
   value: boolean;
   expiresAt: number;
   flagId?: string;
+  /** Metadata (variation, configuration, ...) of the cached evaluation */
+  metadata?: FlagEvaluationResult['metadata'];
 }
 
 /**

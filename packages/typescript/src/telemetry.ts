@@ -57,6 +57,9 @@ export class TelemetryService {
         this.flush();
       }
     }, this.flushInterval);
+    // In Node, don't let the flush timer keep the process alive on its own
+    // (e.g. a build that prerenders pages with a server-side client).
+    (this.timer as { unref?: () => void }).unref?.();
 
     // Flush on page unload
     if (typeof window !== 'undefined') {

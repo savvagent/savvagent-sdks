@@ -4,7 +4,7 @@ export interface AppConfig {
   port: number;
   devCommand: string;
   envPrefix: 'VITE_' | 'NEXT_PUBLIC_' | '';
-  framework: 'react' | 'nextjs' | 'angular' | 'vue' | 'svelte' | 'sveltekit' | 'astro' | 'remix' | 'solid';
+  framework: 'react' | 'nextjs' | 'angular' | 'vue' | 'svelte' | 'sveltekit' | 'astro' | 'solid' | 'react-router';
   isSSR: boolean;
   startupTimeout: number;
 }
@@ -80,16 +80,6 @@ export const APP_CONFIGS: Record<string, AppConfig> = {
     isSSR: true,
     startupTimeout: 30000,
   },
-  'remix-app': {
-    name: 'Remix',
-    directory: 'remix-app',
-    port: 5178,
-    devCommand: 'pnpm dev',
-    envPrefix: 'VITE_',
-    framework: 'remix',
-    isSSR: true,
-    startupTimeout: 45000,
-  },
   'solid-app': {
     name: 'SolidJS',
     directory: 'solid-app',
@@ -99,6 +89,16 @@ export const APP_CONFIGS: Record<string, AppConfig> = {
     framework: 'solid',
     isSSR: false,
     startupTimeout: 30000,
+  },
+  'react-router-app': {
+    name: 'React Router',
+    directory: 'react-router-app',
+    port: 5178,
+    devCommand: 'pnpm dev',
+    envPrefix: 'VITE_',
+    framework: 'react-router',
+    isSSR: true,
+    startupTimeout: 45000,
   },
 };
 
@@ -110,6 +110,8 @@ export const BETA_ENV = {
   SAVVAGENT_SDK_KEY: E2E_SDK_KEY,
   VITE_SAVVAGENT_API_URL: E2E_API_URL,
   VITE_SAVVAGENT_SDK_KEY: E2E_SDK_KEY,
+  PUBLIC_SAVVAGENT_API_URL: E2E_API_URL,
+  PUBLIC_SAVVAGENT_SDK_KEY: E2E_SDK_KEY,
   NEXT_PUBLIC_SAVVAGENT_API_URL: E2E_API_URL,
   NEXT_PUBLIC_SAVVAGENT_SDK_KEY: E2E_SDK_KEY,
 };

@@ -48,9 +48,9 @@
   }
 
   // Reactive statements for override status - using $overrides for reactivity
-  $: newFeatureOverridden = 'new-feature' in $overrides.overrides;
-  $: betaFeatureOverridden = 'beta-feature' in $overrides.overrides;
-  $: enterpriseOneOverridden = 'enterprise-one' in $overrides.overrides;
+  const newFeatureOverridden = $derived('new-feature' in $overrides.overrides);
+  const betaFeatureOverridden = $derived('beta-feature' in $overrides.overrides);
+  const enterpriseOneOverridden = $derived('enterprise-one' in $overrides.overrides);
 </script>
 
 <div class="container">
@@ -152,7 +152,7 @@
         <div class="alert alert-success">
           <strong>New Feature Enabled!</strong>
           <p>This feature is enabled for you based on your user attributes.</p>
-          <button on:click={handleRiskyAction} class="btn">
+          <button onclick={handleRiskyAction} class="btn">
             Test Error Tracking
           </button>
         </div>
@@ -161,10 +161,10 @@
       <div class="user-section">
         <h3>User Management</h3>
         <p>Current User ID: <code>{$userId || 'Not set'}</code></p>
-        <button on:click={setRandomUserId} class="btn">
+        <button onclick={setRandomUserId} class="btn">
           Set Random User ID
         </button>
-        <button on:click={clearUserId} class="btn btn-secondary">
+        <button onclick={clearUserId} class="btn btn-secondary">
           Clear User ID
         </button>
       </div>

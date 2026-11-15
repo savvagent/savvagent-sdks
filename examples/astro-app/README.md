@@ -4,11 +4,10 @@ Example Astro application demonstrating how to use the Savvagent Astro integrati
 
 ## Features
 
-- Astro with server-side rendering
+- Astro 7 with on-demand server rendering (`@astrojs/node` adapter)
 - TypeScript
-- Savvagent Astro integration
-- Server-side feature flag evaluation
-- Static site generation support
+- Savvagent Astro integration: flags evaluated on the server through `Astro.locals.savvagent`
+- A plain client script (no UI framework) that takes over in the browser: flag override panel (Ctrl+Shift+F), user switching, error tracking and realtime updates
 
 ## Setup
 
@@ -24,9 +23,20 @@ Example Astro application demonstrating how to use the Savvagent Astro integrati
 
    Edit `.env`:
    ```bash
+   # Server-side evaluation (Astro.locals.savvagent)
    SAVVAGENT_API_URL=http://localhost:8080
    SAVVAGENT_SDK_KEY=your-sdk-key-here
+   # Browser client
+   PUBLIC_SAVVAGENT_API_URL=http://localhost:8080
+   PUBLIC_SAVVAGENT_SDK_KEY=your-public-sdk-key-here
    ```
+
+   `SAVVAGENT_SDK_KEY` and `SAVVAGENT_API_URL` are used by the server. The page
+   sends `PUBLIC_SAVVAGENT_SDK_KEY` (a public client `sdk_` key, visible to every
+   visitor) and `PUBLIC_SAVVAGENT_API_URL` to the browser client. The browser
+   never falls back to the server's key or URL (the server's URL can be an
+   internal address); without `PUBLIC_SAVVAGENT_API_URL` it uses
+   `https://api.savvagent.com/flags`.
 
 3. **Run the development server:**
    ```bash
@@ -39,18 +49,24 @@ Example Astro application demonstrating how to use the Savvagent Astro integrati
 
 ### Configuration
 
-```typescript
+```js
 // astro.config.mjs
 import { defineConfig } from 'astro/config';
+import node from '@astrojs/node';
 import savvagent from '@savvagent/astro';
 
 export default defineConfig({
+  output: 'server',
+  adapter: node({ mode: 'standalone' }),
   integrations: [
     savvagent({
-      config: {
-        apiKey: process.env.SAVVAGENT_SDK_KEY,
-        baseUrl: process.env.SAVVAGENT_API_URL,
-      },
+      // src/savvagent.config.mjs default-exports the client config; the
+      // middleware imports it at server runtime, so process.env is read then.
+      configModule: './src/savvagent.config.mjs',
+      // Demo only: trust the `user_id` cookie set by the user switcher. Any
+      // visitor can set it; a real app exports `getUserId` from the config
+      // module instead (see the package README).
+      trustUserIdCookie: true,
     }),
   ],
 });
@@ -61,7 +77,7 @@ export default defineConfig({
 ```astro
 ---
 const isEnabled = await Astro.locals.savvagent.isEnabled('new-feature', {
-  userId: 'user-123',
+  user_id: 'user-123',
   attributes: {
     email: 'user@example.com',
   },

@@ -3,7 +3,7 @@
  * Tests all exported functions and stores with edge cases and error handling
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { get } from 'svelte/store';
 import type { FlagContext } from '@savvagent/sdk';
 
@@ -301,7 +301,9 @@ describe('Svelte SDK - Override Management', () => {
     vi.clearAllMocks();
     localStorageMock = {};
 
-    global.localStorage = {
+    // jsdom's window.localStorage is getter-only, and vitest 5 forwards
+    // global assignments to the window, so stub it instead of assigning.
+    vi.stubGlobal('localStorage', {
       getItem: vi.fn((key: string) => localStorageMock[key] || null),
       setItem: vi.fn((key: string, value: string) => {
         localStorageMock[key] = value;
@@ -314,7 +316,7 @@ describe('Svelte SDK - Override Management', () => {
       }),
       key: vi.fn(),
       length: 0,
-    };
+    });
 
     mockClientInstance.getOverrides.mockReturnValue({});
     mockClientInstance.onOverrideChange.mockReturnValue(() => {});
@@ -322,6 +324,10 @@ describe('Svelte SDK - Override Management', () => {
     mockClientInstance.getOverride.mockReturnValue(undefined);
 
     initSavvagent({ apiKey: 'test', applicationId: 'test' });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   describe('createOverridesStore', () => {
