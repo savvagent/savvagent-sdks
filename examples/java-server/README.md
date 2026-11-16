@@ -28,17 +28,22 @@ Example Spring Boot application demonstrating how to use the Savvagent Flags Jav
    server.port=8081
    ```
 
-2. **Build the project:**
+2. **Install the SDK locally** (it is not published to a Maven repository):
+   ```bash
+   (cd ../../packages/java-server && mvn install -DskipTests)
+   ```
+
+3. **Build the project:**
    ```bash
    mvn clean package
    ```
 
-3. **Run the application:**
+4. **Run the application:**
    ```bash
    mvn spring-boot:run
    ```
 
-4. The server will start on [http://localhost:8081](http://localhost:8081)
+5. The server will start on [http://localhost:8081](http://localhost:8081)
 
 ## API Endpoints
 
