@@ -22,8 +22,11 @@ Example Python backend demonstrating how to use the Savvagent Flags SDK in a ser
 
 2. **Install dependencies:**
    ```bash
-   # Install the local SDK first
-   pip install -e ../../packages/python-server
+   # Install the SDK first, pinned to a commit (replace <commit>)
+   pip install "savvagent-flags @ git+https://github.com/savvagent/flags-sdks@<commit>#subdirectory=packages/python-server"
+
+   # Or, from a checkout of this repository
+   # pip install -e ../../packages/python-server
 
    # Then install other dependencies
    pip install -r requirements.txt

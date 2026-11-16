@@ -57,24 +57,40 @@ Replaces `@savvagent/remix` (Remix is now React Router).
 npm install @savvagent/node-server
 ```
 
-### Go
+### Python
+The distribution is `savvagent-flags`; the import name is `savvagent_flags`. It is not published to PyPI yet, so pin a commit of savvagent/flags-sdks:
 ```bash
-go get github.com/savvagent/savvagent-go-server-sdk
+uv add "savvagent-flags @ git+https://github.com/savvagent/flags-sdks@<commit>#subdirectory=packages/python-server"
+# or: pip install "savvagent-flags @ git+https://github.com/savvagent/flags-sdks@<commit>#subdirectory=packages/python-server"
+```
+
+### Go
+The module is `github.com/savvagent/flags-sdks/packages/go-server` (package `savvagentflags`). Pin a commit:
+```bash
+go get github.com/savvagent/flags-sdks/packages/go-server@<commit>
 ```
 
 ### Java (Maven)
+The Java SDK is not published to Maven Central. Build it from source at a pinned commit (replace `<commit>`), which installs it into your local Maven repository:
+```bash
+git clone https://github.com/savvagent/flags-sdks
+git -C flags-sdks checkout <commit>
+mvn -B -f flags-sdks/packages/java-server/pom.xml install
+```
+Then add the dependency:
 ```xml
 <dependency>
-  <groupId>com.savvagent</groupId>
-  <artifactId>savvagent-java-server-sdk</artifactId>
+  <groupId>com.savvagent.flags</groupId>
+  <artifactId>savvagent-flags-java-server-sdk</artifactId>
   <version>0.1.0</version>
 </dependency>
 ```
 
 ### Rust
+The crate is `savvagent-flags` (lib `savvagent_flags`). Pin a commit of savvagent/flags-sdks:
 ```toml
 [dependencies]
-savvagent = "0.1.0"
+savvagent-flags = { git = "https://github.com/savvagent/flags-sdks", rev = "<commit>" }
 ```
 
 ### iOS (Swift Package Manager)
@@ -99,7 +115,7 @@ import { FlagClient } from '@savvagent/sdk';
 // Initialize the client
 const client = new FlagClient({
   apiKey: 'sdk_your_api_key_here',
-  baseUrl: 'https://flags-api.savvagent.com',
+  baseUrl: 'https://api.savvagent.com/flags',
   enableRealtime: true,
   enableTelemetry: true,
 });
@@ -320,35 +336,47 @@ app.get('/api/feature', async (req, res) => {
 });
 ```
 
+### Python
+
+```python
+from savvagent_flags import FlagClient, FlagClientConfig, FlagContext
+
+config = FlagClientConfig(api_key="sdk_your_api_key")
+
+with FlagClient(config) as client:
+    if client.is_enabled("new-feature", FlagContext(user_id="user-123")):
+        ...  # New feature logic
+```
+
 ### Go
 
 ```go
 package main
 
 import (
-    "context"
-    savvagent "github.com/savvagent/savvagent-go-server-sdk"
+    "log"
+
+    savvagentflags "github.com/savvagent/flags-sdks/packages/go-server"
 )
 
 func main() {
-    client, err := savvagent.NewClient(savvagent.Config{
+    client, err := savvagentflags.NewClient(savvagentflags.Config{
         APIKey:  "sdk_your_api_key",
-        BaseURL: "https://flags-api.savvagent.com",
+        BaseURL: "https://api.savvagent.com/flags",
     })
     if err != nil {
         log.Fatal(err)
     }
     defer client.Close()
 
-    ctx := context.Background()
-    isEnabled, err := client.IsEnabled(ctx, "new-feature", savvagent.Context{
+    ctx := &savvagentflags.Context{
         UserID: "user-123",
         Attributes: map[string]interface{}{
             "plan": "pro",
         },
-    })
+    }
 
-    if isEnabled {
+    if client.IsEnabled("new-feature", ctx) {
         // New feature logic
     }
 }
@@ -357,19 +385,19 @@ func main() {
 ### Java
 
 ```java
-import com.savvagent.sdk.FlagClient;
-import com.savvagent.sdk.FlagContext;
+import com.savvagent.flags.sdk.FlagClient;
+import com.savvagent.flags.sdk.FlagClientConfig;
+import com.savvagent.flags.sdk.FlagContext;
 
 public class Example {
     public static void main(String[] args) {
-        FlagClient client = FlagClient.builder()
-            .apiKey("sdk_your_api_key")
-            .baseUrl("https://flags-api.savvagent.com")
+        FlagClientConfig config = FlagClientConfig.builder("sdk_your_api_key")
+            .baseUrl("https://api.savvagent.com/flags")
             .build();
+        FlagClient client = new FlagClient(config);
 
         FlagContext context = FlagContext.builder()
             .userId("user-123")
-            .attribute("plan", "pro")
             .build();
 
         boolean isEnabled = client.isEnabled("new-feature", context);
@@ -386,25 +414,21 @@ public class Example {
 ### Rust
 
 ```rust
-use savvagent::{FlagClient, FlagContext};
+use savvagent_flags::{Config, Context, FlagClient};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = FlagClient::new(
-        "sdk_your_api_key",
-        "https://flags-api.savvagent.com",
-    )?;
+    let config = Config::new("sdk_your_api_key")
+        .with_base_url("https://api.savvagent.com/flags");
+    let client = FlagClient::new(config)?;
 
-    let context = FlagContext::new()
-        .user_id("user-123")
-        .attribute("plan", "pro");
+    let context = Context::new().with_user_id("user-123");
 
-    let is_enabled = client.is_enabled("new-feature", &context).await?;
-
-    if is_enabled {
+    if client.is_enabled("new-feature", Some(context)).await {
         // New feature logic
     }
 
+    client.flush().await;
     Ok(())
 }
 ```
@@ -417,7 +441,7 @@ import SavvagentSDK
 // Initialize
 let client = try FlagClient(
     apiKey: "sdk_your_api_key",
-    baseURL: "https://flags-api.savvagent.com"
+    baseURL: "https://api.savvagent.com/flags"
 )
 
 // Check flag
@@ -454,7 +478,7 @@ import com.savvagent.sdk.FlagContext
 // Initialize
 val client = FlagClient(
     apiKey = "sdk_your_api_key",
-    baseUrl = "https://flags-api.savvagent.com"
+    baseUrl = "https://api.savvagent.com/flags"
 )
 
 // Check flag
@@ -495,7 +519,7 @@ interface FlagClientConfig {
   apiKey: string;              // SDK key (starts with sdk_)
 
   // Optional - API
-  baseUrl?: string;            // API URL (default: https://flags-api.savvagent.com)
+  baseUrl?: string;            // API URL (default: https://api.savvagent.com/flags)
   timeout?: number;            // Request timeout in ms (default: 5000)
 
   // Optional - Caching
@@ -846,7 +870,7 @@ const client = new FlagClient({
 ```typescript
 const client = new FlagClient({
   apiKey: process.env.SAVVAGENT_SDK_KEY!,
-  baseUrl: 'https://flags-api.savvagent.com',
+  baseUrl: 'https://api.savvagent.com/flags',
   cache: { enabled: true, ttl: 60000 },
   enableTelemetry: true,
 });
@@ -857,7 +881,7 @@ const client = new FlagClient({
 ```bash
 # .env
 SAVVAGENT_SDK_KEY=sdk_prod_xxx
-SAVVAGENT_API_URL=https://flags-api.savvagent.com
+SAVVAGENT_API_URL=https://api.savvagent.com/flags
 
 # .env.local (client-side)
 NEXT_PUBLIC_SAVVAGENT_SDK_KEY=sdk_prod_xxx

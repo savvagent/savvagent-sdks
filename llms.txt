@@ -1,6 +1,6 @@
 # Savvagent SDKs
 
-> Savvagent is an AI-powered feature flag platform that prevents production incidents. This repository contains official SDKs for TypeScript/JavaScript, React, Vue, Svelte, Next.js, React Router, Node.js, Go, Java, Rust, iOS, and Android.
+> Savvagent is an AI-powered feature flag platform that prevents production incidents. This repository contains official SDKs for TypeScript/JavaScript, React, Vue, Svelte, Next.js, React Router, Node.js, Python, Go, Java, Rust, iOS, and Android.
 
 Savvagent feature flags enable safe rollouts with automatic error detection and correlation. The platform tracks flag evaluations and correlates production errors with recent flag changes using AI.
 
@@ -19,7 +19,7 @@ import { FlagClient } from '@savvagent/sdk';
 
 const client = new FlagClient({
   apiKey: 'sdk_your_key_here',
-  baseUrl: 'https://flags-api.savvagent.com',
+  baseUrl: 'https://api.savvagent.com/flags',
 });
 
 // Check if flag is enabled
@@ -43,9 +43,10 @@ await client.withFlag('experimental', async () => {
 - [Next.js SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/nextjs/README.md): App Router and Pages Router support
 - [React Router SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/react-router/README.md): React Router 8 framework mode: evaluate flags in loaders, actions and middleware, hydrate them into React without a flash of defaults (replaces @savvagent/remix)
 - [Node.js Server SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/node-server/README.md): Server-side SDK for Express, Fastify, etc.
-- [Go Server SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/go-server/README.md): Idiomatic Go with goroutine-safe access
-- [Java Server SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/java-server/README.md): Thread-safe for Spring Boot, etc.
-- [Rust Server SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/rust-server/README.md): Async/await with Tokio
+- [Python Server SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/python-server/README.md): `savvagent-flags` (module `savvagent_flags`), sync and async clients
+- [Go Server SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/go-server/README.md): `github.com/savvagent/flags-sdks/packages/go-server` (package `savvagentflags`), goroutine-safe
+- [Java Server SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/java-server/README.md): `com.savvagent.flags:savvagent-flags-java-server-sdk`, thread-safe for Spring Boot, etc.
+- [Rust Server SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/rust-server/README.md): Crate `savvagent-flags` (lib `savvagent_flags`), async/await with Tokio
 - [iOS SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/ios-sdk/README.md): Swift with async/await, SwiftUI support
 - [Android SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/android-sdk/README.md): Kotlin with Jetpack Compose
 

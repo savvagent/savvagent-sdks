@@ -1,6 +1,6 @@
 # Savvagent Android SDK
 
-The official Android SDK for [Savvagent](https://flags.savvagent.com) - the AI-powered feature flag platform that prevents production incidents.
+The official Android SDK for [Savvagent](https://savvagent.com) - the AI-powered feature flag platform that prevents production incidents.
 
 ## Features
 

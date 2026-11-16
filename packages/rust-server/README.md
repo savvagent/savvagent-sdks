@@ -19,11 +19,11 @@ Official Rust Server SDK for Savvagent Flags - AI-powered feature flags with aut
 
 ## Installation
 
-Add to your `Cargo.toml`:
+The crate is not published to crates.io yet. Add it to your `Cargo.toml`, pinned to a commit of savvagent/flags-sdks (the library is imported as `savvagent_flags`):
 
 ```toml
 [dependencies]
-savvagent_flags = "0.1.0"
+savvagent-flags = { git = "https://github.com/savvagent/flags-sdks", rev = "<commit>" }
 tokio = { version = "1.0", features = ["full"] }
 ```
 
