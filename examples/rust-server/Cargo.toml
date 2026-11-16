@@ -1,12 +1,18 @@
+# An empty [workspace] makes this standalone crate its own workspace root. Without it, cargo
+# searches parent directories for a workspace and can find an enclosing checkout's root
+# Cargo.toml whose `exclude` list does not match this path (for example, in a git worktree
+# nested inside the main checkout), and refuses to build.
+[workspace]
+
 [package]
 name = "rust-server-example"
 version = "0.0.0"
 edition = "2021"
-authors = ["Savvagent Team"]
-description = "Example Rust/Axum application using Savvagent SDK"
+authors = ["Savvagent Flags Team"]
+description = "Example Rust/Axum application using Savvagent Flags SDK"
 
 [dependencies]
-savvagent = { version = "0.1.0", path = "../../packages/rust-server" }
+savvagent-flags = { version = "0.1.0", path = "../../packages/rust-server" }
 axum = "0.7"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
