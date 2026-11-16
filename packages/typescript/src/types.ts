@@ -76,6 +76,8 @@ export interface FlagEvaluationResult {
     flagId?: string;
     description?: string;
     scope?: string | null;
+    /** Server-side flag version; present only when the server sent an integer. */
+    version?: number;
     configuration?: any;
     variation?: string | null;
     timestamp?: number;

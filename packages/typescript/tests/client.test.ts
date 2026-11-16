@@ -529,6 +529,66 @@ describe('FlagClient evaluate response contract', () => {
     expect(onError).not.toHaveBeenCalled();
     client.close();
   });
+
+  describe('version and scope metadata', () => {
+    test('are reported on a fresh result and the cached hit when sent', async () => {
+      const onError = jest.fn();
+      serve({ key: 'checkout', enabled: true, version: 7, scope: 'enterprise' });
+      const client = makeClient(onError);
+
+      const first = await client.evaluate('checkout', { user_id: 'a' });
+      const second = await client.evaluate('checkout', { user_id: 'a' });
+
+      expect(first.reason).toBe('evaluated');
+      expect(first.metadata?.version).toBe(7);
+      expect(first.metadata?.scope).toBe('enterprise');
+      expect(second.reason).toBe('cached');
+      expect(second.metadata?.version).toBe(7);
+      expect(second.metadata?.scope).toBe('enterprise');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      client.close();
+    });
+
+    test('are absent when the server does not send them', async () => {
+      serve({ key: 'checkout', enabled: true });
+      const client = makeClient(jest.fn());
+
+      const first = await client.evaluate('checkout', { user_id: 'a' });
+      const second = await client.evaluate('checkout', { user_id: 'a' });
+
+      for (const r of [first, second]) {
+        expect(r.metadata?.version).toBeUndefined();
+        expect(r.metadata?.scope).toBeUndefined();
+      }
+      expect(second.reason).toBe('cached');
+      client.close();
+    });
+
+    test.each([
+      ['a fractional version', { version: 1.5 }],
+      ['a string version', { version: '3' }],
+      ['a null version', { version: null }],
+      ['an object version', { version: {} }],
+      ['a numeric scope', { scope: 4 }],
+      ['an object scope', { scope: { a: 1 } }],
+    ])('%s is dropped without failing the lookup', async (_label, extra) => {
+      const onError = jest.fn();
+      serve({ key: 'checkout', enabled: false, ...extra });
+      const client = makeClient(onError);
+
+      const first = await client.evaluate('checkout', { user_id: 'a' });
+      const second = await client.evaluate('checkout', { user_id: 'a' });
+
+      expect(first.reason).toBe('evaluated');
+      expect(first.value).toBe(false);
+      expect(first.metadata?.version).toBeUndefined();
+      expect(first.metadata?.scope).toBeUndefined();
+      expect(second.reason).toBe('cached');
+      expect(second.metadata?.version).toBeUndefined();
+      expect(onError).not.toHaveBeenCalled();
+      client.close();
+    });
+  });
 });
 
 describe('FlagClient defaults lookup', () => {
