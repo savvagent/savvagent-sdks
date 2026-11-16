@@ -64,7 +64,7 @@ func newClient(config Config, streamOpts realtimeOptions) (*FlagClient, error) {
 		config: config,
 		httpClient: &http.Client{
 			Timeout: config.Timeout,
-			// Never follow redirects: Go would forward Authorization to the redirect target.
+			// Never follow redirects: a same-domain redirect, even to http, would still carry Authorization.
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},
 		cache:              newCache(config.CacheTTL),
