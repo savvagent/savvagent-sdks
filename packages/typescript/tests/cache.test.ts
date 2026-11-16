@@ -229,3 +229,82 @@ describe('FlagCache cap handling', () => {
     expect(sweep.mock.calls.length).toBeLessThanOrEqual(1);
   });
 });
+
+describe('FlagCache invalidation generations (stale re-cache guard)', () => {
+  let cache: FlagCache;
+
+  beforeEach(() => {
+    cache = new FlagCache(60000);
+  });
+
+  test('a write carrying the current generation is stored', () => {
+    const generation = cache.generation('flag');
+    cache.set('flag', true, 'flag', 'ctx', undefined, generation);
+    expect(cache.get('flag', 'ctx')).toBe(true);
+  });
+
+  test('a write without a generation is stored as before', () => {
+    cache.invalidate('flag');
+    cache.set('flag', true, 'flag', 'ctx');
+    expect(cache.get('flag', 'ctx')).toBe(true);
+  });
+
+  test('invalidating the flag drops a write read before it, even with nothing cached', () => {
+    const generation = cache.generation('flag');
+    cache.invalidate('flag');
+    cache.set('flag', true, 'flag', 'ctx', undefined, generation);
+    expect(cache.get('flag', 'ctx')).toBeNull();
+    expect(cache.size).toBe(0);
+  });
+
+  test('clear drops a write read before it, for every flag', () => {
+    const a = cache.generation('a');
+    const b = cache.generation('b');
+    cache.clear();
+    cache.set('a', true, 'a', 'ctx', undefined, a);
+    cache.set('b', true, 'b', 'ctx', undefined, b);
+    expect(cache.size).toBe(0);
+  });
+
+  test('invalidating another flag does not drop the write', () => {
+    const generation = cache.generation('flag');
+    cache.invalidate('other');
+    cache.set('flag', true, 'flag', 'ctx', undefined, generation);
+    expect(cache.get('flag', 'ctx')).toBe(true);
+  });
+
+  test('a generation read after the invalidation is current again', () => {
+    cache.invalidate('flag');
+    cache.clear();
+    const generation = cache.generation('flag');
+    cache.set('flag', false, 'flag', 'ctx', undefined, generation);
+    expect(cache.get('flag', 'ctx')).toBe(false);
+  });
+});
+
+describe('FlagCache generation map bound', () => {
+  test('the per-flag generations stay within maxEntries', () => {
+    const cache = new FlagCache(60000, 3);
+    for (let i = 0; i < 50; i++) cache.invalidate(`flag-${i}`);
+    expect((cache as any).generations.size).toBeLessThanOrEqual(3);
+  });
+
+  test('reaching the cap still drops a write read before an invalidation', () => {
+    const cache = new FlagCache(60000, 3);
+    const generation = cache.generation('flag');
+    cache.invalidate('flag');
+    // Overflow the map so the epoch advances and the counts are dropped.
+    for (let i = 0; i < 3; i++) cache.invalidate(`other-${i}`);
+    expect((cache as any).generations.has('flag')).toBe(false);
+    cache.set('flag', true, 'flag', 'ctx', undefined, generation);
+    expect(cache.get('flag', 'ctx')).toBeNull();
+  });
+
+  test('a generation read after the cap was reached is current', () => {
+    const cache = new FlagCache(60000, 3);
+    for (let i = 0; i < 10; i++) cache.invalidate(`other-${i}`);
+    const generation = cache.generation('flag');
+    cache.set('flag', true, 'flag', 'ctx', undefined, generation);
+    expect(cache.get('flag', 'ctx')).toBe(true);
+  });
+});

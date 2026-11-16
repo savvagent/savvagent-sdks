@@ -58,6 +58,13 @@ export const DEFAULT_CACHE_MAX_ENTRIES = 10000;
  * evicted), so a server seeing many distinct contexts stays bounded.
  * Invalidating a flag key clears its entries for every context. A TTL of 0
  * (or less) disables caching.
+ *
+ * Every invalidation also advances an invalidation generation (per flag for
+ * {@link FlagCache.invalidate}, for every flag for {@link FlagCache.clear}).
+ * Read {@link FlagCache.generation} before sending an evaluate request and pass
+ * it to {@link FlagCache.set}: a result whose request started before an
+ * invalidation is then not cached, so a kill switch flipped mid-request is not
+ * undone by the stale answer.
  */
 export class FlagCache {
   /** Entries in least-recently-used order (Map iteration order). */
@@ -67,6 +74,10 @@ export class FlagCache {
   private ttl: number;
   private maxEntries: number;
   private lastSweep = 0;
+  /** Advanced by {@link clear}, which invalidates every flag at once. */
+  private epoch = 0;
+  /** Invalidation count per flag key since the last {@link clear}. */
+  private generations: Map<string, number> = new Map();
 
   constructor(ttl: number = 60000, maxEntries: number = DEFAULT_CACHE_MAX_ENTRIES) {
     this.ttl = ttl;
@@ -163,15 +174,30 @@ export class FlagCache {
   }
 
   /**
+   * The flag's current invalidation generation: an opaque token that changes
+   * whenever the flag is invalidated or the cache is cleared. Read it before
+   * sending an evaluate request and pass it to {@link set}.
+   */
+  generation(key: string): string {
+    return `${this.epoch}.${this.generations.get(key) ?? 0}`;
+  }
+
+  /**
    * Cache a flag value for a flag and context key. No-op when the TTL is 0.
+   *
+   * @param generation - The {@link generation} read before the value was
+   *   requested. When given and the flag has been invalidated since, the value
+   *   is stale and is not cached. When omitted, the value is always cached.
    */
   set(
     key: string,
     value: boolean,
     flagId?: string,
     contextKey: string = '',
-    metadata?: FlagEvaluationResult['metadata']
+    metadata?: FlagEvaluationResult['metadata'],
+    generation?: string
   ): void {
+    if (generation !== undefined && generation !== this.generation(key)) return;
     this.store(key, contextKey, { value, expiresAt: Date.now() + this.ttl, flagId, metadata });
   }
 
@@ -179,6 +205,14 @@ export class FlagCache {
    * Invalidate a flag for every context.
    */
   invalidate(key: string): void {
+    // Advance even when nothing is cached: a request may be in flight.
+    this.generations.set(key, (this.generations.get(key) ?? 0) + 1);
+    // Bound the map: past the cap, advancing the epoch invalidates every
+    // outstanding generation at once, so the per-flag counts can be dropped.
+    if (this.generations.size > this.maxEntries) {
+      this.epoch++;
+      this.generations.clear();
+    }
     const keys = this.byFlag.get(key);
     if (!keys) return;
     for (const entryKey of keys) this.entries.delete(entryKey);
@@ -189,6 +223,8 @@ export class FlagCache {
    * Clear all cached flags
    */
   clear(): void {
+    this.epoch++;
+    this.generations.clear();
     this.entries.clear();
     this.byFlag.clear();
   }

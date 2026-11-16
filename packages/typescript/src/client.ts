@@ -15,6 +15,23 @@ type ApiEvaluateRequest = components['schemas']['EvaluateFlag'];
 type ApiEvaluateResponse = components['schemas']['FlagEvaluationResponse'];
 
 /**
+ * Whether `key` can be a flag key. Mirrors the server's rule: 1-128 characters
+ * from `[A-Za-z0-9._-]`, and not `.` or `..`. The key is sent as one URL path
+ * segment, and `.` and `..` cannot be carried in one (clients normalize them
+ * away), so no flag can have those keys. Checking before the request keeps an
+ * invalid key, and the SDK key sent with it, from steering the request to
+ * another endpoint.
+ */
+function isValidFlagKey(key: unknown): boolean {
+  return (
+    typeof key === 'string' &&
+    key !== '.' &&
+    key !== '..' &&
+    /^[A-Za-z0-9._-]{1,128}$/.test(key)
+  );
+}
+
+/**
  * Savvagent Client for feature flag evaluation with AI-powered error detection
  */
 export class FlagClient {
@@ -281,6 +298,34 @@ export class FlagClient {
   }
 
   /**
+   * The configured default for a flag: `true` only when `defaults` has its
+   * own `true` entry for the key. A plain index would read inherited
+   * properties, so `__proto__`, `toString` and `constructor` (all valid flag
+   * keys) would return `Object.prototype` or a function instead of a boolean.
+   */
+  private defaultFor(key: string): boolean {
+    const defaults = this.config.defaults;
+    return Object.prototype.hasOwnProperty.call(defaults, key) && defaults[key] === true;
+  }
+
+  /**
+   * `fetch` with a 10 second abort timeout. The timer is cleared however the
+   * call ends, including when `fetch` throws synchronously (for example when
+   * it is not defined), which a `.finally` on its promise would miss.
+   */
+  private async fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+    }, 10000);
+    try {
+      return await fetch(url, { ...init, signal: controller.signal });
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  /**
    * Execute a fetch request with retry logic
    * @param requestFn - Function that returns a fetch promise
    * @param operationName - Name of the operation for logging
@@ -367,6 +412,28 @@ export class FlagClient {
    * @returns Promise<FlagEvaluationResult>
    */
   async evaluate(flagKey: string, context?: FlagContext): Promise<FlagEvaluationResult> {
+    if (!isValidFlagKey(flagKey)) {
+      // Untyped callers can pass anything here.
+      const key: unknown = flagKey;
+      const described =
+        typeof key === 'string'
+          ? `${JSON.stringify(key.slice(0, 64))} (length ${key.length})`
+          : `non-string value of type ${typeof key}`;
+      const error = new Error(
+        `Invalid flag key ${described}: keys are 1-128 characters of [A-Za-z0-9._-] and not "." or ".."`
+      );
+      this.config.onError(error);
+      return {
+        // Not String(key): that throws for an object with a null prototype.
+        key: typeof key === 'string' ? key : typeof key,
+        value: typeof key === 'string' ? this.defaultFor(key) : false,
+        reason: 'error',
+        metadata: {
+          description: error.message,
+        },
+      };
+    }
+
     const startTime = Date.now();
     const traceId = TelemetryService.generateTraceId();
 
@@ -386,7 +453,7 @@ export class FlagClient {
 
       // If auth has failed, return default immediately to prevent request spam
       if (this.authFailed) {
-        const defaultValue = this.config.defaults[flagKey] ?? false;
+        const defaultValue = this.defaultFor(flagKey);
         return {
           key: flagKey,
           value: defaultValue,
@@ -420,42 +487,46 @@ export class FlagClient {
         context: evaluationContext as any,
       };
 
+      // Read before the request: if the flag is invalidated while it is in
+      // flight, its result is stale and is not cached.
+      const generation = this.cache.generation(flagKey);
+
       // Fetch from API with retry logic
       const response = await this.fetchWithRetry(
-        () => {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => {
-            controller.abort();
-          }, 10000);
-
-          return fetch(`${this.config.baseUrl}/api/flags/${flagKey}/evaluate`, {
+        () =>
+          // Defence in depth: every valid key is RFC 3986 unreserved, so this
+          // encoding changes nothing for a key that passed isValidFlagKey.
+          this.fetchWithTimeout(`${this.config.baseUrl}/api/flags/${encodeURIComponent(flagKey)}/evaluate`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               Authorization: `Bearer ${this.config.apiKey}`,
             },
             body: JSON.stringify(requestBody),
-            signal: controller.signal,
-          }).finally(() => {
-            clearTimeout(timeoutId);
-          });
-        },
+          }),
         `Flag evaluation (${flagKey})`
       );
 
       // Parse response with type safety
-      const data: ApiEvaluateResponse = await response.json();
-      const value = data.enabled || false;
+      const data = (await response.json()) as ApiEvaluateResponse | null;
+      // The result is `enabled` (SDK developer guide). A body without a
+      // boolean `enabled` is a failed lookup: substituting the default here
+      // would cache it for the TTL as if the server had said so.
+      if (typeof data !== 'object' || data === null || typeof data.enabled !== 'boolean') {
+        throw new Error(`The evaluate response for ${JSON.stringify(flagKey)} has no boolean \`enabled\``);
+      }
+      const value = data.enabled;
 
       const metadata: FlagEvaluationResult['metadata'] = {
         scope: data.scope,
-        configuration: data.configuration,
-        variation: data.variation,
+        // The server sends both as null when the flag has none; the SDK's types say undefined.
+        configuration: data.configuration ?? undefined,
+        variation: data.variation ?? undefined,
         timestamp: data.timestamp,
       };
 
       // Cache the result for this context (use key as ID since response doesn't include UUID)
-      this.cache.set(flagKey, value, data.key, contextKey, metadata);
+      this.cache.set(flagKey, value, data.key, contextKey, metadata, generation);
 
       // Track evaluation
       const durationMs = Date.now() - startTime;
@@ -476,7 +547,7 @@ export class FlagClient {
       };
     } catch (error) {
       // Use default value if provided
-      const defaultValue = this.config.defaults[flagKey] ?? false;
+      const defaultValue = this.defaultFor(flagKey);
 
       this.config.onError(error as Error);
 
@@ -600,7 +671,8 @@ export class FlagClient {
 
   /**
    * Set a local override for a flag.
-   * Overrides take precedence over server values and cache.
+   * Overrides take precedence over server values and cache. Setting one
+   * invalidates the flag's cached results, so an evaluation in flight is not cached.
    *
    * @param flagKey - The flag key to override
    * @param value - The override value (true/false)
@@ -613,17 +685,20 @@ export class FlagClient {
    */
   setOverride(flagKey: string, value: boolean): void {
     this.overrides.set(flagKey, value);
+    this.cache.invalidate(flagKey);
     this.notifyOverrideListeners();
   }
 
   /**
    * Clear a local override for a flag.
-   * The flag will return to using server/cached values.
+   * The flag will return to using server values. Its cached results are
+   * invalidated, so the next evaluation asks the server again.
    *
    * @param flagKey - The flag key to clear override for
    */
   clearOverride(flagKey: string): void {
     this.overrides.delete(flagKey);
+    this.cache.invalidate(flagKey);
     this.notifyOverrideListeners();
   }
 
@@ -631,6 +706,7 @@ export class FlagClient {
    * Clear all local overrides.
    */
   clearAllOverrides(): void {
+    this.overrides.forEach((_value, key) => this.cache.invalidate(key));
     this.overrides.clear();
     this.notifyOverrideListeners();
   }
@@ -676,6 +752,7 @@ export class FlagClient {
   setOverrides(overrides: Record<string, boolean>): void {
     Object.entries(overrides).forEach(([key, value]) => {
       this.overrides.set(key, value);
+      this.cache.invalidate(key);
     });
     this.notifyOverrideListeners();
   }
@@ -739,25 +816,16 @@ export class FlagClient {
 
     try {
       const response = await this.fetchWithRetry(
-        () => {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => {
-            controller.abort();
-          }, 10000);
-
-          return fetch(
+        () =>
+          this.fetchWithTimeout(
             `${this.config.baseUrl}/api/sdk/flags?environment=${encodeURIComponent(environment)}`,
             {
               method: 'GET',
               headers: {
                 Authorization: `Bearer ${this.config.apiKey}`,
               },
-              signal: controller.signal,
             }
-          ).finally(() => {
-            clearTimeout(timeoutId);
-          });
-        },
+          ),
         'Get all flags'
       );
 
@@ -796,25 +864,16 @@ export class FlagClient {
 
     try {
       const response = await this.fetchWithRetry(
-        () => {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => {
-            controller.abort();
-          }, 10000);
-
-          return fetch(
+        () =>
+          this.fetchWithTimeout(
             `${this.config.baseUrl}/api/sdk/enterprise-flags?environment=${encodeURIComponent(environment)}`,
             {
               method: 'GET',
               headers: {
                 Authorization: `Bearer ${this.config.apiKey}`,
               },
-              signal: controller.signal,
             }
-          ).finally(() => {
-            clearTimeout(timeoutId);
-          });
-        },
+          ),
         'Get enterprise flags'
       );
 
