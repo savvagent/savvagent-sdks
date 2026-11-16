@@ -7,7 +7,7 @@ import re
 _FLAG_KEY = re.compile(r"[A-Za-z0-9._-]{1,128}")
 
 
-def is_valid_flag_key(key: str) -> bool:
+def is_valid_flag_key(key: object) -> bool:
     """Return True if ``key`` can be sent as a flag key.
 
     Mirrors the server's key rule: 1-128 characters, each in ``[A-Za-z0-9._-]``,

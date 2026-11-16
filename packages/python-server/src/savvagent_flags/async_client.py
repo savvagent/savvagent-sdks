@@ -128,6 +128,7 @@ class AsyncFlagClient:
         # and the next async operation will handle it
         import asyncio
         self._cache.mark_invalidated(flag_key)
+        self._last_values.pop(flag_key, None)
         try:
             loop = asyncio.get_running_loop()
             loop.create_task(self._cache.invalidate(flag_key))
@@ -230,7 +231,9 @@ class AsyncFlagClient:
             response.raise_for_status()
 
             data, value = evaluate_payload(response.json())
-            self._last_values[flag_key] = value
+            # Only remember a response that no invalidation overtook.
+            if self._cache.generation(flag_key) == generation:
+                self._last_values[flag_key] = value
             version, scope = response_metadata(data)
 
             # Cache the result (including configuration and variation)
@@ -406,7 +409,9 @@ class AsyncFlagClient:
                 cached = await self._cache.get(flag_key, context_key=ctx_key)
         except Exception:
             cached = None
-        if cached is None:
+        if cached is None and context is None:
+            # Only a context-less error may borrow the flag's latest value; a
+            # miss for a given context must not report another user's value.
             cached = self._last_values.get(flag_key)
         flag_enabled = bool(cached)
 
@@ -430,6 +435,10 @@ class AsyncFlagClient:
             flag_key: The flag key to invalidate, or None for all flags.
         """
         await self._cache.invalidate(flag_key)
+        if flag_key is None:
+            self._last_values.clear()
+        else:
+            self._last_values.pop(flag_key, None)
 
     async def close(self) -> None:
         """Clean up resources."""
