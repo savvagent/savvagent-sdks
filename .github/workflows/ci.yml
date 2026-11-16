@@ -167,19 +167,19 @@ jobs:
       - name: Setup uv
         uses: astral-sh/setup-uv@v5
         with:
-          cache-dependency-glob: packages/python-server/pyproject.toml
+          cache-dependency-glob: packages/python-server/uv.lock
 
       - name: Lint
         working-directory: packages/python-server
-        run: uv run --extra dev ruff check .
+        run: uv run --locked --extra dev ruff check .
 
       - name: Type check
         working-directory: packages/python-server
-        run: uv run --extra dev mypy
+        run: uv run --locked --extra dev mypy
 
       - name: Test
         working-directory: packages/python-server
-        run: uv run --extra dev pytest
+        run: uv run --locked --extra dev pytest
 
       - name: Compile examples
         run: python3 -m py_compile examples/python-server/*.py packages/python-server/examples/*.py
@@ -225,7 +225,7 @@ jobs:
 
       - name: Test
         working-directory: packages/go-server
-        run: go test ./...
+        run: go test -race ./...
 
       - name: Build example
         working-directory: examples/go-server

@@ -35,12 +35,24 @@ const FLAG_DEFAULTS: &[(&str, bool)] = &[
 ];
 
 /// Settings read from the environment.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(PartialEq, Eq)]
 struct Settings {
     sdk_key: String,
     api_url: String,
     environment: String,
     port: u16,
+}
+
+/// Hand-written so the key, which may be a secret server key, never reaches a log.
+impl std::fmt::Debug for Settings {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Settings")
+            .field("sdk_key", &"<redacted>")
+            .field("api_url", &self.api_url)
+            .field("environment", &self.environment)
+            .field("port", &self.port)
+            .finish()
+    }
 }
 
 impl Settings {
@@ -305,6 +317,14 @@ mod tests {
         assert_eq!(settings.api_url, "http://localhost:8080");
         assert_eq!(settings.environment, "staging");
         assert_eq!(settings.port, 9000);
+    }
+
+    #[test]
+    fn debug_output_redacts_the_key() {
+        let settings = Settings::from_env(lookup(&[("SAVVAGENT_SDK_KEY", "srv_secret")])).unwrap();
+        let shown = format!("{settings:?}");
+        assert!(!shown.contains("srv_secret"), "{shown}");
+        assert!(shown.contains("<redacted>"), "{shown}");
     }
 
     #[test]
