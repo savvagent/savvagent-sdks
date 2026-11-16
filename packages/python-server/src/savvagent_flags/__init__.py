@@ -1,11 +1,11 @@
 """
-Savvagent Python Server SDK
+Savvagent Flags Python Server SDK
 
 AI-powered feature flags for Python backend applications.
 
 Example:
     ```python
-    from savvagent import FlagClient, FlagClientConfig, FlagContext
+    from savvagent_flags import FlagClient, FlagClientConfig, FlagContext
 
     config = FlagClientConfig(
         api_key="sdk_your_key_here",
@@ -35,7 +35,7 @@ Example:
 
 For async applications:
     ```python
-    from savvagent import AsyncFlagClient, FlagClientConfig, FlagContext
+    from savvagent_flags import AsyncFlagClient, FlagClientConfig, FlagContext
 
     config = FlagClientConfig(api_key="sdk_your_key_here")
 
@@ -54,8 +54,9 @@ from .exceptions import (
     ConfigurationError,
     ConnectionError,
     InvalidAPIKeyError,
+    InvalidFlagKeyError,
     RateLimitError,
-    SavvagentError,
+    SavvagentFlagsError,
     TimeoutError,
 )
 from .realtime import AsyncRealtimeService, RealtimeService
@@ -106,8 +107,9 @@ __all__ = [
     "ErrorEvent",
     "FlagUpdateEvent",
     # Exceptions
-    "SavvagentError",
+    "SavvagentFlagsError",
     "InvalidAPIKeyError",
+    "InvalidFlagKeyError",
     "APIError",
     "AuthenticationError",
     "RateLimitError",

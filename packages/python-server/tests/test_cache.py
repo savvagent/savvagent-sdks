@@ -1,9 +1,10 @@
 """Tests for FlagCache and AsyncFlagCache."""
 
 import time
+
 import pytest
 
-from savvagent import FlagCache, AsyncFlagCache
+from savvagent_flags import AsyncFlagCache, FlagCache
 
 
 class TestFlagCache:
@@ -195,3 +196,64 @@ class TestAsyncFlagCache:
         async with AsyncFlagCache(ttl=60) as cache:
             await cache.set("test-flag", True)
             assert await cache.get("test-flag") is True
+
+
+class TestContextKeyedCache:
+    """Entries are keyed by flag and context key (#127)."""
+
+    def test_other_context_misses(self) -> None:
+        cache = FlagCache(ttl=60)
+        cache.set("f", True, context_key="y")
+        assert cache.get_entry("f", context_key="x") is None
+        assert cache.get("f", context_key="y") is True
+
+    def test_invalidate_drops_all_contexts_of_one_flag(self) -> None:
+        cache = FlagCache(ttl=60)
+        cache.set("f", True, context_key="x")
+        cache.set("f", False, context_key="y")
+        cache.set("g", True, context_key="x")
+        cache.invalidate("f")
+        assert cache.get("f", context_key="x") is None
+        assert cache.get("f", context_key="y") is None
+        assert cache.get("g", context_key="x") is True
+
+    def test_keys_lists_a_flag_once(self) -> None:
+        cache = FlagCache(ttl=60)
+        for ctx in ("a", "b", "c"):
+            cache.set("f", True, context_key=ctx)
+        assert cache.keys() == ["f"]
+        assert len(cache) == 3
+
+    def test_contexts_per_flag_are_bounded(self) -> None:
+        cache = FlagCache(ttl=60)
+        cache._max_contexts_per_flag = 4
+        for i in range(10):
+            cache.set("f", True, context_key=f"c{i}")
+            assert len(cache._cache["f"]) <= 4
+        assert cache.get("f", context_key="c9") is True
+
+
+class TestAsyncContextKeyedCache:
+    """Async cache mirrors the context-keyed behaviour."""
+
+    async def test_other_context_misses(self) -> None:
+        cache = AsyncFlagCache(ttl=60)
+        await cache.set("f", True, context_key="y")
+        assert await cache.get_entry("f", context_key="x") is None
+        assert await cache.get("f", context_key="y") is True
+
+    async def test_invalidate_and_keys(self) -> None:
+        cache = AsyncFlagCache(ttl=60)
+        await cache.set("f", True, context_key="x")
+        await cache.set("f", False, context_key="y")
+        assert await cache.keys() == ["f"]
+        await cache.invalidate("f")
+        assert await cache.get("f", context_key="x") is None
+
+    async def test_contexts_per_flag_are_bounded(self) -> None:
+        cache = AsyncFlagCache(ttl=60)
+        cache._max_contexts_per_flag = 4
+        for i in range(10):
+            await cache.set("f", True, context_key=f"c{i}")
+            assert len(cache._cache["f"]) <= 4
+        assert await cache.get("f", context_key="c9") is True

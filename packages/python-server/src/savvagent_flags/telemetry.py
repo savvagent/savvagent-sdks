@@ -1,5 +1,5 @@
 """
-Savvagent Python Server SDK - Telemetry Service
+Savvagent Flags Python Server SDK - Telemetry Service
 
 Per SDK Developer Guide: Batch evaluations and send every 5-10 seconds.
 """
@@ -7,6 +7,7 @@ Per SDK Developer Guide: Batch evaluations and send every 5-10 seconds.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import sys
 import threading
 from datetime import datetime, timezone
@@ -33,7 +34,7 @@ class TelemetryService:
         Initialize the telemetry service.
 
         Args:
-            base_url: Base URL for the Savvagent API.
+            base_url: Base URL for the Savvagent Flags API.
             api_key: API key for authentication.
             enabled: Whether telemetry is enabled.
         """
@@ -156,11 +157,11 @@ class TelemetryService:
                 )
                 if not response.is_success:
                     print(
-                        f"[Savvagent] Failed to send evaluations: {response.status_code}",
+                        f"[Savvagent Flags] Failed to send evaluations: {response.status_code}",
                         file=sys.stderr,
                     )
         except Exception as e:
-            print(f"[Savvagent] Error sending evaluations: {e}", file=sys.stderr)
+            print(f"[Savvagent Flags] Error sending evaluations: {e}", file=sys.stderr)
 
     def _flush_errors(self) -> None:
         """
@@ -200,11 +201,11 @@ class TelemetryService:
                 )
                 if not response.is_success:
                     print(
-                        f"[Savvagent] Failed to send errors: {response.status_code}",
+                        f"[Savvagent Flags] Failed to send errors: {response.status_code}",
                         file=sys.stderr,
                     )
         except Exception as e:
-            print(f"[Savvagent] Error sending errors: {e}", file=sys.stderr)
+            print(f"[Savvagent Flags] Error sending errors: {e}", file=sys.stderr)
 
     def _parse_timestamp(self, timestamp: str) -> int:
         """Parse ISO timestamp to Unix timestamp."""
@@ -243,7 +244,7 @@ class AsyncTelemetryService:
         Initialize the telemetry service.
 
         Args:
-            base_url: Base URL for the Savvagent API.
+            base_url: Base URL for the Savvagent Flags API.
             api_key: API key for authentication.
             enabled: Whether telemetry is enabled.
         """
@@ -362,11 +363,11 @@ class AsyncTelemetryService:
             )
             if not response.is_success:
                 print(
-                    f"[Savvagent] Failed to send evaluations: {response.status_code}",
+                    f"[Savvagent Flags] Failed to send evaluations: {response.status_code}",
                     file=sys.stderr,
                 )
         except Exception as e:
-            print(f"[Savvagent] Error sending evaluations: {e}", file=sys.stderr)
+            print(f"[Savvagent Flags] Error sending evaluations: {e}", file=sys.stderr)
 
     async def _flush_errors(self) -> None:
         """
@@ -408,11 +409,11 @@ class AsyncTelemetryService:
             )
             if not response.is_success:
                 print(
-                    f"[Savvagent] Failed to send errors: {response.status_code}",
+                    f"[Savvagent Flags] Failed to send errors: {response.status_code}",
                     file=sys.stderr,
                 )
         except Exception as e:
-            print(f"[Savvagent] Error sending errors: {e}", file=sys.stderr)
+            print(f"[Savvagent Flags] Error sending errors: {e}", file=sys.stderr)
 
     def _parse_timestamp(self, timestamp: str) -> int:
         """Parse ISO timestamp to Unix timestamp."""
@@ -430,10 +431,8 @@ class AsyncTelemetryService:
         self._closed = True
         if self._flush_task:
             self._flush_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._flush_task
-            except asyncio.CancelledError:
-                pass
             self._flush_task = None
         await self.flush()
         if self._client:

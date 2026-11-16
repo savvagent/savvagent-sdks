@@ -1,5 +1,5 @@
 """
-Savvagent Python Server SDK Types
+Savvagent Flags Python Server SDK Types
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ class FlagClientConfig:
     """
     Configuration for initializing the FlagClient.
 
-    Per SDK Developer Guide: https://flags-docs.savvagent.com/sdk-developer-guide
+    Per SDK Developer Guide: https://github.com/savvagent/flags-sdks/blob/master/docs/SDK-DEVELOPER-GUIDE.md
     """
 
     api_key: str
@@ -59,7 +59,7 @@ class FlagContext:
     """
     Context passed to flag evaluation.
 
-    Per SDK Developer Guide: https://flags-docs.savvagent.com/sdk-developer-guide
+    Per SDK Developer Guide: https://github.com/savvagent/flags-sdks/blob/master/docs/SDK-DEVELOPER-GUIDE.md
     """
 
     user_id: str | None = None
@@ -122,8 +122,19 @@ class FlagMetadata:
     """Metadata about a flag."""
 
     flag_id: str | None = None
+    """Not sent by the savvagent-flags server; always None from it, kept for compatibility."""
+
     description: str | None = None
+    """Not sent by the savvagent-flags server; always None from it, kept for compatibility."""
+
     variant: str | None = None
+    """Not sent by the savvagent-flags server; always None from it, kept for compatibility."""
+
+    version: int | None = None
+    """The flag version that produced this result."""
+
+    scope: str | None = None
+    """``"application"`` or ``"enterprise"``."""
 
 
 @dataclass
@@ -181,6 +192,12 @@ class CacheEntry:
 
     flag_id: str | None = None
     """Flag ID for reference."""
+
+    version: int | None = None
+    """Flag version that produced the cached result."""
+
+    scope: str | None = None
+    """Flag scope that produced the cached result."""
 
 
 @dataclass

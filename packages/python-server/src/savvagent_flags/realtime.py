@@ -1,5 +1,5 @@
 """
-Savvagent Python Server SDK - Realtime Service
+Savvagent Flags Python Server SDK - Realtime Service
 
 Per SDK Developer Guide: GET /api/flags/stream with Authorization header.
 """
@@ -7,6 +7,7 @@ Per SDK Developer Guide: GET /api/flags/stream with Authorization header.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import sys
 import threading
@@ -14,7 +15,7 @@ import time
 from typing import Any, Callable
 
 import httpx
-from httpx_sse import connect_sse, aconnect_sse
+from httpx_sse import aconnect_sse, connect_sse
 
 from .types import FlagUpdateEvent
 
@@ -37,7 +38,7 @@ class RealtimeService:
         Initialize the realtime service.
 
         Args:
-            base_url: Base URL for the Savvagent API.
+            base_url: Base URL for the Savvagent Flags API.
             api_key: API key for authentication.
             on_connection_change: Callback when connection state changes.
         """
@@ -69,47 +70,44 @@ class RealtimeService:
 
         while not self._closed and self._reconnect_attempts < self._max_reconnect_attempts:
             try:
-                with httpx.Client(timeout=None) as client:
-                    with connect_sse(
-                        client,
-                        "GET",
-                        url,
-                        headers={"Authorization": f"Bearer {self._api_key}"},
-                    ) as event_source:
-                        self._connected = True
-                        self._reconnect_attempts = 0
-                        self._reconnect_delay = 1.0
-                        self._on_connection_change(True)
-                        print("[Savvagent] Real-time connection established", file=sys.stderr)
+                with httpx.Client(timeout=None) as client, connect_sse(
+                    client,
+                    "GET",
+                    url,
+                    headers={"Authorization": f"Bearer {self._api_key}"},
+                ) as event_source:
+                    self._connected = True
+                    self._reconnect_attempts = 0
+                    self._reconnect_delay = 1.0
+                    self._on_connection_change(True)
+                    print("[Savvagent Flags] Real-time connection established", file=sys.stderr)
 
-                        for event in event_source.iter_sse():
-                            if self._closed:
-                                break
+                    for event in event_source.iter_sse():
+                        if self._closed:
+                            break
 
-                            # Handle different event types
-                            if event.event == "heartbeat":
-                                continue
-                            elif event.event == "connected":
-                                continue
-                            elif event.event in ("flag.created", "flag.updated", "flag.deleted"):
-                                self._handle_flag_event(event.event, event.data)
-                            elif event.data:
-                                # Fallback for generic messages
-                                try:
-                                    data = json.loads(event.data)
-                                    if "type" in data and "key" in data:
-                                        update_event = FlagUpdateEvent(
-                                            type=data["type"],
-                                            flag_key=data["key"],
-                                            data=data,
-                                        )
-                                        self._notify_subscribers(update_event)
-                                except json.JSONDecodeError:
-                                    pass
+                        # Handle different event types
+                        if event.event in ("heartbeat", "connected"):
+                            continue
+                        elif event.event in ("flag.created", "flag.updated", "flag.deleted"):
+                            self._handle_flag_event(event.event, event.data)
+                        elif event.data:
+                            # Fallback for generic messages
+                            try:
+                                data = json.loads(event.data)
+                                if "type" in data and "key" in data:
+                                    update_event = FlagUpdateEvent(
+                                        type=data["type"],
+                                        flag_key=data["key"],
+                                        data=data,
+                                    )
+                                    self._notify_subscribers(update_event)
+                            except json.JSONDecodeError:
+                                pass
 
             except Exception as e:
                 if not self._closed:
-                    print(f"[Savvagent] SSE connection error: {e}", file=sys.stderr)
+                    print(f"[Savvagent Flags] SSE connection error: {e}", file=sys.stderr)
                     self._handle_disconnect()
 
     def _handle_flag_event(
@@ -125,7 +123,7 @@ class RealtimeService:
             )
             self._notify_subscribers(update_event)
         except json.JSONDecodeError as e:
-            print(f"[Savvagent] Error parsing SSE event: {e}", file=sys.stderr)
+            print(f"[Savvagent Flags] Error parsing SSE event: {e}", file=sys.stderr)
 
     def _handle_disconnect(self) -> None:
         """Handle disconnection with exponential backoff reconnection."""
@@ -141,7 +139,7 @@ class RealtimeService:
         delay = min(exponential_delay, self._max_reconnect_delay)
 
         print(
-            f"[Savvagent] Reconnecting in {delay}s "
+            f"[Savvagent Flags] Reconnecting in {delay}s "
             f"(attempt {self._reconnect_attempts}/{self._max_reconnect_attempts})",
             file=sys.stderr,
         )
@@ -183,7 +181,7 @@ class RealtimeService:
             try:
                 callback(event)
             except Exception as e:
-                print(f"[Savvagent] Subscriber callback error: {e}", file=sys.stderr)
+                print(f"[Savvagent Flags] Subscriber callback error: {e}", file=sys.stderr)
 
         # Notify specific flag subscribers
         specific_callbacks = self._subscribers.get(event.flag_key, set())
@@ -191,7 +189,7 @@ class RealtimeService:
             try:
                 callback(event)
             except Exception as e:
-                print(f"[Savvagent] Subscriber callback error: {e}", file=sys.stderr)
+                print(f"[Savvagent Flags] Subscriber callback error: {e}", file=sys.stderr)
 
     @property
     def is_connected(self) -> bool:
@@ -227,7 +225,7 @@ class AsyncRealtimeService:
         Initialize the realtime service.
 
         Args:
-            base_url: Base URL for the Savvagent API.
+            base_url: Base URL for the Savvagent Flags API.
             api_key: API key for authentication.
             on_connection_change: Callback when connection state changes.
         """
@@ -258,47 +256,44 @@ class AsyncRealtimeService:
 
         while not self._closed and self._reconnect_attempts < self._max_reconnect_attempts:
             try:
-                async with httpx.AsyncClient(timeout=None) as client:
-                    async with aconnect_sse(
-                        client,
-                        "GET",
-                        url,
-                        headers={"Authorization": f"Bearer {self._api_key}"},
-                    ) as event_source:
-                        self._connected = True
-                        self._reconnect_attempts = 0
-                        self._reconnect_delay = 1.0
-                        self._on_connection_change(True)
-                        print("[Savvagent] Real-time connection established", file=sys.stderr)
+                async with httpx.AsyncClient(timeout=None) as client, aconnect_sse(
+                    client,
+                    "GET",
+                    url,
+                    headers={"Authorization": f"Bearer {self._api_key}"},
+                ) as event_source:
+                    self._connected = True
+                    self._reconnect_attempts = 0
+                    self._reconnect_delay = 1.0
+                    self._on_connection_change(True)
+                    print("[Savvagent Flags] Real-time connection established", file=sys.stderr)
 
-                        async for event in event_source.aiter_sse():
-                            if self._closed:
-                                break
+                    async for event in event_source.aiter_sse():
+                        if self._closed:
+                            break
 
-                            if event.event == "heartbeat":
-                                continue
-                            elif event.event == "connected":
-                                continue
-                            elif event.event in ("flag.created", "flag.updated", "flag.deleted"):
-                                await self._handle_flag_event(event.event, event.data)
-                            elif event.data:
-                                try:
-                                    data = json.loads(event.data)
-                                    if "type" in data and "key" in data:
-                                        update_event = FlagUpdateEvent(
-                                            type=data["type"],
-                                            flag_key=data["key"],
-                                            data=data,
-                                        )
-                                        await self._notify_subscribers(update_event)
-                                except json.JSONDecodeError:
-                                    pass
+                        if event.event in ("heartbeat", "connected"):
+                            continue
+                        elif event.event in ("flag.created", "flag.updated", "flag.deleted"):
+                            await self._handle_flag_event(event.event, event.data)
+                        elif event.data:
+                            try:
+                                data = json.loads(event.data)
+                                if "type" in data and "key" in data:
+                                    update_event = FlagUpdateEvent(
+                                        type=data["type"],
+                                        flag_key=data["key"],
+                                        data=data,
+                                    )
+                                    await self._notify_subscribers(update_event)
+                            except json.JSONDecodeError:
+                                pass
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 if not self._closed:
-                    print(f"[Savvagent] SSE connection error: {e}", file=sys.stderr)
+                    print(f"[Savvagent Flags] SSE connection error: {e}", file=sys.stderr)
                     await self._handle_disconnect()
 
     async def _handle_flag_event(
@@ -314,7 +309,7 @@ class AsyncRealtimeService:
             )
             await self._notify_subscribers(update_event)
         except json.JSONDecodeError as e:
-            print(f"[Savvagent] Error parsing SSE event: {e}", file=sys.stderr)
+            print(f"[Savvagent Flags] Error parsing SSE event: {e}", file=sys.stderr)
 
     async def _handle_disconnect(self) -> None:
         """Handle disconnection with exponential backoff reconnection."""
@@ -329,7 +324,7 @@ class AsyncRealtimeService:
         delay = min(exponential_delay, self._max_reconnect_delay)
 
         print(
-            f"[Savvagent] Reconnecting in {delay}s "
+            f"[Savvagent Flags] Reconnecting in {delay}s "
             f"(attempt {self._reconnect_attempts}/{self._max_reconnect_attempts})",
             file=sys.stderr,
         )
@@ -371,7 +366,7 @@ class AsyncRealtimeService:
             try:
                 callback(event)
             except Exception as e:
-                print(f"[Savvagent] Subscriber callback error: {e}", file=sys.stderr)
+                print(f"[Savvagent Flags] Subscriber callback error: {e}", file=sys.stderr)
 
         # Notify specific flag subscribers
         specific_callbacks = self._subscribers.get(event.flag_key, set())
@@ -379,7 +374,7 @@ class AsyncRealtimeService:
             try:
                 callback(event)
             except Exception as e:
-                print(f"[Savvagent] Subscriber callback error: {e}", file=sys.stderr)
+                print(f"[Savvagent Flags] Subscriber callback error: {e}", file=sys.stderr)
 
     @property
     def is_connected(self) -> bool:
@@ -392,10 +387,8 @@ class AsyncRealtimeService:
         self._reconnect_attempts = self._max_reconnect_attempts
         if self._connection_task:
             self._connection_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._connection_task
-            except asyncio.CancelledError:
-                pass
             self._connection_task = None
 
     async def close(self) -> None:

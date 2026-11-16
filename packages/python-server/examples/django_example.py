@@ -1,7 +1,7 @@
 """
-Django Example for Savvagent SDK
+Django Example for Savvagent Flags SDK
 
-This example demonstrates how to use the Savvagent SDK with Django,
+This example demonstrates how to use the Savvagent Flags SDK with Django,
 including singleton client pattern, middleware for context injection,
 and usage in views.
 
@@ -9,29 +9,33 @@ This file shows the pattern - actual Django projects would split this
 across settings.py, middleware.py, and views.py files.
 
 Requirements:
-    pip install savvagent django
+    pip install savvagent_flags django
 
 Setup:
-    1. Add 'savvagent_app' to INSTALLED_APPS
-    2. Add SavvagentMiddleware to MIDDLEWARE
+    1. Add 'savvagent_flags_app' to INSTALLED_APPS
+    2. Add SavvagentFlagsMiddleware to MIDDLEWARE
     3. Set SAVVAGENT_API_KEY in settings
 """
 
+from __future__ import annotations
+
 import os
 from functools import wraps
-from typing import Any
+
+from django.apps import AppConfig
+from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.views import View
 
 # =============================================================================
-# savvagent_client.py - Singleton client pattern
+# savvagent_flags_client.py - Singleton client pattern
 # =============================================================================
-
-from savvagent import FlagClient, FlagClientConfig, FlagContext
+from savvagent_flags import FlagClient, FlagClientConfig, FlagContext
 
 _client: FlagClient | None = None
 
 
-def get_savvagent_client() -> FlagClient:
-    """Get or create the Savvagent client singleton."""
+def get_savvagent_flags_client() -> FlagClient:
+    """Get or create the Savvagent Flags client singleton."""
     global _client
     if _client is None:
         from django.conf import settings
@@ -46,8 +50,8 @@ def get_savvagent_client() -> FlagClient:
     return _client
 
 
-def close_savvagent_client() -> None:
-    """Close the Savvagent client (call on shutdown)."""
+def close_savvagent_flags_client() -> None:
+    """Close the Savvagent Flags client (call on shutdown)."""
     global _client
     if _client is not None:
         _client.close()
@@ -58,20 +62,20 @@ def close_savvagent_client() -> None:
 # middleware.py - Request context extraction
 # =============================================================================
 
-from django.http import HttpRequest, HttpResponse
+# Uses HttpRequest, HttpResponse (imported at the top of this file)
 
 
-class SavvagentMiddleware:
+class SavvagentFlagsMiddleware:
     """Django middleware to attach flag context to requests."""
 
     def __init__(self, get_response):
         self.get_response = get_response
-        self.client = get_savvagent_client()
+        self.client = get_savvagent_flags_client()
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
         # Attach flag context to request
         request.flag_context = self._build_context(request)
-        request.savvagent = self.client
+        request.savvagent_flags = self.client
 
         response = self.get_response(request)
         return response
@@ -102,7 +106,7 @@ class SavvagentMiddleware:
 # decorators.py - View decorators for feature flags
 # =============================================================================
 
-from django.http import JsonResponse
+# Uses JsonResponse (imported at the top of this file)
 
 
 def require_feature(flag_key: str):
@@ -111,7 +115,7 @@ def require_feature(flag_key: str):
     def decorator(view_func):
         @wraps(view_func)
         def wrapper(request: HttpRequest, *args, **kwargs):
-            client = get_savvagent_client()
+            client = get_savvagent_flags_client()
             context = getattr(request, "flag_context", FlagContext())
 
             if not client.is_enabled(flag_key, context):
@@ -132,7 +136,7 @@ def with_feature_flag(flag_key: str, attribute_name: str = "feature_enabled"):
     def decorator(view_func):
         @wraps(view_func)
         def wrapper(request: HttpRequest, *args, **kwargs):
-            client = get_savvagent_client()
+            client = get_savvagent_flags_client()
             context = getattr(request, "flag_context", FlagContext())
 
             setattr(request, attribute_name, client.is_enabled(flag_key, context))
@@ -147,17 +151,17 @@ def with_feature_flag(flag_key: str, attribute_name: str = "feature_enabled"):
 # views.py - Example views
 # =============================================================================
 
-from django.views import View
+# Uses View (imported at the top of this file)
 
 
 def health_check(request: HttpRequest) -> JsonResponse:
     """Health check endpoint."""
-    return JsonResponse({"status": "ok", "service": "savvagent-django-example"})
+    return JsonResponse({"status": "ok", "service": "savvagent-flags-django-example"})
 
 
 def get_features(request: HttpRequest, user_id: str) -> JsonResponse:
     """Get feature flags for a user."""
-    client = request.savvagent
+    client = request.savvagent_flags
     context = request.flag_context
     context.user_id = user_id
 
@@ -177,7 +181,7 @@ def get_features(request: HttpRequest, user_id: str) -> JsonResponse:
 
 def get_settings(request: HttpRequest) -> JsonResponse:
     """Get dynamic configuration from a feature flag."""
-    client = request.savvagent
+    client = request.savvagent_flags
     context = request.flag_context
 
     processing_config = client.get_config(
@@ -193,7 +197,7 @@ def get_settings(request: HttpRequest) -> JsonResponse:
 
 def get_experiment(request: HttpRequest) -> JsonResponse:
     """Get A/B test variation for a user."""
-    client = request.savvagent
+    client = request.savvagent_flags
     context = request.flag_context
 
     variation = client.get_variation("checkout-experiment", context)
@@ -216,7 +220,7 @@ class FeatureGatedView(View):
     """Class-based view with feature flag."""
 
     def get(self, request: HttpRequest) -> JsonResponse:
-        client = request.savvagent
+        client = request.savvagent_flags
         context = request.flag_context
 
         if client.is_enabled("new-dashboard", context):
@@ -229,24 +233,24 @@ class FeatureGatedView(View):
 # apps.py - Django app configuration with cleanup
 # =============================================================================
 
-from django.apps import AppConfig
+# Uses AppConfig (imported at the top of this file)
 
 
-class SavvagentAppConfig(AppConfig):
-    """Django app configuration for Savvagent integration."""
+class SavvagentFlagsAppConfig(AppConfig):
+    """Django app configuration for Savvagent Flags integration."""
 
-    name = "savvagent_app"
-    verbose_name = "Savvagent Feature Flags"
+    name = "savvagent_flags_app"
+    verbose_name = "Savvagent Flags Feature Flags"
 
     def ready(self) -> None:
-        """Initialize Savvagent client on app startup."""
+        """Initialize Savvagent Flags client on app startup."""
         import atexit
 
         # Initialize the client
-        get_savvagent_client()
+        get_savvagent_flags_client()
 
         # Register cleanup on shutdown
-        atexit.register(close_savvagent_client)
+        atexit.register(close_savvagent_flags_client)
 
 
 # =============================================================================
@@ -276,5 +280,5 @@ class SavvagentAppConfig(AppConfig):
 #
 # MIDDLEWARE = [
 #     ...
-#     'your_app.middleware.SavvagentMiddleware',
+#     'your_app.middleware.SavvagentFlagsMiddleware',
 # ]

@@ -1,10 +1,10 @@
-# savvagent
+# savvagent-flags
 
-Official Python Server SDK for Savvagent - AI-powered feature flags with automatic error detection.
+Official Python Server SDK for Savvagent Flags - AI-powered feature flags with automatic error detection.
 
 ## Features
 
-- 🚀 **Fast Evaluation**: In-memory caching with configurable TTL
+- 🚀 **Fast Evaluation**: In-memory caching with configurable TTL; results are cached per flag and per evaluation context (the context as sent), for `cache_ttl` seconds
 - 🔄 **Real-time Updates**: Automatic cache invalidation via Server-Sent Events
 - 📊 **Telemetry**: Automatic tracking of flag evaluations and errors
 - 🤖 **AI Error Detection**: Correlate errors with flag changes
@@ -14,16 +14,28 @@ Official Python Server SDK for Savvagent - AI-powered feature flags with automat
 
 ## Installation
 
+The package is not published to PyPI yet. Install it from the repository, pinned to a commit:
+
 ```bash
-pip install savvagent
+pip install "savvagent-flags @ git+https://github.com/savvagent/flags-sdks@<commit>#subdirectory=packages/python-server"
 ```
+
+or in `pyproject.toml`:
+
+```toml
+dependencies = [
+    "savvagent-flags @ git+https://github.com/savvagent/flags-sdks@<commit>#subdirectory=packages/python-server",
+]
+```
+
+The distribution is `savvagent-flags`; the import name is `savvagent_flags`.
 
 ## Quick Start
 
 ### Synchronous Usage
 
 ```python
-from savvagent import FlagClient, FlagClientConfig, FlagContext
+from savvagent_flags import FlagClient, FlagClientConfig, FlagContext
 
 # Initialize the client
 config = FlagClientConfig(
@@ -47,7 +59,7 @@ with FlagClient(config) as client:
 ### Asynchronous Usage
 
 ```python
-from savvagent import AsyncFlagClient, FlagClientConfig, FlagContext
+from savvagent_flags import AsyncFlagClient, FlagClientConfig, FlagContext
 
 config = FlagClientConfig(api_key="sdk_your_api_key_here")
 
@@ -59,7 +71,7 @@ async with AsyncFlagClient(config) as client:
 ## Configuration
 
 ```python
-from savvagent import FlagClientConfig
+from savvagent_flags import FlagClientConfig
 
 config = FlagClientConfig(
     api_key="sdk_your_api_key_here",
@@ -73,7 +85,7 @@ config = FlagClientConfig(
         "feature-a": False,
         "feature-b": True,
     },
-    on_error=lambda e: print(f"Savvagent error: {e}"),
+    on_error=lambda e: print(f"Savvagent Flags error: {e}"),
 )
 ```
 
@@ -156,7 +168,7 @@ atexit.register(client.close)
 ### Configuration Overrides (Testing)
 
 ```python
-from savvagent import ConfigOverrideOptions
+from savvagent_flags import ConfigOverrideOptions
 
 # Override configuration for testing
 client.set_config_override("ui-settings", {"theme": "dark", "new_feature": True})
@@ -182,7 +194,7 @@ client.clear_all_overrides()
 ```python
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, Request
-from savvagent import AsyncFlagClient, FlagClientConfig, FlagContext
+from savvagent_flags import AsyncFlagClient, FlagClientConfig, FlagContext
 
 client: AsyncFlagClient | None = None
 
@@ -215,7 +227,7 @@ async def get_feature(user_id: str, context: FlagContext = Depends(get_flag_cont
 ```python
 import atexit
 from flask import Flask, g, request
-from savvagent import FlagClient, FlagClientConfig, FlagContext
+from savvagent_flags import FlagClient, FlagClientConfig, FlagContext
 
 app = Flask(__name__)
 
@@ -241,7 +253,7 @@ def get_feature(user_id: str):
 
 ```python
 # middleware.py
-from savvagent import FlagClient, FlagClientConfig, FlagContext
+from savvagent_flags import FlagClient, FlagClientConfig, FlagContext
 
 _client = None
 
@@ -254,12 +266,12 @@ def get_client():
         ))
     return _client
 
-class SavvagentMiddleware:
+class SavvagentFlagsMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request):
-        request.savvagent = get_client()
+        request.savvagent_flags = get_client()
         request.flag_context = FlagContext(
             user_id=str(request.user.id) if request.user.is_authenticated else None,
             ip_address=request.META.get("REMOTE_ADDR"),
@@ -268,7 +280,7 @@ class SavvagentMiddleware:
 
 # views.py
 def my_view(request):
-    enabled = request.savvagent.is_enabled("new-feature", request.flag_context)
+    enabled = request.savvagent_flags.is_enabled("new-feature", request.flag_context)
     return JsonResponse({"enabled": enabled})
 ```
 
@@ -293,6 +305,11 @@ Evaluate a feature flag and return detailed results.
 result = client.evaluate("my-flag", FlagContext(user_id="123"))
 # Returns: FlagEvaluationResult(key, value, configuration, variation, reason, metadata)
 ```
+
+`result.metadata.version` is the flag version that produced the result (an `int`) and
+`result.metadata.scope` is `"application"` or `"enterprise"`; both are also set on `cached`
+results, and are `None` if the server omits them or sends the wrong type. `flag_id`,
+`description` and `variant` are not sent by the savvagent-flags server and are always `None` from it.
 
 ##### is_enabled(flag_key, context?) → bool
 
@@ -394,6 +411,6 @@ MIT
 
 ## Support
 
-- Documentation: https://flags-docs.savvagent.com
+- Documentation: https://github.com/savvagent/flags-sdks#readme
 - Issues: https://github.com/savvagent/flags-sdks/issues
 - Email: support@savvagent.com
