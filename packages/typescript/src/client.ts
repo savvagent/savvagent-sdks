@@ -15,6 +15,23 @@ type ApiEvaluateRequest = components['schemas']['EvaluateFlag'];
 type ApiEvaluateResponse = components['schemas']['FlagEvaluationResponse'];
 
 /**
+ * Whether `key` can be a flag key. Mirrors the server's rule: 1-128 characters
+ * from `[A-Za-z0-9._-]`, and not `.` or `..`. The key is sent as one URL path
+ * segment, and `.` and `..` cannot be carried in one (clients normalize them
+ * away), so no flag can have those keys. Checking before the request keeps an
+ * invalid key, and the SDK key sent with it, from steering the request to
+ * another endpoint.
+ */
+function isValidFlagKey(key: unknown): boolean {
+  return (
+    typeof key === 'string' &&
+    key !== '.' &&
+    key !== '..' &&
+    /^[A-Za-z0-9._-]{1,128}$/.test(key)
+  );
+}
+
+/**
  * Savvagent Client for feature flag evaluation with AI-powered error detection
  */
 export class FlagClient {
@@ -367,6 +384,27 @@ export class FlagClient {
    * @returns Promise<FlagEvaluationResult>
    */
   async evaluate(flagKey: string, context?: FlagContext): Promise<FlagEvaluationResult> {
+    if (!isValidFlagKey(flagKey)) {
+      // Untyped callers can pass anything here.
+      const key: unknown = flagKey;
+      const described =
+        typeof key === 'string'
+          ? `${JSON.stringify(key.slice(0, 64))} (length ${key.length})`
+          : `non-string value of type ${typeof key}`;
+      const error = new Error(
+        `Invalid flag key ${described}: keys are 1-128 characters of [A-Za-z0-9._-] and not "." or ".."`
+      );
+      this.config.onError(error);
+      return {
+        key: String(key),
+        value: (typeof key === 'string' ? this.config.defaults[key] : undefined) ?? false,
+        reason: 'error',
+        metadata: {
+          description: error.message,
+        },
+      };
+    }
+
     const startTime = Date.now();
     const traceId = TelemetryService.generateTraceId();
 
@@ -420,6 +458,10 @@ export class FlagClient {
         context: evaluationContext as any,
       };
 
+      // Read before the request: if the flag is invalidated while it is in
+      // flight, its result is stale and is not cached.
+      const generation = this.cache.generation(flagKey);
+
       // Fetch from API with retry logic
       const response = await this.fetchWithRetry(
         () => {
@@ -428,7 +470,7 @@ export class FlagClient {
             controller.abort();
           }, 10000);
 
-          return fetch(`${this.config.baseUrl}/api/flags/${flagKey}/evaluate`, {
+          return fetch(`${this.config.baseUrl}/api/flags/${encodeURIComponent(flagKey)}/evaluate`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -455,7 +497,7 @@ export class FlagClient {
       };
 
       // Cache the result for this context (use key as ID since response doesn't include UUID)
-      this.cache.set(flagKey, value, data.key, contextKey, metadata);
+      this.cache.set(flagKey, value, data.key, contextKey, metadata, generation);
 
       // Track evaluation
       const durationMs = Date.now() - startTime;
@@ -600,7 +642,8 @@ export class FlagClient {
 
   /**
    * Set a local override for a flag.
-   * Overrides take precedence over server values and cache.
+   * Overrides take precedence over server values and cache. Setting one
+   * invalidates the flag's cached results, so an evaluation in flight is not cached.
    *
    * @param flagKey - The flag key to override
    * @param value - The override value (true/false)
@@ -613,17 +656,20 @@ export class FlagClient {
    */
   setOverride(flagKey: string, value: boolean): void {
     this.overrides.set(flagKey, value);
+    this.cache.invalidate(flagKey);
     this.notifyOverrideListeners();
   }
 
   /**
    * Clear a local override for a flag.
-   * The flag will return to using server/cached values.
+   * The flag will return to using server values. Its cached results are
+   * invalidated, so the next evaluation asks the server again.
    *
    * @param flagKey - The flag key to clear override for
    */
   clearOverride(flagKey: string): void {
     this.overrides.delete(flagKey);
+    this.cache.invalidate(flagKey);
     this.notifyOverrideListeners();
   }
 
@@ -631,6 +677,7 @@ export class FlagClient {
    * Clear all local overrides.
    */
   clearAllOverrides(): void {
+    this.overrides.forEach((_value, key) => this.cache.invalidate(key));
     this.overrides.clear();
     this.notifyOverrideListeners();
   }
@@ -676,6 +723,7 @@ export class FlagClient {
   setOverrides(overrides: Record<string, boolean>): void {
     Object.entries(overrides).forEach(([key, value]) => {
       this.overrides.set(key, value);
+      this.cache.invalidate(key);
     });
     this.notifyOverrideListeners();
   }
