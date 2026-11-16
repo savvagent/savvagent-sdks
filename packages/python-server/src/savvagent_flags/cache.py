@@ -14,6 +14,9 @@ from .types import CacheEntry
 MAX_CONTEXTS_PER_FLAG = 10_000
 """Most distinct evaluation contexts cached for one flag; bounds memory."""
 
+MAX_GENERATIONS = 10_000
+"""Most per-flag invalidation counters kept before a new epoch replaces them."""
+
 
 class FlagCache:
     """
@@ -37,6 +40,7 @@ class FlagCache:
         # before it can be dropped (see generation()).
         self._epoch = 0
         self._generations: dict[str, int] = {}
+        self._max_generations = MAX_GENERATIONS
         self._lock = threading.RLock()
 
     def _generation(self, key: str) -> tuple[int, int]:
@@ -45,6 +49,11 @@ class FlagCache:
     def _bump(self, key: str | None) -> None:
         if key:
             self._generations[key] = self._generations.get(key, 0) + 1
+            # Bound the map: past the cap a new epoch invalidates every
+            # outstanding generation at once, so the counters can be dropped.
+            if len(self._generations) > self._max_generations:
+                self._epoch += 1
+                self._generations.clear()
         else:
             self._epoch += 1
             self._generations.clear()
@@ -215,6 +224,7 @@ class AsyncFlagCache:
         # before it can be dropped (see generation()).
         self._epoch = 0
         self._generations: dict[str, int] = {}
+        self._max_generations = MAX_GENERATIONS
         self._lock = asyncio.Lock()
 
     def _generation(self, key: str) -> tuple[int, int]:
@@ -223,6 +233,11 @@ class AsyncFlagCache:
     def _bump(self, key: str | None) -> None:
         if key:
             self._generations[key] = self._generations.get(key, 0) + 1
+            # Bound the map: past the cap a new epoch invalidates every
+            # outstanding generation at once, so the counters can be dropped.
+            if len(self._generations) > self._max_generations:
+                self._epoch += 1
+                self._generations.clear()
         else:
             self._epoch += 1
             self._generations.clear()

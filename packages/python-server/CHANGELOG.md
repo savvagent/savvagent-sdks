@@ -7,19 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.1.0] - Unreleased
 
+### Changed (breaking)
+
+- The distribution is renamed from `savvagent` to `savvagent-flags` (`pip install savvagent-flags`), and the import package from `savvagent` to `savvagent_flags`
+
+### Added
+
+- The default `base_url` is `https://api.savvagent.com/flags`
+- `InvalidFlagKeyError`: a flag key that is not 1-128 characters of `[A-Za-z0-9._-]` (or is `.` or `..`) is rejected before any request is made
+- Evaluation results carry the flag `version` and `scope` metadata
+- An evaluation in flight when its flag is invalidated no longer re-caches its stale result
+
 ### Fixed
 
+- `track_error` falls back to the flag's last evaluated value only when called without a context; a cache miss for a given context reports `False` instead of another user's value
+- The last evaluated value is remembered only when no invalidation overtook the request, and it is forgotten on a realtime update and by `invalidate_cache`
+- Keys from the realtime stream are validated before the cache is invalidated; invalid or non-string keys and malformed generic messages are skipped without dropping the connection
+- The per-flag invalidation counters are bounded: past 10,000 flags a new epoch replaces them
 - Evaluations are cached per flag and per evaluation context, not per flag key alone, so one user's result is no longer served to another
 - The flag key is sent as a single, percent-encoded path segment
 - The client follows the documented evaluate contract
-- Examples and the mypy configuration hold to the declared Python 3.9 floor
+- Examples hold to the declared Python 3.9 floor; mypy runs with `python_version = "3.10"` because mypy no longer accepts 3.9 as a target
 - `ruff check` passes and is part of the gate
+- `uv.lock` is committed so CI installs reproducibly
 
 ## [1.0.0] - 2024-12-19
 
 ### Added
 
-- Initial release of the Otto Flags Python Server SDK
+- Initial release of the Savvagent Python Server SDK
 - `FlagClient` - Synchronous client for feature flag evaluation
 - `AsyncFlagClient` - Asynchronous client for async applications
 - `FlagCache` and `AsyncFlagCache` - TTL-based in-memory caching

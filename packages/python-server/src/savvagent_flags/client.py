@@ -104,8 +104,13 @@ class FlagClient:
             )
 
             # Subscribe to all flag updates to invalidate cache
-            self._realtime.subscribe("*", lambda event: self._cache.invalidate(event.flag_key))
+            self._realtime.subscribe("*", self._on_realtime_update)
             self._realtime.connect()
+
+    def _on_realtime_update(self, event: Any) -> None:
+        """Invalidate the cache and forget the flag's last value."""
+        self._cache.invalidate(event.flag_key)
+        self._last_values.pop(event.flag_key, None)
 
     def __enter__(self) -> FlagClient:
         """Context manager entry."""
@@ -208,7 +213,9 @@ class FlagClient:
             response.raise_for_status()
 
             data, value = evaluate_payload(response.json())
-            self._last_values[flag_key] = value
+            # Only remember a response that no invalidation overtook.
+            if self._cache.generation(flag_key) == generation:
+                self._last_values[flag_key] = value
             version, scope = response_metadata(data)
 
             # Cache the result (including configuration and variation)
@@ -384,7 +391,9 @@ class FlagClient:
                 cached = self._cache.get(flag_key, context_key=ctx_key)
         except Exception:
             cached = None
-        if cached is None:
+        if cached is None and context is None:
+            # Only a context-less error may borrow the flag's latest value; a
+            # miss for a given context must not report another user's value.
             cached = self._last_values.get(flag_key)
         flag_enabled = bool(cached)
 
@@ -408,6 +417,10 @@ class FlagClient:
             flag_key: The flag key to invalidate, or None for all flags.
         """
         self._cache.invalidate(flag_key)
+        if flag_key is None:
+            self._last_values.clear()
+        else:
+            self._last_values.pop(flag_key, None)
 
     def set_environment(self, environment: str) -> None:
         """

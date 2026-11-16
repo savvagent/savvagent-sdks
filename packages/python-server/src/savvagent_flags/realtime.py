@@ -17,6 +17,7 @@ from typing import Any, Callable
 import httpx
 from httpx_sse import aconnect_sse, connect_sse
 
+from ._flag_key import is_valid_flag_key
 from .types import FlagUpdateEvent
 
 
@@ -93,22 +94,30 @@ class RealtimeService:
                             self._handle_flag_event(event.event, event.data)
                         elif event.data:
                             # Fallback for generic messages
-                            try:
-                                data = json.loads(event.data)
-                                if "type" in data and "key" in data:
-                                    update_event = FlagUpdateEvent(
-                                        type=data["type"],
-                                        flag_key=data["key"],
-                                        data=data,
-                                    )
-                                    self._notify_subscribers(update_event)
-                            except json.JSONDecodeError:
-                                pass
+                            self._handle_generic_message(event.data)
 
             except Exception as e:
                 if not self._closed:
                     print(f"[Savvagent Flags] SSE connection error: {e}", file=sys.stderr)
                     self._handle_disconnect()
+
+    def _handle_generic_message(self, raw: str) -> None:
+        """Handle an untyped SSE message; anything malformed is ignored."""
+        try:
+            data = json.loads(raw)
+            if (
+                isinstance(data, dict)
+                and "type" in data
+                and is_valid_flag_key(data.get("key"))
+            ):
+                update_event = FlagUpdateEvent(
+                    type=data["type"],
+                    flag_key=data["key"],
+                    data=data,
+                )
+                self._notify_subscribers(update_event)
+        except (ValueError, TypeError, KeyError):
+            pass
 
     def _handle_flag_event(
         self, event_type: str, data: str
@@ -116,13 +125,16 @@ class RealtimeService:
         """Handle flag events from the SSE stream."""
         try:
             parsed = json.loads(data)
+            if not isinstance(parsed, dict) or not is_valid_flag_key(parsed.get("key")):
+                # Not a usable key: never invalidate on it.
+                return
             update_event = FlagUpdateEvent(
                 type=event_type,  # type: ignore
-                flag_key=parsed.get("key", ""),
+                flag_key=parsed["key"],
                 data=parsed,
             )
             self._notify_subscribers(update_event)
-        except json.JSONDecodeError as e:
+        except (ValueError, TypeError, KeyError) as e:
             print(f"[Savvagent Flags] Error parsing SSE event: {e}", file=sys.stderr)
 
     def _handle_disconnect(self) -> None:
@@ -277,17 +289,7 @@ class AsyncRealtimeService:
                         elif event.event in ("flag.created", "flag.updated", "flag.deleted"):
                             await self._handle_flag_event(event.event, event.data)
                         elif event.data:
-                            try:
-                                data = json.loads(event.data)
-                                if "type" in data and "key" in data:
-                                    update_event = FlagUpdateEvent(
-                                        type=data["type"],
-                                        flag_key=data["key"],
-                                        data=data,
-                                    )
-                                    await self._notify_subscribers(update_event)
-                            except json.JSONDecodeError:
-                                pass
+                            await self._handle_generic_message(event.data)
 
             except asyncio.CancelledError:
                 break
@@ -296,19 +298,40 @@ class AsyncRealtimeService:
                     print(f"[Savvagent Flags] SSE connection error: {e}", file=sys.stderr)
                     await self._handle_disconnect()
 
+    async def _handle_generic_message(self, raw: str) -> None:
+        """Handle an untyped SSE message; anything malformed is ignored."""
+        try:
+            data = json.loads(raw)
+            if (
+                isinstance(data, dict)
+                and "type" in data
+                and is_valid_flag_key(data.get("key"))
+            ):
+                update_event = FlagUpdateEvent(
+                    type=data["type"],
+                    flag_key=data["key"],
+                    data=data,
+                )
+                await self._notify_subscribers(update_event)
+        except (ValueError, TypeError, KeyError):
+            pass
+
     async def _handle_flag_event(
         self, event_type: str, data: str
     ) -> None:
         """Handle flag events from the SSE stream."""
         try:
             parsed = json.loads(data)
+            if not isinstance(parsed, dict) or not is_valid_flag_key(parsed.get("key")):
+                # Not a usable key: never invalidate on it.
+                return
             update_event = FlagUpdateEvent(
                 type=event_type,  # type: ignore
-                flag_key=parsed.get("key", ""),
+                flag_key=parsed["key"],
                 data=parsed,
             )
             await self._notify_subscribers(update_event)
-        except json.JSONDecodeError as e:
+        except (ValueError, TypeError, KeyError) as e:
             print(f"[Savvagent Flags] Error parsing SSE event: {e}", file=sys.stderr)
 
     async def _handle_disconnect(self) -> None:
