@@ -5,13 +5,13 @@
          http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>com.savvagent</groupId>
+    <groupId>com.savvagent.flags</groupId>
     <artifactId>java-server-example</artifactId>
     <version>0.0.0</version>
     <packaging>jar</packaging>
 
-    <name>Savvagent Java Server Example</name>
-    <description>Example Java/Spring Boot application using Savvagent SDK</description>
+    <name>Savvagent Flags Java Server Example</name>
+    <description>Example Java/Spring Boot application using Savvagent Flags SDK</description>
 
     <parent>
         <groupId>org.springframework.boot</groupId>
@@ -34,8 +34,8 @@
         </dependency>
 
         <dependency>
-            <groupId>com.savvagent</groupId>
-            <artifactId>savvagent-java-server-sdk</artifactId>
+            <groupId>com.savvagent.flags</groupId>
+            <artifactId>savvagent-flags-java-server-sdk</artifactId>
             <version>0.1.0</version>
         </dependency>
 

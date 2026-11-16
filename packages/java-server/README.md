@@ -1,6 +1,6 @@
-# Savvagent Java Server SDK
+# Savvagent Flags Java Server SDK
 
-Official Java Server SDK for Savvagent - AI-powered feature flags with automatic error detection.
+Official Java Server SDK for Savvagent Flags - AI-powered feature flags with automatic error detection.
 
 ## Features
 
@@ -22,8 +22,8 @@ Official Java Server SDK for Savvagent - AI-powered feature flags with automatic
 
 ```xml
 <dependency>
-    <groupId>com.savvagent</groupId>
-    <artifactId>savvagent-java-server-sdk</artifactId>
+    <groupId>com.savvagent.flags</groupId>
+    <artifactId>savvagent-flags-java-server-sdk</artifactId>
     <version>0.1.0</version>
 </dependency>
 ```
@@ -31,13 +31,13 @@ Official Java Server SDK for Savvagent - AI-powered feature flags with automatic
 ### Gradle
 
 ```gradle
-implementation 'com.savvagent:savvagent-java-server-sdk:0.1.0'
+implementation 'com.savvagent.flags:savvagent-flags-java-server-sdk:0.1.0'
 ```
 
 ## Quick Start
 
 ```java
-import com.savvagent.sdk.*;
+import com.savvagent.flags.sdk.*;
 
 // Initialize the client
 FlagClientConfig config = FlagClientConfig.builder("sdk_your_api_key_here")
@@ -68,8 +68,8 @@ client.close();
 FlagClientConfig config = FlagClientConfig.builder("sdk_your_api_key_here")
     .applicationId("your-app-id")
     .baseUrl("https://api.savvagent.com/flags") // optional
-    .enableRealtime(true) // default: true
-    .cacheTtl(60000L) // default: 60 seconds
+    .enableRealtime(true) // default: true; opens the update stream
+    .cacheTtl(60000L) // default: 60 seconds; results are cached per flag and per context
     .enableTelemetry(true) // default: true
     .timeout(5000) // request timeout in ms, default: 5000
     .defaults(Map.of(
@@ -77,12 +77,23 @@ FlagClientConfig config = FlagClientConfig.builder("sdk_your_api_key_here")
         "feature-b", true
     ))
     .onError(error -> {
-        logger.error("Savvagent error", error);
+        logger.error("Savvagent Flags error", error);
     })
     .build();
 
 FlagClient client = new FlagClient(config);
 ```
+
+### Real-time updates
+
+Real-time updates are on by default. The client reads the server's flag-change stream on a daemon
+thread and drops a changed flag's cached results as soon as the change arrives, so a kill switch
+does not wait for `cacheTtl`. The stream never delays or fails a lookup; while it is down,
+`cacheTtl` bounds how stale a result can be. It reconnects with exponential backoff (about 1 second
+up to 30 seconds, 5 minutes if the key is rejected) and drops the whole cache on every connection,
+since changes may have been missed. Turn it off with `.enableRealtime(false)`. Call `close()` to stop
+it. `onError` is called once per failed connection attempt, possibly from the stream thread, so it
+must be safe for concurrent use.
 
 ## Usage Examples
 
@@ -95,14 +106,14 @@ import org.springframework.beans.factory.annotation.Value;
 import javax.annotation.PreDestroy;
 
 @Configuration
-public class SavvagentConfig {
+public class SavvagentFlagsConfig {
 
     private FlagClient flagClient;
 
     @Bean
     public FlagClient flagClient(
-        @Value("${savvagent.api-key}") String apiKey,
-        @Value("${savvagent.app-id}") String appId
+        @Value("${savvagentFlags.api-key}") String apiKey,
+        @Value("${savvagentFlags.app-id}") String appId
     ) {
         FlagClientConfig config = FlagClientConfig.builder(apiKey)
             .applicationId(appId)
@@ -244,8 +255,16 @@ Evaluate a feature flag and return detailed results.
 
 ```java
 FlagEvaluationResult result = client.evaluate("my-flag", context);
-// Returns: FlagEvaluationResult with key, value, reason, metadata
+// Returns: FlagEvaluationResult with key, value, configuration, variation, reason, metadata
+
+result.getMetadata().getVersion(); // Long: the flag version the server evaluated
+result.getMetadata().getScope();   // String: the evaluation scope, e.g. "application"
 ```
+
+`getVersion()` and `getScope()` are null when the server sent none or a malformed value.
+`getFlagId()`, `getDescription()` and `getVariant()` are not sent by the savvagent-flags server and
+stay null. A result with reason `cached` carries the same version and scope as the evaluation
+it came from; a result with reason `error` has null metadata.
 
 ##### isEnabled(String flagKey, FlagContext context)
 
@@ -302,7 +321,7 @@ The SDK uses SLF4J for logging. Configure your logging framework accordingly:
 
 ```xml
 <!-- Logback example -->
-<logger name="com.savvagent.sdk" level="INFO"/>
+<logger name="com.savvagent.flags.sdk" level="INFO"/>
 ```
 
 ## Build from Source
@@ -317,6 +336,6 @@ MIT
 
 ## Support
 
-- Documentation: https://flags-docs.savvagent.com
+- Documentation: https://github.com/savvagent/flags-sdks#readme
 - Issues: https://github.com/savvagent/flags-sdks/issues
 - Email: support@savvagent.com

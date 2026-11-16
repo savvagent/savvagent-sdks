@@ -4,13 +4,13 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>com.savvagent</groupId>
-    <artifactId>savvagent-java-server-sdk</artifactId>
+    <groupId>com.savvagent.flags</groupId>
+    <artifactId>savvagent-flags-java-server-sdk</artifactId>
     <version>0.1.0</version>
     <packaging>jar</packaging>
 
-    <name>Savvagent Java Server SDK</name>
-    <description>Java Server SDK for Savvagent feature flags with AI-powered error detection</description>
+    <name>Savvagent Flags Java Server SDK</name>
+    <description>Java Server SDK for Savvagent Flags feature flags with AI-powered error detection</description>
     <url>https://github.com/savvagent/flags-sdks</url>
 
     <licenses>
@@ -22,16 +22,16 @@
 
     <developers>
         <developer>
-            <name>Savvagent Team</name>
+            <name>Savvagent Flags Team</name>
             <email>support@savvagent.com</email>
-            <organization>Savvagent</organization>
-            <organizationUrl>https://flags.savvagent.com</organizationUrl>
+            <organization>Savvagent Flags</organization>
+            <organizationUrl>https://github.com/savvagent/flags-sdks</organizationUrl>
         </developer>
     </developers>
 
     <scm>
         <connection>scm:git:git://github.com/savvagent/flags-sdks.git</connection>
-        <developerConnection>scm:git:ssh://git@github.com/savvagent/flags-sdks.git</developerConnection>
+        <developerConnection>scm:git:ssh://github.com:savvagent/flags-sdks.git</developerConnection>
         <url>https://github.com/savvagent/flags-sdks/tree/master/packages/java-server</url>
     </scm>
 
