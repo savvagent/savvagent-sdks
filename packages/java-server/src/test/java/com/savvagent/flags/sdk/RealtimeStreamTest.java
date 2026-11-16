@@ -4,11 +4,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -28,6 +31,7 @@ import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
 import okhttp3.mockwebserver.SocketPolicy;
+import okio.Buffer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -355,6 +359,65 @@ class RealtimeStreamTest {
     }
 
     @Test
+    void anEndlessLineDropsTheConnectionAndTheClientReconnects() throws Exception {
+        // The headers, then about 5 MiB with no line end: a reader without a cap would buffer
+        // it all, and an endless one until the JVM runs out of memory.
+        byte[] line = new byte[5 * 1024 * 1024];
+        Arrays.fill(line, (byte) 'x');
+        CountDownLatch release = latch();
+        stream = n -> {
+            if (n == 1) {
+                return new MockResponse()
+                        .setHeader("Content-Type", "text/event-stream")
+                        .setBody(new Buffer().writeUtf8("event: flag.updated\ndata: ").write(line));
+            }
+            if (n == 2 && await(release)) {
+                return events("event: flag.updated\ndata: {\"key\":\"f\"}\n\n");
+            }
+            return hold();
+        };
+        FlagClient c = client();
+
+        waitFor("a reconnect after the oversized event", () -> streams.get() >= 2);
+        waitFor("the oversized event to be reported", () -> !errors.isEmpty());
+        assertEquals(1, errors.size(), errors.toString());
+        Exception error = errors.get(0);
+        assertTrue(error instanceof RealtimeStream.EventTooLargeException, error.toString());
+        assertFalse(error.getMessage().contains(KEY), "the key leaked into the error");
+        assertFalse(c.realtimeStream().isClosed());
+
+        // The client still evaluates, caches, and applies events from the new connection.
+        assertEquals("evaluated", reason(c, "f"));
+        assertEquals("cached", reason(c, "f"));
+        release.countDown();
+        waitFor("the reconnected stream to invalidate the flag",
+                () -> "evaluated".equals(reason(c, "f")));
+    }
+
+    @Test
+    void anEventJustUnderTheCapIsDelivered() throws Exception {
+        String prefix = "event: flag.updated\ndata: {\"key\":\"f\",\"pad\":\"";
+        String suffix = "\"}\n\n";
+        // The event's lines, each with its terminator, come to exactly the cap.
+        int pad = RealtimeStream.MAX_EVENT_BYTES - prefix.length() - suffix.length() + 1;
+        char[] padding = new char[pad];
+        Arrays.fill(padding, 'x');
+        String body = prefix + new String(padding) + suffix;
+        CountDownLatch release = latch();
+        stream = n -> n == 1 && await(release) ? events(body) : hold();
+        FlagClient c = client();
+        waitFor("the stream request", () -> streams.get() >= 1);
+
+        assertEquals("evaluated", reason(c, "f"));
+        assertEquals("cached", reason(c, "f"));
+        release.countDown();
+
+        waitFor("the large event to invalidate the flag",
+                () -> "evaluated".equals(reason(c, "f")));
+        assertTrue(errors.isEmpty(), errors.toString());
+    }
+
+    @Test
     void anIdleStreamIsDroppedAndReopened() throws Exception {
         // The headers arrive, then nothing for longer than the read timeout (the heartbeat
         // watchdog). The delay is short so the server's thread is free soon after.
@@ -555,5 +618,52 @@ class RealtimeStreamTest {
         RealtimeStream.applyEvent("flag.updated", "{\"key\":\"\"}", record);
         RealtimeStream.applyEvent("flag.updated", "garbage", record);
         assertTrue(seen.isEmpty(), seen.toString());
+    }
+
+    private static void feed(RealtimeStream.EventSizeLimiter limiter, String text)
+            throws IOException {
+        byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
+        limiter.accept(bytes, 0, bytes.length);
+    }
+
+    @Test
+    void eventSizeLimiterCountsThePendingEventAndResetsAtItsEnd() throws Exception {
+        // "data: 1234" plus its LF is 11 bytes.
+        RealtimeStream.EventSizeLimiter limiter = new RealtimeStream.EventSizeLimiter(11);
+        for (int i = 0; i < 100; i++) {
+            feed(limiter, "data: 1234\n\n");
+        }
+        // CRLF and lone CR line ends; a CRLF is one terminator, not a line then an empty one.
+        feed(limiter, "data: 1234\r\n\r\n");
+        feed(limiter, "data: 1234\r\r");
+        // A completed comment costs nothing, a pending one does.
+        feed(limiter, ":" + "c".repeat(10) + "\n");
+        feed(limiter, "data: 1234\n\n");
+        // Exactly the cap, split across reads.
+        feed(limiter, "data: 12");
+        feed(limiter, "34\n");
+        assertThrows(RealtimeStream.EventTooLargeException.class, () -> feed(limiter, "d"));
+    }
+
+    @Test
+    void eventSizeLimiterRejectsALongLineWithoutAnEnd() throws Exception {
+        RealtimeStream.EventSizeLimiter limiter = new RealtimeStream.EventSizeLimiter(1_000);
+        feed(limiter, "x".repeat(1_000));
+        assertThrows(RealtimeStream.EventTooLargeException.class, () -> feed(limiter, "x"));
+
+        RealtimeStream.EventSizeLimiter comments = new RealtimeStream.EventSizeLimiter(1_000);
+        assertThrows(RealtimeStream.EventTooLargeException.class,
+                () -> feed(comments, ":" + "x".repeat(1_000)));
+    }
+
+    @Test
+    void eventSizeLimiterCountsEveryLineOfOneEvent() throws Exception {
+        // Many short data lines without the blank line that would end the event.
+        RealtimeStream.EventSizeLimiter limiter = new RealtimeStream.EventSizeLimiter(100);
+        assertThrows(RealtimeStream.EventTooLargeException.class, () -> {
+            for (int i = 0; i < 100; i++) {
+                feed(limiter, "data: x\n");
+            }
+        });
     }
 }

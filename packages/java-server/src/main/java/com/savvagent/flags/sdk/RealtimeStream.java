@@ -17,12 +17,20 @@ import java.util.function.Consumer;
 import java.util.function.DoubleSupplier;
 import okhttp3.Dispatcher;
 import okhttp3.HttpUrl;
+import okhttp3.Interceptor;
+import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
+import okhttp3.ResponseBody;
 import okhttp3.sse.EventSource;
 import okhttp3.sse.EventSourceListener;
 import okhttp3.sse.EventSources;
+import okio.Buffer;
+import okio.BufferedSource;
+import okio.ForwardingSource;
+import okio.Okio;
+import okio.Source;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -42,8 +50,9 @@ import org.slf4j.LoggerFactory;
  * <p>A dropped or refused stream is retried with exponential backoff and jitter; the attempt
  * count resets only after a connection stayed up for {@link Options#stableAfterMillis}, so a
  * server that accepts and drops at once is not retried at the base delay forever. A failed
- * connect attempt calls {@code onError} once, possibly on the stream's own threads; nothing else
- * reaches the host, and nothing is ever thrown into it. The key is sent only in the
+ * connect attempt calls {@code onError} once, possibly on the stream's own threads, and so does a
+ * connection dropped for an event over {@link #MAX_EVENT_BYTES}; nothing else reaches the host,
+ * and nothing is ever thrown into it. The key is sent only in the
  * {@code Authorization} header and is never put in an error or a log line.
  *
  * <p>Thread safety: the connection state and the attempt counter are guarded by {@code lock};
@@ -54,6 +63,15 @@ final class RealtimeStream implements AutoCloseable {
 
     /** Bounds the attempt counter; the delay reaches its cap long before. */
     static final int MAX_ATTEMPT = 64;
+
+    /**
+     * Bounds one event, as the Go and Rust SDKs do. One event carries one flag with its
+     * variations and their configurations: generous, but finite, so a broken or hostile peer (a
+     * proxy, or anyone on the path of an {@code http://} base URL) cannot grow the reader's
+     * buffer without bound by sending a line that never ends. An event over it drops the
+     * connection, which is retried with the usual backoff.
+     */
+    static final int MAX_EVENT_BYTES = 4 * 1024 * 1024;
 
     /** How one connection attempt ended. */
     enum End {
@@ -186,6 +204,8 @@ final class RealtimeStream implements AutoCloseable {
                 // A redirect could carry the key elsewhere; a 3xx is a refused attempt.
                 .followRedirects(false)
                 .followSslRedirects(false)
+                // The SSE reader buffers a line until its end, with no bound of its own.
+                .addInterceptor(capEvents(MAX_EVENT_BYTES))
                 .build();
         this.factory = EventSources.createFactory(streamClient);
         ScheduledThreadPoolExecutor executor =
@@ -296,6 +316,9 @@ final class RealtimeStream implements AutoCloseable {
                     end, status, delay);
         }
         if (end == End.DROPPED) {
+            if (cause instanceof EventTooLargeException && !closed) {
+                report(onError, (EventTooLargeException) cause);
+            }
             return;
         }
         String message;
@@ -520,7 +543,7 @@ final class RealtimeStream implements AutoCloseable {
 
         @Override
         public void onFailure(EventSource eventSource, Throwable t, Response response) {
-            if (opened) {
+            if (opened || t instanceof EventTooLargeException) {
                 end(End.DROPPED, 0, -1L, t);
             } else if (response != null) {
                 end(End.REFUSED, response.code(),
@@ -539,6 +562,160 @@ final class RealtimeStream implements AutoCloseable {
             } catch (RuntimeException e) {
                 logger.warn("Savvagent Flags stream: scheduling a reconnect failed: {}", e.toString());
             }
+        }
+    }
+
+    /**
+     * An interceptor that caps each event of the response body at {@code maxEventBytes} (see
+     * {@link EventSizeLimiter}). The reader then fails with an {@link EventTooLargeException}
+     * before it can buffer more than the cap plus one read.
+     *
+     * @param maxEventBytes the largest event, in bytes
+     * @return the interceptor
+     */
+    static Interceptor capEvents(long maxEventBytes) {
+        return chain -> {
+            Response response = chain.proceed(chain.request());
+            ResponseBody body = response.body();
+            if (body == null) {
+                return response;
+            }
+            return response.newBuilder()
+                    .body(new CappedBody(body, new EventSizeLimiter(maxEventBytes)))
+                    .build();
+        };
+    }
+
+    /** A pending event grew past the cap; the connection is dropped. */
+    static final class EventTooLargeException extends IOException {
+        private static final long serialVersionUID = 1L;
+
+        EventTooLargeException(long maxEventBytes) {
+            super("Savvagent Flags stream: an event exceeded " + maxEventBytes
+                    + " bytes; reconnecting");
+        }
+    }
+
+    /**
+     * Counts the bytes of the pending event as the body is read, and fails once they exceed the
+     * cap. What it counts is what a reader must hold for the event: every non-comment line of
+     * it, each with one byte for its terminator, plus the line not yet terminated (a comment
+     * line too, while it is pending). A completed comment line is not counted, since nothing
+     * keeps it. An empty line ends the event and resets the count. A line ends at LF, CR or
+     * CRLF, as in the SSE grammar.
+     *
+     * <p>This counts the field names ({@code data:}) as well as the values, so it is slightly
+     * stricter than the Go and Rust parsers, which count the values only.
+     *
+     * <p>Not thread-safe: one instance belongs to one response body, read on one thread.
+     */
+    static final class EventSizeLimiter {
+        private final long maxEventBytes;
+        /** Bytes of the completed lines of the pending event. */
+        private long eventBytes;
+        /** Bytes of the line not yet terminated. */
+        private long lineBytes;
+        /** Whether the pending line is a comment (starts with a colon). */
+        private boolean comment;
+        /** Whether the last byte was a CR, so an LF now completes a CRLF and no new line. */
+        private boolean afterCr;
+
+        EventSizeLimiter(long maxEventBytes) {
+            this.maxEventBytes = maxEventBytes;
+        }
+
+        /**
+         * Accounts for the next bytes of the body.
+         *
+         * @param bytes the buffer
+         * @param offset the first byte to count
+         * @param length how many bytes to count
+         * @throws EventTooLargeException when the pending event is now over the cap; the
+         *     limiter must not be used again
+         */
+        void accept(byte[] bytes, int offset, int length) throws EventTooLargeException {
+            for (int i = offset; i < offset + length; i++) {
+                byte b = bytes[i];
+                if (b == '\n' && afterCr) {
+                    afterCr = false;
+                    continue;
+                }
+                afterCr = b == '\r';
+                if (b == '\n' || b == '\r') {
+                    if (lineBytes == 0) {
+                        eventBytes = 0;
+                    } else if (!comment) {
+                        eventBytes += lineBytes + 1;
+                    }
+                    lineBytes = 0;
+                    continue;
+                }
+                if (lineBytes == 0) {
+                    comment = b == ':';
+                }
+                lineBytes++;
+                if (eventBytes + lineBytes > maxEventBytes) {
+                    throw new EventTooLargeException(maxEventBytes);
+                }
+            }
+        }
+    }
+
+    /** A response body whose source passes every byte through an {@link EventSizeLimiter}. */
+    private static final class CappedBody extends ResponseBody {
+        private final ResponseBody delegate;
+        private final BufferedSource source;
+
+        CappedBody(ResponseBody delegate, EventSizeLimiter limiter) {
+            this.delegate = delegate;
+            this.source = Okio.buffer(new CappedSource(delegate.source(), limiter));
+        }
+
+        @Override
+        public MediaType contentType() {
+            return delegate.contentType();
+        }
+
+        @Override
+        public long contentLength() {
+            return delegate.contentLength();
+        }
+
+        @Override
+        public BufferedSource source() {
+            return source;
+        }
+
+        @Override
+        public void close() {
+            delegate.close();
+        }
+    }
+
+    /**
+     * Reads through a scratch buffer, so bytes reach the reader's buffer only after the limiter
+     * passed them.
+     */
+    private static final class CappedSource extends ForwardingSource {
+        private static final long CHUNK = 8_192L;
+        private final EventSizeLimiter limiter;
+        private final Buffer scratch = new Buffer();
+
+        CappedSource(Source delegate, EventSizeLimiter limiter) {
+            super(delegate);
+            this.limiter = limiter;
+        }
+
+        @Override
+        public long read(Buffer sink, long byteCount) throws IOException {
+            long read = super.read(scratch, Math.min(byteCount, CHUNK));
+            if (read <= 0) {
+                return read;
+            }
+            byte[] bytes = scratch.readByteArray();
+            limiter.accept(bytes, 0, bytes.length);
+            sink.write(bytes);
+            return read;
         }
     }
 }
