@@ -82,6 +82,10 @@ export interface FlagEvaluationResult {
     flagId?: string;
     description?: string;
     variant?: string;
+    /** The flag version the server evaluated, when it sends one. Also set on cached results. */
+    version?: number;
+    /** The scope the server evaluated the flag at (e.g. `application`), when it sends one. Also set on cached results. */
+    scope?: string;
   };
 }
 
@@ -120,6 +124,10 @@ export interface CacheEntry {
   variation?: string;
   expiresAt: number;
   flagId?: string;
+  /** The flag version the server evaluated, when it sent one */
+  version?: number;
+  /** The scope the server evaluated the flag at, when it sent one */
+  scope?: string;
 }
 
 /**

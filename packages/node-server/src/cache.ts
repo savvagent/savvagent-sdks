@@ -67,6 +67,10 @@ export class FlagCache {
   private ttl: number;
   private maxEntries: number;
   private lastSweep = 0;
+  /** Bumped by every full invalidation, so a write that predates it is dropped. */
+  private epoch = 0;
+  /** Per-flag invalidation counters since the last epoch bump. */
+  private generations: Map<string, number> = new Map();
 
   constructor(ttl: number = 60000, maxEntries: number = DEFAULT_CACHE_MAX_ENTRIES) {
     this.ttl = ttl;
@@ -78,6 +82,27 @@ export class FlagCache {
         : Number.isFinite(maxEntries)
           ? Math.max(0, Math.floor(maxEntries))
           : DEFAULT_CACHE_MAX_ENTRIES;
+  }
+
+  /**
+   * The flag's invalidation generation. Read it before sending an evaluate
+   * request and pass it to {@link FlagCache.set}, which drops the write if
+   * the flag was invalidated (or the cache cleared) in the meantime: the
+   * result was computed from state that is now known to be stale (#166).
+   */
+  generation(key: string): string {
+    return `${this.epoch}.${this.generations.get(key) ?? 0}`;
+  }
+
+  private bump(key?: string): void {
+    if (key) {
+      this.generations.set(key, (this.generations.get(key) ?? 0) + 1);
+    } else {
+      // The epoch makes every earlier generation unequal, so the per-flag
+      // counters can restart.
+      this.epoch++;
+      this.generations.clear();
+    }
   }
 
   /** Number of cached (flag, context) entries. */
@@ -164,6 +189,11 @@ export class FlagCache {
 
   /**
    * Set a flag value in cache. No-op when the TTL is 0.
+   *
+   * @param metadata - The server's version and scope, returned with cached results.
+   * @param generation - The value of {@link FlagCache.generation} read before
+   *   the request; the write is dropped if the flag has been invalidated since.
+   *   Omit it to always write.
    */
   set(
     key: string,
@@ -171,14 +201,19 @@ export class FlagCache {
     flagId?: string,
     configuration?: any,
     variation?: string,
-    contextKey: string = ''
+    contextKey: string = '',
+    metadata?: { version?: number; scope?: string },
+    generation?: string
   ): void {
+    if (generation !== undefined && generation !== this.generation(key)) return;
     this.store(key, contextKey, {
       value,
       configuration,
       variation,
       expiresAt: Date.now() + this.ttl,
       flagId,
+      version: metadata?.version,
+      scope: metadata?.scope,
     });
   }
 
@@ -190,6 +225,14 @@ export class FlagCache {
       this.clear();
       return;
     }
+    this.bump(key);
+    // Keep the per-flag counters bounded like the entries: past the cap,
+    // move to a new epoch. That drops every in-flight write (a spurious
+    // miss, never a stale hit), and resets the map.
+    if (this.generations.size > this.maxEntries) {
+      this.epoch++;
+      this.generations.clear();
+    }
     const keys = this.byFlag.get(key);
     if (!keys) return;
     for (const entryKey of keys) this.entries.delete(entryKey);
@@ -200,6 +243,7 @@ export class FlagCache {
    * Clear all cached values
    */
   clear(): void {
+    this.bump();
     this.entries.clear();
     this.byFlag.clear();
   }
