@@ -1,6 +1,6 @@
 # Savvagent SDKs
 
-Official SDKs, MCP servers, and example applications for [Savvagent](https://flags.savvagent.com) - the AI-powered feature flag platform that prevents production incidents.
+Official SDKs, MCP servers, and example applications for [Savvagent](https://savvagent.com) - the AI-powered feature flag platform that prevents production incidents.
 
 ## Packages
 
@@ -45,23 +45,70 @@ Official SDKs, MCP servers, and example applications for [Savvagent](https://fla
   - In-memory caching with configurable TTL
   - Full TypeScript support
 
-- **[savvagent-java-server-sdk](./packages/java-server)** - Java Server SDK
+- **[savvagent-flags (Python)](./packages/python-server)** - Python Server SDK
+  - Distribution `savvagent-flags`, import `savvagent_flags`
+  - Synchronous and asynchronous clients
+  - Type hints (PEP 561)
+  - Examples for FastAPI, Flask and Django
+
+- **[savvagent-flags-java-server-sdk](./packages/java-server)** - Java Server SDK
+  - Maven coordinates `com.savvagent.flags:savvagent-flags-java-server-sdk`
   - Maven and Gradle support
   - Thread-safe concurrent access
   - OkHttp-based HTTP client
   - Comprehensive JavaDocs
 
-- **[savvagent-go-server-sdk](./packages/go-server)** - Go Server SDK
+- **[Go server SDK](./packages/go-server)** - Go Server SDK
+  - Module `github.com/savvagent/flags-sdks/packages/go-server` (package `savvagentflags`)
   - Goroutine-safe concurrent access
   - Idiomatic Go patterns
   - Minimal dependencies
   - High-performance caching
 
-- **[savvagent (Rust)](./packages/rust-server)** - Rust Server SDK
+- **[savvagent-flags (Rust)](./packages/rust-server)** - Rust Server SDK
+  - Crate `savvagent-flags`, library `savvagent_flags`
   - Async/await with Tokio runtime
   - Zero-cost abstractions
   - Memory-safe with Rust ownership
   - Full type safety
+
+#### Installing the Python, Go, Rust and Java SDKs
+
+These SDKs are not published to a package registry yet (Java is not published to Maven Central). Install them from this repository, pinned to a commit
+(replace `<commit>` with the commit you want):
+
+```bash
+# Python
+uv add "savvagent-flags @ git+https://github.com/savvagent/flags-sdks@<commit>#subdirectory=packages/python-server"
+# or: pip install "savvagent-flags @ git+https://github.com/savvagent/flags-sdks@<commit>#subdirectory=packages/python-server"
+
+# Go
+go get github.com/savvagent/flags-sdks/packages/go-server@<commit>
+```
+
+```toml
+# Rust (Cargo.toml)
+[dependencies]
+savvagent-flags = { git = "https://github.com/savvagent/flags-sdks", rev = "<commit>" }
+```
+
+Java: The Java SDK is not published to Maven Central. Build it from source at a pinned commit (replace `<commit>`), which installs it into your local Maven repository:
+
+```bash
+git clone https://github.com/savvagent/flags-sdks
+git -C flags-sdks checkout <commit>
+mvn -B -f flags-sdks/packages/java-server/pom.xml install
+```
+
+Then add the dependency:
+
+```xml
+<dependency>
+  <groupId>com.savvagent.flags</groupId>
+  <artifactId>savvagent-flags-java-server-sdk</artifactId>
+  <version>0.1.0</version>
+</dependency>
+```
 
 ### MCP Servers
 
@@ -133,6 +180,7 @@ Working example applications are available in the [examples](./examples) directo
 ### Server Examples
 
 - **[Node.js Backend](./examples/node-backend)** - Express API server
+- **[Python Server](./examples/python-server)** - Python with FastAPI and Flask
 - **[Java Server](./examples/java-server)** - Spring Boot 3.2 with Maven
 - **[Go Server](./examples/go-server)** - Go with Gin framework
 - **[Rust Server](./examples/rust-server)** - Rust with Axum and Tokio
@@ -243,6 +291,7 @@ flags-sdks/
 │   ├── ios-sdk/            # iOS SDK (Swift)
 │   ├── android-sdk/        # Android SDK (Kotlin)
 │   ├── node-server/        # @savvagent/node-server
+│   ├── python-server/      # Python server SDK (savvagent-flags)
 │   ├── java-server/        # Java server SDK
 │   ├── go-server/          # Go server SDK
 │   ├── rust-server/        # Rust server SDK
@@ -260,6 +309,7 @@ flags-sdks/
 │   ├── sveltekit-app/      # SvelteKit example
 │   ├── astro-app/          # Astro example
 │   ├── node-backend/       # Node.js example
+│   ├── python-server/      # Python server example
 │   ├── java-server/        # Java server example
 │   ├── go-server/          # Go server example
 │   └── rust-server/        # Rust server example
@@ -338,8 +388,7 @@ MIT License - see [LICENSE](./LICENSE) for details
 
 ## Related Projects
 
-- **[Savvagent Platform](https://flags.savvagent.com)** - The main platform repository
-- **[Savvagent Docs](https://flags.savvagent.com/docs)** - Official documentation
+- **[Savvagent](https://savvagent.com)** - The Savvagent platform
 
 ## Packages Status
 
@@ -371,9 +420,10 @@ MIT License - see [LICENSE](./LICENSE) for details
 | Package | Language | Version | Status |
 |---------|----------|---------|--------|
 | [@savvagent/node-server](./packages/node-server) | Node.js | v0.1.0 | Beta |
-| [savvagent-java-server-sdk](./packages/java-server) | Java 11+ | v0.1.0 | Beta |
-| [savvagent-go-server-sdk](./packages/go-server) | Go 1.21+ | v0.1.0 | Beta |
-| [savvagent](./packages/rust-server) | Rust 1.70+ | v0.1.0 | Beta |
+| [savvagent-flags](./packages/python-server) | Python 3.9+ | v1.1.0 | Beta |
+| [savvagent-flags-java-server-sdk](./packages/java-server) | Java 11+ | v0.1.0 | Beta |
+| [github.com/savvagent/flags-sdks/packages/go-server](./packages/go-server) | Go 1.21+ | v0.1.0 | Beta |
+| [savvagent-flags](./packages/rust-server) | Rust 1.70+ | v0.1.0 | Beta |
 
 ### MCP Servers
 

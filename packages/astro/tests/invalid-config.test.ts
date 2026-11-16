@@ -37,6 +37,11 @@ describe('middleware with an invalid config', () => {
       const locals = context.locals.savvagent as SavvagentLocals;
       expect(locals.client).toBeNull();
       await expect(locals.isEnabled('new-feature')).resolves.toBe(true);
+      // Inherited property names are never defaults.
+      for (const key of ['__proto__', 'toString', 'constructor', 'hasOwnProperty']) {
+        await expect(locals.isEnabled(key)).resolves.toBe(false);
+        expect((await locals.evaluate(key)).value).toBe(false);
+      }
     }
 
     expect(consoleError).toHaveBeenCalledTimes(1);

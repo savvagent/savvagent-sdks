@@ -1,7 +1,7 @@
 """
-Savvagent Python Server Example - FastAPI
+Savvagent Flags Python Server Example - FastAPI
 
-This example demonstrates how to use the Savvagent Python SDK with FastAPI
+This example demonstrates how to use the Savvagent Flags Python SDK with FastAPI
 for feature-gated API endpoints.
 """
 
@@ -13,7 +13,7 @@ from typing import Any
 from fastapi import Depends, FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
-from savvagent import AsyncFlagClient, FlagClientConfig, FlagContext
+from savvagent_flags import AsyncFlagClient, FlagClientConfig, FlagContext
 
 # Global client instance
 client: AsyncFlagClient | None = None
@@ -21,7 +21,7 @@ client: AsyncFlagClient | None = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Manage Savvagent client lifecycle."""
+    """Manage Savvagent Flags client lifecycle."""
     global client
 
     config = FlagClientConfig(
@@ -35,17 +35,17 @@ async def lifespan(app: FastAPI):
 
     client = AsyncFlagClient(config)
     await client.__aenter__()
-    print(f"Savvagent client initialized - API URL: {config.base_url}")
+    print(f"Savvagent Flags client initialized - API URL: {config.base_url}")
 
     yield
 
     await client.close()
-    print("Savvagent client closed")
+    print("Savvagent Flags client closed")
 
 
 app = FastAPI(
-    title="Savvagent Python Example",
-    description="Example FastAPI server demonstrating Savvagent SDK usage",
+    title="Savvagent Flags Python Example",
+    description="Example FastAPI server demonstrating Savvagent Flags SDK usage",
     version="1.0.0",
     lifespan=lifespan,
 )
@@ -99,7 +99,7 @@ async def get_features(
 ):
     """Get all feature flags for a user."""
     if client is None:
-        raise HTTPException(status_code=503, detail="Savvagent client not initialized")
+        raise HTTPException(status_code=503, detail="Savvagent Flags client not initialized")
 
     context.user_id = user_id
 
@@ -129,7 +129,7 @@ async def process_data(
 ):
     """Process data with feature-gated functionality."""
     if client is None:
-        raise HTTPException(status_code=503, detail="Savvagent client not initialized")
+        raise HTTPException(status_code=503, detail="Savvagent Flags client not initialized")
 
     context.user_id = request_body.user_id
     context.attributes["endpoint"] = "/api/data"
@@ -164,7 +164,7 @@ async def get_user_config(
 ):
     """Get dynamic configuration for a user."""
     if client is None:
-        raise HTTPException(status_code=503, detail="Savvagent client not initialized")
+        raise HTTPException(status_code=503, detail="Savvagent Flags client not initialized")
 
     context.user_id = user_id
 
@@ -190,7 +190,7 @@ async def get_experiment_variation(
 ):
     """Get experiment variation for A/B testing."""
     if client is None:
-        raise HTTPException(status_code=503, detail="Savvagent client not initialized")
+        raise HTTPException(status_code=503, detail="Savvagent Flags client not initialized")
 
     context.user_id = user_id
 

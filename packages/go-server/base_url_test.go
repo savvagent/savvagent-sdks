@@ -1,4 +1,4 @@
-package savvagent
+package savvagentflags
 
 import (
 	"net/http"
@@ -35,7 +35,7 @@ func TestEvaluateUsesCanonicalRouteAndReadsEnabled(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := NewClient(Config{APIKey: "sdk_test_key", BaseURL: server.URL + "/flags/"})
+	client, err := NewClient(Config{APIKey: "sdk_test_key", BaseURL: server.URL + "/flags//"})
 	if err != nil {
 		t.Fatal(err)
 	}

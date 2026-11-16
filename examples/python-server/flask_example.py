@@ -1,7 +1,7 @@
 """
-Savvagent Python Server Example - Flask
+Savvagent Flags Python Server Example - Flask
 
-This example demonstrates how to use the Savvagent Python SDK with Flask
+This example demonstrates how to use the Savvagent Flags Python SDK with Flask
 for feature-gated API endpoints using the synchronous client.
 """
 
@@ -10,11 +10,11 @@ import os
 
 from flask import Flask, g, jsonify, request
 
-from savvagent import FlagClient, FlagClientConfig, FlagContext
+from savvagent_flags import FlagClient, FlagClientConfig, FlagContext
 
 app = Flask(__name__)
 
-# Initialize Savvagent client
+# Initialize Savvagent Flags client
 config = FlagClientConfig(
     api_key=os.environ.get("SAVVAGENT_API_KEY", "sdk_your_key_here"),
     application_id=os.environ.get("SAVVAGENT_APP_ID", "python-server-example"),
@@ -27,7 +27,7 @@ config = FlagClientConfig(
 client = FlagClient(config)
 atexit.register(client.close)
 
-print(f"Savvagent client initialized - API URL: {config.base_url}")
+print(f"Savvagent Flags client initialized - API URL: {config.base_url}")
 
 
 @app.before_request

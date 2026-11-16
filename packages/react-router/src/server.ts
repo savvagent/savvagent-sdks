@@ -292,7 +292,11 @@ export function createSavvagentServer(
 
   const scope = (requestContext: FlagContext, headers: Headers): SavvagentRequest => {
     const merge = (context?: FlagContext) => mergeContext(requestContext, context);
-    const defaultFor = (flagKey: string) => config.defaults?.[flagKey] ?? false;
+    // Own-property lookup: a key like `__proto__` must not read Object.prototype.
+    const defaultFor = (flagKey: string): boolean => {
+      const defaults = config.defaults;
+      return !!defaults && Object.prototype.hasOwnProperty.call(defaults, flagKey) && defaults[flagKey] === true;
+    };
 
     const fallback = (flagKey: string): FlagEvaluationResult => ({
       key: flagKey,

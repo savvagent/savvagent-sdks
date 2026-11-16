@@ -57,6 +57,8 @@ export class TelemetryService {
     this.flushInterval = setInterval(() => {
       this.flush();
     }, this.FLUSH_INTERVAL);
+    // Do not keep the process alive for telemetry alone; close() flushes what is queued.
+    (this.flushInterval as { unref?: () => void }).unref?.();
   }
 
   /**

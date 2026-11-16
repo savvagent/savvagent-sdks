@@ -1,144 +1,135 @@
-# Savvagent Rust Server Example
+# Savvagent Flags Rust Server Example
 
-Example Rust application demonstrating how to use the Savvagent Rust Server SDK with Axum framework.
+Example Axum server that evaluates Savvagent Flags with the Savvagent Flags Rust Server SDK
+(`packages/rust-server`, used here as a path dependency).
 
-## Features
+## What it shows
 
-- Rust 1.70+
-- Axum web framework
-- Tokio async runtime
-- Savvagent Rust Server SDK
-- RESTful API endpoints
-- Feature-gated functionality
-- Thread-safe concurrent access
-- In-memory caching
+- Creating one `FlagClient` at startup and sharing it across handlers (it is cheap to clone)
+- Evaluating flags per request with a `Context` (user ID, environment, attributes)
+- Configured fallbacks: `is_enabled` never fails; on any error (unreachable API, a rejected key,
+  an unknown flag) the SDK logs it and returns the default set with `Config::with_default`, so a
+  flag lookup never breaks a request
+- Telemetry: the SDK reports each answered lookup (no user data) for flag health and
+  auto-rollback, and the example calls `flush()` after a graceful shutdown (Ctrl-C or SIGTERM)
+  so queued events are not lost
+- axum 0.7: `tokio::net::TcpListener` + `axum::serve` with graceful shutdown
 
 ## Prerequisites
 
-- Rust 1.70 or higher
-- Cargo
+- Stable Rust and Cargo
+- An Savvagent Flags app and its server key (`srv_...`). An agent creates the app and gets its keys over
+  MCP (`create_app`); the flags this example reads are `new-ui`, `beta-features`,
+  `advanced-analytics`, and `advanced-processing`. A flag that does not exist falls back to the
+  example's default, which is off for all four.
 
-## Setup
+## Configuration
 
-1. **Configure environment variables:**
-   ```bash
-   export SAVVAGENT_API_URL=http://localhost:8080
-   export SAVVAGENT_SDK_KEY=your-sdk-key-here
-   export PORT=8083
-   ```
+| Variable | Required | Default | Meaning |
+|---|---|---|---|
+| `SAVVAGENT_SDK_KEY` | yes | | The app's server key (`srv_...`, recommended: it is secret, and its telemetry drives auto-rollback) or its public client key (`sdk_...`) |
+| `SAVVAGENT_API_URL` | no | `https://api.savvagent.com/flags` | Savvagent Flags API base URL |
+| `SAVVAGENT_ENVIRONMENT` | no | `development` | Environment flags are evaluated in |
+| `PORT` | no | `8083` | Port the example listens on |
+| `RUST_LOG` | no | `rust_server_example=info,savvagent_flags=info,tower_http=info` | Log filter |
 
-2. **Build the project:**
-   ```bash
-   cargo build --release
-   ```
+A variable set to an empty string counts as unset. The server exits with an error if
+`SAVVAGENT_SDK_KEY` is missing or the SDK rejects it, or if `PORT` is not a port number.
 
-3. **Run the server:**
-   ```bash
-   cargo run --release
-   ```
+## Run
 
-   Or for development with auto-reload:
-   ```bash
-   cargo watch -x run
-   ```
+```bash
+export SAVVAGENT_SDK_KEY=srv_your_server_key_here
+cargo run --release
+```
 
-4. The server will start on [http://localhost:8083](http://localhost:8083)
+The server listens on [http://localhost:8083](http://localhost:8083).
 
 ## API Endpoints
 
-### Health Check
+### Health check
 
 ```bash
-GET /health
+curl http://localhost:8083/health
 ```
 
-Returns server status.
+```json
+{ "status": "ok" }
+```
 
-### Get User Features
+### Get user features
 
 ```bash
-GET /api/features?userId=user-123
+curl 'http://localhost:8083/api/features?userId=user-123'
 ```
 
-Returns all feature flags for a user.
+`userId` is required (without it the request is rejected with 400). Evaluates `new-ui`,
+`beta-features`, and `advanced-analytics` for the user:
 
-Example response:
 ```json
 {
   "userId": "user-123",
   "features": {
-    "newUI": true,
+    "advancedAnalytics": true,
     "betaFeatures": false,
-    "advancedAnalytics": true
+    "newUI": true
   }
 }
 ```
 
-### Process Data (Feature-Gated)
+### Process data (feature-gated)
 
 ```bash
-POST /api/data
-Content-Type: application/json
-
-{
-  "userId": "user-123",
-  "data": "example data"
-}
+curl -X POST http://localhost:8083/api/data \
+  -H 'Content-Type: application/json' \
+  -d '{"userId": "user-123", "data": "example data"}'
 ```
 
-Uses the `advanced-processing` flag to determine processing method.
+Evaluates `advanced-processing` for the user (`anonymous` when `userId` is omitted), with an
+`endpoint` attribute of `/api/data`, and reports which method it used:
 
-## Usage Example
+```json
+{ "processed": true, "method": "advanced", "data": "example data" }
+```
+
+## Usage in brief
 
 ```rust
-use axum::{Router, Json, extract::Query};
-use savvagent::{SavvagentClient, EvaluationContext};
+use axum::{extract::State, routing::get, Router};
+use savvagent_flags::{Config, Context, FlagClient};
 
 #[tokio::main]
-async fn main() {
-    let client = SavvagentClient::new(
-        std::env::var("SAVVAGENT_API_URL").unwrap(),
-        std::env::var("SAVVAGENT_SDK_KEY").unwrap(),
-    ).await.unwrap();
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // The base URL defaults to https://api.savvagent.com/flags; `with_base_url` overrides it.
+    let config = Config::new(std::env::var("SAVVAGENT_SDK_KEY")?).with_default("new-ui", false);
+    let flags = FlagClient::new(config)?;
 
     let app = Router::new()
-        .route("/api/features", get(get_features))
-        .with_state(client);
+        .route("/", get(index))
+        .with_state(flags);
 
-    axum::Server::bind(&"0.0.0.0:8083".parse().unwrap())
-        .serve(app.into_make_service())
-        .await
-        .unwrap();
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:8083").await?;
+    axum::serve(listener, app).await?;
+    Ok(())
 }
 
-async fn get_features(
-    State(client): State<SavvagentClient>,
-    Query(params): Query<HashMap<String, String>>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
-    let user_id = params.get("userId").ok_or(StatusCode::BAD_REQUEST)?;
-
-    let is_enabled = client
-        .is_enabled(
-            "new-feature",
-            EvaluationContext::builder()
-                .user_id(user_id)
-                .attribute("plan", "pro")
-                .build(),
-        )
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    Ok(Json(json!({
-        "userId": user_id,
-        "newFeature": is_enabled,
-    })))
+async fn index(State(flags): State<FlagClient>) -> &'static str {
+    let ctx = Context::new()
+        .with_user_id("user-123")
+        .with_environment("development");
+    if flags.is_enabled("new-ui", Some(ctx)).await {
+        "new UI"
+    } else {
+        "old UI"
+    }
 }
 ```
+
+`src/main.rs` is the full example.
 
 ## Learn More
 
-- [Rust Documentation](https://www.rust-lang.org/)
-- [Axum Framework](https://github.com/tokio-rs/axum)
-- [Tokio Runtime](https://tokio.rs/)
-- [Savvagent Rust SDK Documentation](../../packages/rust-server/README.md)
-- [SDK Integration Guide](../../docs/SDK-INTEGRATION.md)
+- [Savvagent Flags Rust SDK](../../packages/rust-server/README.md)
+- [SDK Developer Guide](../../docs/SDK-DEVELOPER-GUIDE.md)
+- [Axum](https://github.com/tokio-rs/axum)
+- [Tokio](https://tokio.rs/)

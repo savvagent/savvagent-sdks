@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [master]
 
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Test
@@ -106,3 +109,148 @@ jobs:
           name: test-screenshots-${{ matrix.app }}
           path: examples/test-results/
           retention-days: 7
+
+  rust:
+    name: Rust SDK
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            packages/rust-server
+            examples/rust-server
+
+      - name: Format (SDK)
+        working-directory: packages/rust-server
+        run: cargo fmt --check
+
+      - name: Clippy (SDK)
+        working-directory: packages/rust-server
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Test (SDK)
+        working-directory: packages/rust-server
+        run: cargo test --locked
+
+      - name: Format (example)
+        working-directory: examples/rust-server
+        run: cargo fmt --check
+
+      - name: Clippy (example)
+        working-directory: examples/rust-server
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Test (example)
+        working-directory: examples/rust-server
+        run: cargo test --locked
+
+  python:
+    name: Python SDK
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          cache-dependency-glob: packages/python-server/uv.lock
+
+      - name: Lint
+        working-directory: packages/python-server
+        run: uv run --locked --extra dev ruff check .
+
+      - name: Type check
+        working-directory: packages/python-server
+        run: uv run --locked --extra dev mypy
+
+      - name: Test
+        working-directory: packages/python-server
+        run: uv run --locked --extra dev pytest
+
+      - name: Compile examples
+        run: python3 -m py_compile examples/python-server/*.py packages/python-server/examples/*.py
+
+  go:
+    name: Go SDK
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache-dependency-path: examples/go-server/go.sum
+
+      - name: Check formatting
+        working-directory: packages/go-server
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "gofmt needs to be run on:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Check formatting (example)
+        working-directory: examples/go-server
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "gofmt needs to be run on:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        working-directory: packages/go-server
+        run: go vet ./...
+
+      - name: Test
+        working-directory: packages/go-server
+        run: go test -race ./...
+
+      - name: Build example
+        working-directory: examples/go-server
+        run: go build -o /dev/null ./...
+
+  java:
+    name: Java SDK
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Build and test SDK
+        working-directory: packages/java-server
+        run: mvn -B install
+
+      - name: Compile example
+        working-directory: examples/java-server
+        run: mvn -B compile

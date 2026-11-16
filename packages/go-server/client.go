@@ -1,4 +1,4 @@
-package savvagent
+package savvagentflags
 
 import (
 	"bytes"
@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -19,10 +20,21 @@ type FlagClient struct {
 	configOverrides    map[string]configOverrideEntry
 	variationOverrides map[string]variationOverrideEntry
 	overrideMutex      sync.RWMutex
+
+	// realtime is the flag-change stream, nil when EnableRealtime is false.
+	realtime  *realtimeStream
+	closeOnce sync.Once
 }
 
-// NewClient creates a new FlagClient with the given configuration
+// NewClient creates a new FlagClient with the given configuration. When
+// config.EnableRealtime is true it also opens the flag-change stream in a background
+// goroutine; call Close to stop it.
 func NewClient(config Config) (*FlagClient, error) {
+	return newClient(config, defaultRealtimeOptions())
+}
+
+// newClient is NewClient with the stream's timings given, so tests can make them small.
+func newClient(config Config, streamOpts realtimeOptions) (*FlagClient, error) {
 	// Validate API key
 	if config.APIKey == "" || !strings.HasPrefix(config.APIKey, "sdk_") {
 		return nil, fmt.Errorf("invalid API key: must start with 'sdk_'")
@@ -32,7 +44,6 @@ func NewClient(config Config) (*FlagClient, error) {
 	if config.BaseURL == "" {
 		config.BaseURL = "https://api.savvagent.com/flags"
 	}
-	// Routes are appended to the base URL, so a trailing slash would double up.
 	config.BaseURL = strings.TrimRight(config.BaseURL, "/")
 	if config.CacheTTL == 0 {
 		config.CacheTTL = 60 * time.Second
@@ -45,7 +56,7 @@ func NewClient(config Config) (*FlagClient, error) {
 	}
 	if config.OnError == nil {
 		config.OnError = func(err error) {
-			fmt.Printf("[Savvagent] Error: %v\n", err)
+			fmt.Printf("[Savvagent Flags] Error: %v\n", err)
 		}
 	}
 
@@ -53,19 +64,53 @@ func NewClient(config Config) (*FlagClient, error) {
 		config: config,
 		httpClient: &http.Client{
 			Timeout: config.Timeout,
+			// Never follow redirects: a same-domain redirect, even to http, would still carry Authorization.
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},
 		cache:              newCache(config.CacheTTL),
 		configOverrides:    make(map[string]configOverrideEntry),
 		variationOverrides: make(map[string]variationOverrideEntry),
 	}
+	if config.EnableRealtime {
+		client.realtime = startRealtime(config, client.cache, streamOpts)
+	}
 
 	return client, nil
 }
 
+// maxResponseBytes bounds an evaluate response body.
+const maxResponseBytes = 1 << 20
+
 // Evaluate evaluates a feature flag and returns the result
 func (c *FlagClient) Evaluate(flagKey string, ctx *Context) (*EvaluationResult, error) {
+	// Reject malformed keys before anything else: no request, no cache lookup.
+	if !isValidFlagKey(flagKey) {
+		prefix := flagKey
+		if len(prefix) > 64 {
+			prefix = prefix[:64]
+		}
+		err := fmt.Errorf("%w: %q (%d bytes)", ErrInvalidFlagKey, prefix, len(flagKey))
+		c.config.OnError(err)
+		return c.getDefaultResult(flagKey, err), err
+	}
+
+	// Prepare the context on a copy, so the caller's value is never modified. Its JSON (map
+	// keys sorted by encoding/json) is the cache key and the request body.
+	prepared := Context{}
+	if ctx != nil {
+		prepared = *ctx
+	}
+	if prepared.ApplicationID == "" && c.config.ApplicationID != "" {
+		prepared.ApplicationID = c.config.ApplicationID
+	}
+	ctxJSON, err := json.Marshal(prepared)
+	if err != nil {
+		return c.getDefaultResult(flagKey, err), err
+	}
+	ctxKey := string(ctxJSON)
+
 	// Check cache first
-	if cachedEntry, found := c.cache.GetEntry(flagKey); found {
+	if cachedEntry, found := c.cache.GetEntry(flagKey, ctxKey); found {
 		configuration := cachedEntry.Configuration
 		variation := cachedEntry.Variation
 
@@ -89,28 +134,24 @@ func (c *FlagClient) Evaluate(flagKey string, ctx *Context) (*EvaluationResult, 
 			Configuration: configuration,
 			Variation:     variation,
 			Reason:        "cached",
+			Metadata:      &Metadata{Version: cachedEntry.Version, Scope: cachedEntry.Scope},
 		}, nil
-	}
-
-	// Prepare context
-	if ctx == nil {
-		ctx = &Context{}
-	}
-	if ctx.ApplicationID == "" && c.config.ApplicationID != "" {
-		ctx.ApplicationID = c.config.ApplicationID
 	}
 
 	// Prepare request
 	requestBody := map[string]interface{}{
-		"context": ctx,
+		"context": prepared,
 	}
 	jsonData, err := json.Marshal(requestBody)
 	if err != nil {
 		return c.getDefaultResult(flagKey, err), err
 	}
 
-	url := fmt.Sprintf("%s/api/flags/%s/evaluate", c.config.BaseURL, flagKey)
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	// Read before the request: an invalidation while it is in flight drops this result.
+	generation := c.cache.Generation(flagKey)
+
+	endpoint := fmt.Sprintf("%s/api/flags/%s/evaluate", c.config.BaseURL, url.PathEscape(flagKey))
+	req, err := http.NewRequest("POST", endpoint, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return c.getDefaultResult(flagKey, err), err
 	}
@@ -133,28 +174,56 @@ func (c *FlagClient) Evaluate(flagKey string, ctx *Context) (*EvaluationResult, 
 	}
 
 	// Parse response
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
 	if err != nil {
 		c.config.OnError(err)
 		return c.getDefaultResult(flagKey, err), err
 	}
+	if len(body) > maxResponseBytes {
+		err := fmt.Errorf("evaluate response for %q exceeds %d bytes", flagKey, maxResponseBytes)
+		c.config.OnError(err)
+		return c.getDefaultResult(flagKey, err), err
+	}
 
+	// The result is "enabled" (docs/SDK-DEVELOPER-GUIDE.md). A pointer tells a missing or
+	// null field from false: a body without a boolean "enabled" is a failed lookup, not a
+	// false to cache for the TTL (#112). A non-boolean value fails Unmarshal.
 	var response struct {
-		Value         bool                   `json:"enabled"`
+		Enabled       *bool                  `json:"enabled"`
 		Configuration map[string]interface{} `json:"configuration"`
 		Variation     string                 `json:"variation"`
-		FlagID        string                 `json:"flag_id"`
-		Description   string                 `json:"description"`
-		Variant       string                 `json:"variant"`
+		Version       json.RawMessage        `json:"version"`
+		Scope         json.RawMessage        `json:"scope"`
+
+		// Never sent by the savvagent-flags server; still read for compatibility.
+		FlagID      json.RawMessage `json:"flag_id"`
+		Description json.RawMessage `json:"description"`
+		Variant     json.RawMessage `json:"variant"`
 	}
 
 	if err := json.Unmarshal(body, &response); err != nil {
 		c.config.OnError(err)
 		return c.getDefaultResult(flagKey, err), err
 	}
+	if response.Enabled == nil {
+		err := fmt.Errorf("evaluate response for %q has no boolean \"enabled\"", flagKey)
+		c.config.OnError(err)
+		return c.getDefaultResult(flagKey, err), err
+	}
+	enabled := *response.Enabled
 
-	// Cache the result (including configuration and variation)
-	c.cache.Set(flagKey, response.Value, response.Configuration, response.Variation)
+	// Version and scope are metadata only: a value of the wrong type is dropped, never a
+	// failed lookup.
+	var version int64
+	if len(response.Version) > 0 {
+		if json.Unmarshal(response.Version, &version) != nil {
+			version = 0
+		}
+	}
+	scope := metadataString(response.Scope)
+
+	// Cache the result (including configuration, variation, version and scope)
+	c.cache.SetAt(generation, flagKey, ctxKey, enabled, response.Configuration, response.Variation, version, scope)
 
 	// Apply overrides to evaluated result
 	finalConfiguration := response.Configuration
@@ -175,16 +244,28 @@ func (c *FlagClient) Evaluate(flagKey string, ctx *Context) (*EvaluationResult, 
 
 	return &EvaluationResult{
 		Key:           flagKey,
-		Value:         response.Value,
+		Value:         enabled,
 		Configuration: finalConfiguration,
 		Variation:     finalVariation,
 		Reason:        "evaluated",
 		Metadata: &Metadata{
-			FlagID:      response.FlagID,
-			Description: response.Description,
-			Variant:     response.Variant,
+			FlagID:      metadataString(response.FlagID),
+			Description: metadataString(response.Description),
+			Variant:     metadataString(response.Variant),
+			Version:     version,
+			Scope:       scope,
 		},
 	}, nil
+}
+
+// metadataString decodes a metadata field that should be a JSON string. Anything else (absent,
+// null, another type) is "": metadata is informational and never fails a lookup.
+func metadataString(raw json.RawMessage) string {
+	var s string
+	if len(raw) == 0 || json.Unmarshal(raw, &s) != nil {
+		return ""
+	}
+	return s
 }
 
 // IsEnabled checks if a flag is enabled (convenience method)
@@ -234,8 +315,15 @@ func (c *FlagClient) InvalidateCache(flagKey string) {
 	c.cache.Invalidate(flagKey)
 }
 
-// Close cleans up resources
+// Close stops the flag-change stream, if one is open, and clears the cache. It returns once
+// the stream's goroutine has ended, and is safe to call more than once. Do not call it from
+// OnError: the stream's goroutine calls OnError, and Close waits for that goroutine.
 func (c *FlagClient) Close() error {
+	c.closeOnce.Do(func() {
+		if c.realtime != nil {
+			c.realtime.stop()
+		}
+	})
 	c.cache.Clear()
 	return nil
 }

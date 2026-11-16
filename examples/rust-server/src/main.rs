@@ -1,21 +1,97 @@
+//! Example Axum server that evaluates Savvagent Flags with the Rust server SDK.
+//!
+//! Configuration comes from the environment (see `Settings::from_env`):
+//! `SAVVAGENT_SDK_KEY` (required: the app's server key `srv_...`, or its client key `sdk_...`),
+//! `SAVVAGENT_API_URL`, `SAVVAGENT_ENVIRONMENT`, and `PORT`; `RUST_LOG` sets the log filter.
+
 use axum::{
     extract::{Query, State},
-    http::StatusCode,
     routing::{get, post},
     Json, Router,
 };
-use savvagent::{EvaluationContext, SavvagentClient, SavvagentConfig};
+use savvagent_flags::{Config, Context, FlagClient};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::env;
+use std::collections::BTreeMap;
 use std::net::SocketAddr;
-use std::sync::Arc;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+/// The production Savvagent Flags API, used when `SAVVAGENT_API_URL` is not set.
+const DEFAULT_API_URL: &str = "https://api.savvagent.com/flags";
+const DEFAULT_ENVIRONMENT: &str = "development";
+const DEFAULT_PORT: u16 = 8083;
+
+const NEW_UI: &str = "new-ui";
+const BETA_FEATURES: &str = "beta-features";
+const ADVANCED_ANALYTICS: &str = "advanced-analytics";
+const ADVANCED_PROCESSING: &str = "advanced-processing";
+
+/// Every flag this example reads, with the value it falls back to when evaluation fails.
+const FLAG_DEFAULTS: &[(&str, bool)] = &[
+    (NEW_UI, false),
+    (BETA_FEATURES, false),
+    (ADVANCED_ANALYTICS, false),
+    (ADVANCED_PROCESSING, false),
+];
+
+/// Settings read from the environment.
+#[derive(PartialEq, Eq)]
+struct Settings {
+    sdk_key: String,
+    api_url: String,
+    environment: String,
+    port: u16,
+}
+
+/// Hand-written so the key, which may be a secret server key, never reaches a log.
+impl std::fmt::Debug for Settings {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Settings")
+            .field("sdk_key", &"<redacted>")
+            .field("api_url", &self.api_url)
+            .field("environment", &self.environment)
+            .field("port", &self.port)
+            .finish()
+    }
+}
+
+impl Settings {
+    /// Reads settings through `lookup` (normally `std::env::var(..).ok()`). A variable set to an
+    /// empty string counts as unset. The key's format is left to `FlagClient::new`, which
+    /// rejects keys it does not accept.
+    fn from_env(lookup: impl Fn(&str) -> Option<String>) -> Result<Self, String> {
+        let var = |name: &str| lookup(name).filter(|v| !v.is_empty());
+        let sdk_key = var("SAVVAGENT_SDK_KEY")
+            .ok_or("SAVVAGENT_SDK_KEY is not set; use the app's server key (srv_...)")?;
+        let port = match var("PORT") {
+            Some(p) => p
+                .parse()
+                .map_err(|_| format!("PORT is not a port number: {p}"))?,
+            None => DEFAULT_PORT,
+        };
+        Ok(Self {
+            sdk_key,
+            api_url: var("SAVVAGENT_API_URL").unwrap_or_else(|| DEFAULT_API_URL.into()),
+            environment: var("SAVVAGENT_ENVIRONMENT").unwrap_or_else(|| DEFAULT_ENVIRONMENT.into()),
+            port,
+        })
+    }
+}
+
 #[derive(Clone)]
 struct AppState {
-    savvagent: Arc<SavvagentClient>,
+    // `FlagClient` is cheap to clone: its cache and HTTP client are shared.
+    flags: FlagClient,
+    environment: String,
+}
+
+impl AppState {
+    /// An evaluation context for one user in the configured environment.
+    fn context(&self, user_id: &str) -> Context {
+        Context::new()
+            .with_user_id(user_id)
+            .with_environment(&self.environment)
+    }
 }
 
 #[derive(Deserialize)]
@@ -28,7 +104,7 @@ struct FeaturesQuery {
 struct FeaturesResponse {
     #[serde(rename = "userId")]
     user_id: String,
-    features: HashMap<String, bool>,
+    features: BTreeMap<&'static str, bool>,
 }
 
 #[derive(Deserialize)]
@@ -41,54 +117,47 @@ struct DataRequest {
 #[derive(Serialize)]
 struct DataResponse {
     processed: bool,
-    method: String,
+    method: &'static str,
     data: serde_json::Value,
 }
 
 #[derive(Serialize)]
 struct HealthResponse {
-    status: String,
-}
-
-#[derive(Serialize)]
-struct ErrorResponse {
-    error: String,
+    status: &'static str,
 }
 
 #[tokio::main]
-async fn main() {
-    // Initialize tracing
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::registry()
         .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "rust_server_example=info,tower_http=info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+                "rust_server_example=info,savvagent_flags=info,tower_http=info".into()
+            }),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    // Get configuration from environment
-    let api_url = env::var("SAVVAGENT_API_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
-    let sdk_key = env::var("SAVVAGENT_SDK_KEY").unwrap_or_else(|_| "your-sdk-key".to_string());
-    let port = env::var("PORT").unwrap_or_else(|_| "8083".to_string());
+    let settings = Settings::from_env(|name| std::env::var(name).ok())?;
 
-    // Initialize Savvagent client
-    let config = SavvagentConfig::builder()
-        .api_url(&api_url)
-        .sdk_key(&sdk_key)
-        .environment("development")
-        .cache_enabled(true)
-        .cache_ttl(60) // 1 minute
-        .build();
+    let config = FLAG_DEFAULTS.iter().fold(
+        Config::new(&settings.sdk_key).with_base_url(&settings.api_url),
+        |config, (key, value)| config.with_default(*key, *value),
+    );
+    // Format the error so a rejected key prints the SDK's message, not its `Debug` form.
+    let flags = FlagClient::new(config)
+        .map_err(|e| format!("cannot create the Savvagent Flags client: {e}"))?;
 
-    let savvagent = SavvagentClient::new(config)
-        .await
-        .expect("Failed to initialize Savvagent client");
+    tracing::info!(
+        "Savvagent Flags API URL: {} (environment: {})",
+        settings.api_url,
+        settings.environment
+    );
 
     let state = AppState {
-        savvagent: Arc::new(savvagent),
+        flags: flags.clone(),
+        environment: settings.environment,
     };
 
-    // Build application routes
     let app = Router::new()
         .route("/health", get(health))
         .route("/api/features", get(get_features))
@@ -96,120 +165,207 @@ async fn main() {
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 
-    // Start server
-    let addr: SocketAddr = format!("0.0.0.0:{}", port)
-        .parse()
-        .expect("Invalid address");
+    let addr = SocketAddr::from(([0, 0, 0, 0], settings.port));
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    tracing::info!("Server listening on {}", listener.local_addr()?);
 
-    tracing::info!("Server starting on {}", addr);
-    tracing::info!("Savvagent API URL: {}", api_url);
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
+    // Send the evaluations still queued for telemetry before exiting.
+    flags.flush().await;
+    Ok(())
+}
 
-    axum::Server::bind(&addr)
-        .serve(app.into_make_service())
-        .await
-        .expect("Failed to start server");
+/// Resolves on Ctrl-C, or on SIGTERM (how containers and Fly stop a process).
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        if let Err(e) = tokio::signal::ctrl_c().await {
+            tracing::warn!("cannot listen for Ctrl-C: {e}");
+            std::future::pending::<()>().await;
+        }
+    };
+    #[cfg(unix)]
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut signal) => {
+                signal.recv().await;
+            }
+            Err(e) => {
+                tracing::warn!("cannot listen for SIGTERM: {e}");
+                std::future::pending::<()>().await;
+            }
+        }
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+    tokio::select! {
+        _ = ctrl_c => {}
+        _ = terminate => {}
+    }
+    tracing::info!("Shutting down");
 }
 
 async fn health() -> Json<HealthResponse> {
-    Json(HealthResponse {
-        status: "ok".to_string(),
-    })
+    Json(HealthResponse { status: "ok" })
 }
 
+/// Reports which features are on for a user. `is_enabled` never fails: on any error (logged by
+/// the SDK) it returns the flag's configured default, so this handler always answers. The three
+/// lookups run concurrently, so an unreachable API costs one SDK timeout, not three.
 async fn get_features(
     State(state): State<AppState>,
     Query(params): Query<FeaturesQuery>,
-) -> Result<Json<FeaturesResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let user_id = params.user_id;
+) -> Json<FeaturesResponse> {
+    let ctx = state.context(&params.user_id);
+    let (new_ui, beta_features, advanced_analytics) = tokio::join!(
+        state.flags.is_enabled(NEW_UI, Some(ctx.clone())),
+        state.flags.is_enabled(BETA_FEATURES, Some(ctx.clone())),
+        state.flags.is_enabled(ADVANCED_ANALYTICS, Some(ctx)),
+    );
 
-    let ctx = EvaluationContext::builder()
-        .user_id(&user_id)
-        .build();
-
-    // Check multiple feature flags
-    let new_ui = state
-        .savvagent
-        .is_enabled("new-ui", &ctx)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: format!("Failed to check feature flags: {}", e),
-                }),
-            )
-        })?;
-
-    let beta_features = state
-        .savvagent
-        .is_enabled("beta-features", &ctx)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: format!("Failed to check feature flags: {}", e),
-                }),
-            )
-        })?;
-
-    let advanced_analytics = state
-        .savvagent
-        .is_enabled("advanced-analytics", &ctx)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: format!("Failed to check feature flags: {}", e),
-                }),
-            )
-        })?;
-
-    let mut features = HashMap::new();
-    features.insert("newUI".to_string(), new_ui);
-    features.insert("betaFeatures".to_string(), beta_features);
-    features.insert("advancedAnalytics".to_string(), advanced_analytics);
-
-    Ok(Json(FeaturesResponse { user_id, features }))
+    Json(FeaturesResponse {
+        user_id: params.user_id,
+        features: BTreeMap::from([
+            ("newUI", new_ui),
+            ("betaFeatures", beta_features),
+            ("advancedAnalytics", advanced_analytics),
+        ]),
+    })
 }
 
+/// Processes data with the advanced or basic method, gated on `advanced-processing`.
 async fn process_data(
     State(state): State<AppState>,
     Json(request): Json<DataRequest>,
-) -> Result<Json<DataResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let user_id = request.user_id.unwrap_or_else(|| "anonymous".to_string());
+) -> Json<DataResponse> {
+    let user_id = request.user_id.as_deref().unwrap_or("anonymous");
+    let ctx = state
+        .context(user_id)
+        .with_attribute("endpoint", serde_json::json!("/api/data"));
 
-    let mut attributes = HashMap::new();
-    attributes.insert("endpoint".to_string(), "/api/data".to_string());
-
-    let ctx = EvaluationContext::builder()
-        .user_id(&user_id)
-        .attributes(attributes)
-        .build();
-
-    let advanced_processing = state
-        .savvagent
-        .is_enabled("advanced-processing", &ctx)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: format!("Failed to check feature flag: {}", e),
-                }),
-            )
-        })?;
-
-    let method = if advanced_processing {
+    let method = if state.flags.is_enabled(ADVANCED_PROCESSING, Some(ctx)).await {
         "advanced"
     } else {
         "basic"
     };
 
-    Ok(Json(DataResponse {
+    Json(DataResponse {
         processed: true,
-        method: method.to_string(),
+        method,
         data: request.data,
-    }))
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn lookup(vars: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
+        let vars: HashMap<String, String> = vars
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        move |name| vars.get(name).cloned()
+    }
+
+    #[test]
+    fn sdk_key_is_required() {
+        let err = Settings::from_env(lookup(&[])).unwrap_err();
+        assert!(err.contains("SAVVAGENT_SDK_KEY"), "{err}");
+    }
+
+    #[test]
+    fn an_empty_variable_counts_as_unset() {
+        assert!(Settings::from_env(lookup(&[("SAVVAGENT_SDK_KEY", "")])).is_err());
+        let settings = Settings::from_env(lookup(&[
+            ("SAVVAGENT_SDK_KEY", "sdk_abc"),
+            ("SAVVAGENT_API_URL", ""),
+            ("SAVVAGENT_ENVIRONMENT", ""),
+            ("PORT", ""),
+        ]))
+        .unwrap();
+        assert_eq!(settings.api_url, DEFAULT_API_URL);
+        assert_eq!(settings.environment, DEFAULT_ENVIRONMENT);
+        assert_eq!(settings.port, DEFAULT_PORT);
+    }
+
+    #[test]
+    fn defaults_to_production_development_and_port_8083() {
+        let settings = Settings::from_env(lookup(&[("SAVVAGENT_SDK_KEY", "sdk_abc")])).unwrap();
+        assert_eq!(
+            settings,
+            Settings {
+                sdk_key: "sdk_abc".into(),
+                api_url: "https://api.savvagent.com/flags".into(),
+                environment: "development".into(),
+                port: 8083,
+            }
+        );
+    }
+
+    #[test]
+    fn every_variable_is_honoured() {
+        let settings = Settings::from_env(lookup(&[
+            ("SAVVAGENT_SDK_KEY", "sdk_abc"),
+            ("SAVVAGENT_API_URL", "http://localhost:8080"),
+            ("SAVVAGENT_ENVIRONMENT", "staging"),
+            ("PORT", "9000"),
+        ]))
+        .unwrap();
+        assert_eq!(settings.api_url, "http://localhost:8080");
+        assert_eq!(settings.environment, "staging");
+        assert_eq!(settings.port, 9000);
+    }
+
+    #[test]
+    fn debug_output_redacts_the_key() {
+        let settings = Settings::from_env(lookup(&[("SAVVAGENT_SDK_KEY", "srv_secret")])).unwrap();
+        let shown = format!("{settings:?}");
+        assert!(!shown.contains("srv_secret"), "{shown}");
+        assert!(shown.contains("<redacted>"), "{shown}");
+    }
+
+    #[test]
+    fn a_server_key_is_accepted() {
+        let settings = Settings::from_env(lookup(&[("SAVVAGENT_SDK_KEY", "srv_abc")])).unwrap();
+        assert_eq!(settings.sdk_key, "srv_abc");
+        assert!(FlagClient::new(Config::new(&settings.sdk_key)).is_ok());
+    }
+
+    #[test]
+    fn a_bad_port_is_an_error() {
+        let err = Settings::from_env(lookup(&[("SAVVAGENT_SDK_KEY", "sdk_abc"), ("PORT", "x")]))
+            .unwrap_err();
+        assert!(err.contains("PORT"), "{err}");
+    }
+
+    #[test]
+    fn response_shapes_are_unchanged() {
+        let features = FeaturesResponse {
+            user_id: "u1".into(),
+            features: BTreeMap::from([
+                ("newUI", true),
+                ("betaFeatures", false),
+                ("advancedAnalytics", true),
+            ]),
+        };
+        assert_eq!(
+            serde_json::to_value(features).unwrap(),
+            serde_json::json!({
+                "userId": "u1",
+                "features": {"newUI": true, "betaFeatures": false, "advancedAnalytics": true}
+            })
+        );
+        let data = DataResponse {
+            processed: true,
+            method: "basic",
+            data: serde_json::json!("x"),
+        };
+        assert_eq!(
+            serde_json::to_value(data).unwrap(),
+            serde_json::json!({"processed": true, "method": "basic", "data": "x"})
+        );
+    }
 }

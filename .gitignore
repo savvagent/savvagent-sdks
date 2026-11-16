@@ -41,6 +41,10 @@ target/
 # Python
 __pycache__/
 *.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
 
 # Swift/iOS (in case not caught by package-level .gitignore)
 .build/

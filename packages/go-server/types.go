@@ -1,4 +1,4 @@
-package savvagent
+package savvagentflags
 
 import "time"
 
@@ -10,11 +10,15 @@ type Config struct {
 	// ApplicationID for application-scoped flags (optional)
 	ApplicationID string
 
-	// BaseURL is the Savvagent Flags API base URL (default: https://api.savvagent.com/flags).
-	// Trailing slashes are removed.
+	// BaseURL is the Savvagent Flags API base URL (default: https://api.savvagent.com/flags)
 	BaseURL string
 
-	// EnableRealtime enables real-time flag updates via SSE (default: true)
+	// EnableRealtime opens the flag-change stream (GET /api/flags/stream, server-sent
+	// events) in a background goroutine. Each change drops that flag's cached evaluations, so
+	// a change, a kill switch above all, reaches this client in about a round trip instead of
+	// after CacheTTL. Default: off, because a bool's zero value cannot mean on; set it to true
+	// to open the stream, and call Close to stop it. While the stream is down, CacheTTL
+	// bounds how stale a cached result can be.
 	EnableRealtime bool
 
 	// CacheTTL is the cache time-to-live duration (default: 60 seconds)
@@ -26,7 +30,9 @@ type Config struct {
 	// Defaults provides default flag values when evaluation fails
 	Defaults map[string]bool
 
-	// OnError is a custom error handler
+	// OnError is a custom error handler. With EnableRealtime it can also be called from the
+	// stream goroutine, at the same time as calls from lookups, so it must be safe for concurrent
+	// use, and it must not call Close.
 	OnError func(error)
 
 	// Timeout is the HTTP request timeout (default: 5 seconds)
@@ -80,9 +86,21 @@ type EvaluationResult struct {
 
 // Metadata contains additional information about a flag
 type Metadata struct {
-	FlagID      string `json:"flag_id,omitempty"`
+	// FlagID is not sent by the savvagent-flags server, so it is empty.
+	FlagID string `json:"flag_id,omitempty"`
+
+	// Description is not sent by the savvagent-flags server, so it is empty.
 	Description string `json:"description,omitempty"`
-	Variant     string `json:"variant,omitempty"`
+
+	// Variant is not sent by the savvagent-flags server, so it is empty.
+	Variant string `json:"variant,omitempty"`
+
+	// Version is the flag version that produced the result; 0 when the server sent none.
+	Version int64 `json:"version,omitempty"`
+
+	// Scope is the scope the server reports for the flag (for example "application"); empty
+	// when the server sent none.
+	Scope string `json:"scope,omitempty"`
 }
 
 // VariationResult contains variation information for multi-variant flags
@@ -102,6 +120,8 @@ type cacheEntry struct {
 	Value         bool
 	Configuration map[string]interface{}
 	Variation     string
+	Version       int64
+	Scope         string
 	ExpiresAt     time.Time
 }
 
