@@ -141,7 +141,7 @@ export class FlagClient {
       );
       this.config.onError(error);
       return {
-        key: String(key),
+        key: typeof key === 'string' ? key : typeof key,
         value: typeof key === 'string' && this.defaultFor(key),
         reason: 'error',
         metadata: { description: error.message },

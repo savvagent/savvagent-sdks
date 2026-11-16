@@ -625,6 +625,27 @@ describe('FlagClient archived-repo ports (#40)', () => {
       client.close();
     });
 
+    test('rejects a null-prototype key object without throwing', async () => {
+      const onError = jest.fn();
+      const client = makeClient(onError);
+
+      const result = await client.evaluate(Object.create(null) as unknown as string);
+
+      expect(result.reason).toBe('error');
+      expect(result.key).toBe('object');
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(onError).toHaveBeenCalledTimes(1);
+      client.close();
+    });
+
+    test('the telemetry flush interval does not keep the process alive', () => {
+      const client = new FlagClient({ apiKey: 'sdk_test_key', enableTelemetry: true });
+      const interval = (client as any).telemetry.flushInterval as NodeJS.Timeout;
+      expect(interval).toBeDefined();
+      expect(interval.hasRef()).toBe(false);
+      client.close();
+    });
+
     test.each(['new-checkout.v2_b', '...', 'a'.repeat(128)])(
       'fetches valid key %j as one path segment',
       async (key) => {
