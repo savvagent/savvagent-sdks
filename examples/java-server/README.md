@@ -1,13 +1,13 @@
-# Savvagent Java Server Example
+# Savvagent Flags Java Server Example
 
-Example Spring Boot application demonstrating how to use the Savvagent Java Server SDK.
+Example Spring Boot application demonstrating how to use the Savvagent Flags Java Server SDK.
 
 ## Features
 
 - Spring Boot 3.2
 - Java 17
 - Maven build
-- Savvagent Java Server SDK
+- Savvagent Flags Java Server SDK
 - RESTful API endpoints
 - Feature-gated functionality
 - In-memory caching
@@ -23,23 +23,27 @@ Example Spring Boot application demonstrating how to use the Savvagent Java Serv
 
    Create `application.properties` with your credentials:
    ```properties
-   savvagent.api-url=http://localhost:8080
-   savvagent.sdk-key=your-sdk-key-here
-   savvagent.environment=development
+   savvagentFlags.api-url=https://api.savvagent.com/flags
+   savvagentFlags.sdk-key=sdk_your_key
    server.port=8081
    ```
 
-2. **Build the project:**
+2. **Install the SDK locally** (it is not published to a Maven repository):
+   ```bash
+   (cd ../../packages/java-server && mvn install -DskipTests)
+   ```
+
+3. **Build the project:**
    ```bash
    mvn clean package
    ```
 
-3. **Run the application:**
+4. **Run the application:**
    ```bash
    mvn spring-boot:run
    ```
 
-4. The server will start on [http://localhost:8081](http://localhost:8081)
+5. The server will start on [http://localhost:8081](http://localhost:8081)
 
 ## API Endpoints
 
@@ -91,19 +95,19 @@ Uses the `advanced-processing` flag to determine processing method.
 @RestController
 @RequestMapping("/api")
 public class FeatureController {
-    private final SavvagentClient savvagent;
+    private final FlagClient savvagentFlags;
 
     @Autowired
-    public FeatureController(SavvagentClient savvagent) {
-        this.savvagent = savvagent;
+    public FeatureController(FlagClient savvagentFlags) {
+        this.savvagentFlags = savvagentFlags;
     }
 
     @GetMapping("/features")
     public ResponseEntity<Map<String, Object>> getFeatures(
         @RequestParam String userId
     ) {
-        boolean isEnabled = savvagent.isEnabled("new-feature",
-            EvaluationContext.builder()
+        boolean isEnabled = savvagentFlags.isEnabled("new-feature",
+            FlagContext.builder()
                 .userId(userId)
                 .attribute("plan", "pro")
                 .build()
@@ -120,5 +124,5 @@ public class FeatureController {
 ## Learn More
 
 - [Spring Boot Documentation](https://spring.io/projects/spring-boot)
-- [Savvagent Java SDK Documentation](../../packages/java-server/README.md)
+- [Savvagent Flags Java SDK Documentation](../../packages/java-server/README.md)
 - [SDK Integration Guide](../../docs/SDK-INTEGRATION.md)

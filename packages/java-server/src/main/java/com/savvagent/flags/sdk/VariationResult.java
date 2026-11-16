@@ -1,4 +1,4 @@
-package com.savvagent.sdk;
+package com.savvagent.flags.sdk;
 
 /**
  * Result from variation evaluation for multi-variant flags

@@ -1,4 +1,4 @@
-package com.savvagent.sdk;
+package com.savvagent.flags.sdk;
 
 /**
  * Result from flag evaluation
@@ -35,14 +35,27 @@ public class FlagEvaluationResult {
         private String flagId;
         private String description;
         private String variant;
+        private Long version;
+        private String scope;
 
+        /** Not sent by the savvagent-flags server; null unless a server sends it. */
         public String getFlagId() { return flagId; }
         public void setFlagId(String flagId) { this.flagId = flagId; }
 
+        /** Not sent by the savvagent-flags server; null unless a server sends it. */
         public String getDescription() { return description; }
         public void setDescription(String description) { this.description = description; }
 
+        /** Not sent by the savvagent-flags server; null unless a server sends it. */
         public String getVariant() { return variant; }
         public void setVariant(String variant) { this.variant = variant; }
+
+        /** The flag version the server evaluated, or null when it sent none or a malformed one. */
+        public Long getVersion() { return version; }
+        public void setVersion(Long version) { this.version = version; }
+
+        /** The scope the server evaluated the flag at (for example "application"), or null. */
+        public String getScope() { return scope; }
+        public void setScope(String scope) { this.scope = scope; }
     }
 }

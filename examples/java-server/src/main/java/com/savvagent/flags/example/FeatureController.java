@@ -1,7 +1,7 @@
-package com.savvagent.example;
+package com.savvagent.flags.example;
 
-import com.savvagent.sdk.EvaluationContext;
-import com.savvagent.sdk.SavvagentClient;
+import com.savvagent.flags.sdk.FlagContext;
+import com.savvagent.flags.sdk.FlagClient;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -12,11 +12,11 @@ import java.util.Map;
 @RestController
 public class FeatureController {
 
-    private final SavvagentClient savvagent;
+    private final FlagClient savvagentFlags;
 
     @Autowired
-    public FeatureController(SavvagentClient savvagent) {
-        this.savvagent = savvagent;
+    public FeatureController(FlagClient savvagentFlags) {
+        this.savvagentFlags = savvagentFlags;
     }
 
     @GetMapping("/health")
@@ -31,13 +31,13 @@ public class FeatureController {
         @RequestParam String userId
     ) {
         try {
-            EvaluationContext context = EvaluationContext.builder()
+            FlagContext context = FlagContext.builder()
                 .userId(userId)
                 .build();
 
-            boolean newUI = savvagent.isEnabled("new-ui", context);
-            boolean betaFeatures = savvagent.isEnabled("beta-features", context);
-            boolean advancedAnalytics = savvagent.isEnabled("advanced-analytics", context);
+            boolean newUI = savvagentFlags.isEnabled("new-ui", context);
+            boolean betaFeatures = savvagentFlags.isEnabled("beta-features", context);
+            boolean advancedAnalytics = savvagentFlags.isEnabled("advanced-analytics", context);
 
             Map<String, Boolean> features = new HashMap<>();
             features.put("newUI", newUI);
@@ -64,12 +64,12 @@ public class FeatureController {
         try {
             String userId = (String) request.getOrDefault("userId", "anonymous");
 
-            EvaluationContext context = EvaluationContext.builder()
+            FlagContext context = FlagContext.builder()
                 .userId(userId)
                 .attribute("endpoint", "/api/data")
                 .build();
 
-            boolean advancedProcessing = savvagent.isEnabled("advanced-processing", context);
+            boolean advancedProcessing = savvagentFlags.isEnabled("advanced-processing", context);
 
             Map<String, Object> response = new HashMap<>();
             response.put("processed", true);

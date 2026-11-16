@@ -1,4 +1,4 @@
-package com.savvagent.sdk;
+package com.savvagent.flags.sdk;
 
 import java.util.HashMap;
 import java.util.Map;
