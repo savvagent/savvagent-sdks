@@ -27,19 +27,19 @@ Example Axum server that evaluates Savvagent Flags with the Savvagent Flags Rust
 
 | Variable | Required | Default | Meaning |
 |---|---|---|---|
-| `SAVVAGENT_FLAGS_SDK_KEY` | yes | | The app's server key (`srv_...`, recommended: it is secret, and its telemetry drives auto-rollback) or its public client key (`sdk_...`) |
-| `SAVVAGENT_FLAGS_API_URL` | no | `https://api.savvagent.com/flags` | Savvagent Flags API base URL |
-| `SAVVAGENT_FLAGS_ENVIRONMENT` | no | `development` | Environment flags are evaluated in |
+| `SAVVAGENT_SDK_KEY` | yes | | The app's server key (`srv_...`, recommended: it is secret, and its telemetry drives auto-rollback) or its public client key (`sdk_...`) |
+| `SAVVAGENT_API_URL` | no | `https://api.savvagent.com/flags` | Savvagent Flags API base URL |
+| `SAVVAGENT_ENVIRONMENT` | no | `development` | Environment flags are evaluated in |
 | `PORT` | no | `8083` | Port the example listens on |
 | `RUST_LOG` | no | `rust_server_example=info,savvagent_flags=info,tower_http=info` | Log filter |
 
 A variable set to an empty string counts as unset. The server exits with an error if
-`SAVVAGENT_FLAGS_SDK_KEY` is missing or the SDK rejects it, or if `PORT` is not a port number.
+`SAVVAGENT_SDK_KEY` is missing or the SDK rejects it, or if `PORT` is not a port number.
 
 ## Run
 
 ```bash
-export SAVVAGENT_FLAGS_SDK_KEY=srv_your_server_key_here
+export SAVVAGENT_SDK_KEY=srv_your_server_key_here
 cargo run --release
 ```
 
@@ -101,7 +101,7 @@ use savvagent_flags::{Config, Context, FlagClient};
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // The base URL defaults to https://api.savvagent.com/flags; `with_base_url` overrides it.
-    let config = Config::new(std::env::var("SAVVAGENT_FLAGS_SDK_KEY")?).with_default("new-ui", false);
+    let config = Config::new(std::env::var("SAVVAGENT_SDK_KEY")?).with_default("new-ui", false);
     let flags = FlagClient::new(config)?;
 
     let app = Router::new()

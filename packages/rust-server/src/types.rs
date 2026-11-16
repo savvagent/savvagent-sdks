@@ -137,8 +137,8 @@ impl Config {
     /// ```
     /// use savvagent_flags::Config;
     ///
-    /// std::env::set_var("OTTO_DOC_NEW_CHECKOUT", "true");
-    /// let config = Config::new("sdk_key").with_default_env("new-checkout", "OTTO_DOC_NEW_CHECKOUT");
+    /// std::env::set_var("SAVVAGENT_DOC_NEW_CHECKOUT", "true");
+    /// let config = Config::new("sdk_key").with_default_env("new-checkout", "SAVVAGENT_DOC_NEW_CHECKOUT");
     /// assert_eq!(config.defaults.get("new-checkout"), Some(&true));
     /// ```
     pub fn with_default_env(

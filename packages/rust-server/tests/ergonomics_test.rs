@@ -42,35 +42,35 @@ fn warmable_client(server: &MockServer, ttl: Duration) -> FlagClient {
 
 #[tokio::test]
 async fn an_env_var_sets_the_default_served_when_the_server_is_unreachable() {
-    std::env::set_var("OTTO_TEST_DEFAULT_ON", " TRUE ");
+    std::env::set_var("SAVVAGENT_TEST_DEFAULT_ON", " TRUE ");
     let client = unreachable_client(
-        Config::new("sdk_test_key").with_default_env("env-on", "OTTO_TEST_DEFAULT_ON"),
+        Config::new("sdk_test_key").with_default_env("env-on", "SAVVAGENT_TEST_DEFAULT_ON"),
     );
     assert!(client.is_enabled("env-on", None).await);
 }
 
 #[tokio::test]
 async fn an_env_var_can_turn_a_constant_default_off() {
-    std::env::set_var("OTTO_TEST_DEFAULT_OFF", "off");
+    std::env::set_var("SAVVAGENT_TEST_DEFAULT_OFF", "off");
     let client = unreachable_client(
         Config::new("sdk_test_key")
             .with_default("env-off", true)
-            .with_default_env("env-off", "OTTO_TEST_DEFAULT_OFF"),
+            .with_default_env("env-off", "SAVVAGENT_TEST_DEFAULT_OFF"),
     );
     assert!(!client.is_enabled("env-off", None).await);
 }
 
 #[test]
 fn an_unset_or_unparsable_env_var_leaves_the_earlier_default() {
-    std::env::remove_var("OTTO_TEST_DEFAULT_UNSET");
-    std::env::set_var("OTTO_TEST_DEFAULT_JUNK", "maybe");
-    std::env::set_var("OTTO_TEST_DEFAULT_EMPTY", "");
+    std::env::remove_var("SAVVAGENT_TEST_DEFAULT_UNSET");
+    std::env::set_var("SAVVAGENT_TEST_DEFAULT_JUNK", "maybe");
+    std::env::set_var("SAVVAGENT_TEST_DEFAULT_EMPTY", "");
     let config = Config::new("sdk_test_key")
         .with_default("kept", true)
-        .with_default_env("kept", "OTTO_TEST_DEFAULT_UNSET")
-        .with_default_env("kept", "OTTO_TEST_DEFAULT_JUNK")
-        .with_default_env("kept", "OTTO_TEST_DEFAULT_EMPTY")
-        .with_default_env("never-set", "OTTO_TEST_DEFAULT_JUNK");
+        .with_default_env("kept", "SAVVAGENT_TEST_DEFAULT_UNSET")
+        .with_default_env("kept", "SAVVAGENT_TEST_DEFAULT_JUNK")
+        .with_default_env("kept", "SAVVAGENT_TEST_DEFAULT_EMPTY")
+        .with_default_env("never-set", "SAVVAGENT_TEST_DEFAULT_JUNK");
     assert_eq!(config.defaults.get("kept"), Some(&true));
     assert_eq!(config.defaults.get("never-set"), None);
 }
