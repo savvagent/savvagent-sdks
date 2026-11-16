@@ -1,9 +1,9 @@
-package savvagent
+package savvagentflags
 
 import (
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -17,15 +17,19 @@ func TestNewClient(t *testing.T) {
 		{
 			name: "valid config",
 			config: Config{
-				SDKKey:      "test-sdk-key",
-				Environment: "test",
+				APIKey: "sdk_test_key",
 			},
 			wantErr: false,
 		},
 		{
-			name: "missing SDK key",
+			name:    "missing API key",
+			config:  Config{},
+			wantErr: true,
+		},
+		{
+			name: "API key without sdk_ prefix",
 			config: Config{
-				Environment: "test",
+				APIKey: "test-key",
 			},
 			wantErr: true,
 		},
@@ -48,232 +52,232 @@ func TestNewClient(t *testing.T) {
 	}
 }
 
-func TestClient_IsEnabled(t *testing.T) {
+func TestConfig_Defaults(t *testing.T) {
+	client, err := NewClient(Config{APIKey: "sdk_test_key"})
+	if err != nil {
+		t.Fatalf("Failed to create client: %v", err)
+	}
+	defer client.Close()
+
+	if client.config.BaseURL != "https://api.savvagent.com/flags" {
+		t.Errorf("BaseURL = %q, want the default", client.config.BaseURL)
+	}
+	if client.config.CacheTTL != 60*time.Second {
+		t.Errorf("CacheTTL = %v, want 60s", client.config.CacheTTL)
+	}
+	if client.config.Timeout != 5*time.Second {
+		t.Errorf("Timeout = %v, want 5s", client.config.Timeout)
+	}
+	if client.config.Defaults == nil {
+		t.Error("Defaults is nil, want an empty map")
+	}
+	if client.config.OnError == nil {
+		t.Error("OnError is nil, want the default handler")
+	}
+}
+
+func TestClient_Evaluate(t *testing.T) {
 	tests := []struct {
-		name           string
-		flagKey        string
-		statusCode     int
-		responseBody   string
-		expectedResult bool
-		expectError    bool
+		name         string
+		flagKey      string
+		statusCode   int
+		responseBody string
+		wantValue    bool
+		wantReason   string
+		wantErr      bool
 	}{
 		{
-			name:           "flag enabled",
-			flagKey:        "test-flag",
-			statusCode:     200,
-			responseBody:   `{"enabled":true,"flagKey":"test-flag"}`,
-			expectedResult: true,
-			expectError:    false,
+			name:         "flag enabled",
+			flagKey:      "test-flag",
+			statusCode:   http.StatusOK,
+			responseBody: `{"enabled":true,"flag_id":"flag-123"}`,
+			wantValue:    true,
+			wantReason:   "evaluated",
 		},
 		{
-			name:           "flag disabled",
-			flagKey:        "test-flag",
-			statusCode:     200,
-			responseBody:   `{"enabled":false,"flagKey":"test-flag"}`,
-			expectedResult: false,
-			expectError:    false,
+			name:         "flag disabled",
+			flagKey:      "test-flag",
+			statusCode:   http.StatusOK,
+			responseBody: `{"enabled":false}`,
+			wantValue:    false,
+			wantReason:   "evaluated",
 		},
 		{
-			name:           "404 error",
-			flagKey:        "missing-flag",
-			statusCode:     404,
-			responseBody:   `{"error":"Flag not found"}`,
-			expectedResult: false,
-			expectError:    true,
+			name:         "404 error",
+			flagKey:      "missing-flag",
+			statusCode:   http.StatusNotFound,
+			responseBody: `{"error":"Flag not found"}`,
+			wantValue:    false,
+			wantReason:   "error",
+			wantErr:      true,
 		},
 		{
-			name:           "500 error",
-			flagKey:        "test-flag",
-			statusCode:     500,
-			responseBody:   "Internal server error",
-			expectedResult: false,
-			expectError:    true,
+			name:         "500 error",
+			flagKey:      "test-flag",
+			statusCode:   http.StatusInternalServerError,
+			responseBody: "Internal server error",
+			wantValue:    false,
+			wantReason:   "error",
+			wantErr:      true,
 		},
 		{
-			name:           "invalid JSON",
-			flagKey:        "test-flag",
-			statusCode:     200,
-			responseBody:   "invalid json",
-			expectedResult: false,
-			expectError:    true,
+			name:         "invalid JSON",
+			flagKey:      "test-flag",
+			statusCode:   http.StatusOK,
+			responseBody: "invalid json",
+			wantValue:    false,
+			wantReason:   "error",
+			wantErr:      true,
+		},
+		{
+			name:         "missing enabled field",
+			flagKey:      "test-flag",
+			statusCode:   http.StatusOK,
+			responseBody: `{"flag_id":"flag-123"}`,
+			wantValue:    false,
+			wantReason:   "error",
+			wantErr:      true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				// Verify request method and path
-				if r.Method != "POST" {
+				if r.Method != http.MethodPost {
 					t.Errorf("Expected POST request, got %s", r.Method)
 				}
-				if r.URL.Path != "/v1/flags/"+tt.flagKey+"/evaluate" {
-					t.Errorf("Expected path /v1/flags/%s/evaluate, got %s", tt.flagKey, r.URL.Path)
+				if want := "/api/flags/" + tt.flagKey + "/evaluate"; r.URL.Path != want {
+					t.Errorf("Expected path %s, got %s", want, r.URL.Path)
+				}
+				if auth := r.Header.Get("Authorization"); auth != "Bearer sdk_test_key" {
+					t.Errorf("Expected Authorization header 'Bearer sdk_test_key', got '%s'", auth)
 				}
 
-				// Verify headers
-				if auth := r.Header.Get("Authorization"); auth != "Bearer test-sdk-key" {
-					t.Errorf("Expected Authorization header 'Bearer test-sdk-key', got '%s'", auth)
-				}
-
-				w.WriteHeader(tt.statusCode)
 				w.Header().Set("Content-Type", "application/json")
-				w.Write([]byte(tt.responseBody))
+				w.WriteHeader(tt.statusCode)
+				_, _ = w.Write([]byte(tt.responseBody))
 			}))
 			defer server.Close()
 
 			client, err := NewClient(Config{
-				APIUrl:          server.URL,
-				SDKKey:          "test-sdk-key",
-				Environment:     "test",
-				EnableWebSocket: false,
-				PollingInterval: 0,
+				APIKey:  "sdk_test_key",
+				BaseURL: server.URL,
+				OnError: func(error) {},
 			})
 			if err != nil {
 				t.Fatalf("Failed to create client: %v", err)
 			}
 			defer client.Close()
 
-			ctx := Context{
-				UserID: "user-123",
+			result, err := client.Evaluate(tt.flagKey, &Context{UserID: "user-123"})
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Evaluate() error = %v, wantErr %v", err, tt.wantErr)
 			}
-
-			result, err := client.IsEnabled(tt.flagKey, ctx)
-
-			if tt.expectError {
-				if err == nil {
-					t.Error("Expected error but got none")
-				}
-			} else {
-				if err != nil {
-					t.Errorf("Unexpected error: %v", err)
-				}
-				if result != tt.expectedResult {
-					t.Errorf("Expected result %v, got %v", tt.expectedResult, result)
-				}
+			if result == nil {
+				t.Fatal("Evaluate() returned a nil result")
+			}
+			if result.Value != tt.wantValue {
+				t.Errorf("Value = %v, want %v", result.Value, tt.wantValue)
+			}
+			if result.Reason != tt.wantReason {
+				t.Errorf("Reason = %q, want %q", result.Reason, tt.wantReason)
 			}
 		})
 	}
 }
 
-func TestClient_GetVariation(t *testing.T) {
-	tests := []struct {
-		name         string
-		responseBody string
-		statusCode   int
-		defaultValue interface{}
-		expected     interface{}
-	}{
-		{
-			name:         "string variation",
-			responseBody: `{"value":"dark-mode"}`,
-			statusCode:   200,
-			defaultValue: "light",
-			expected:     "dark-mode",
-		},
-		{
-			name:         "integer variation",
-			responseBody: `{"value":100}`,
-			statusCode:   200,
-			defaultValue: 10,
-			expected:     100,
-		},
-		{
-			name:         "error returns default",
-			responseBody: "error",
-			statusCode:   500,
-			defaultValue: "light",
-			expected:     "light",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.WriteHeader(tt.statusCode)
-				w.Write([]byte(tt.responseBody))
-			}))
-			defer server.Close()
-
-			client, _ := NewClient(Config{
-				APIUrl:          server.URL,
-				SDKKey:          "test-sdk-key",
-				Environment:     "test",
-				EnableWebSocket: false,
-				PollingInterval: 0,
-			})
-			defer client.Close()
-
-			ctx := Context{UserID: "user-123"}
-
-			result := client.GetVariation("test-flag", ctx, tt.defaultValue)
-
-			// Type assertion based on default value type
-			switch v := tt.expected.(type) {
-			case string:
-				if result.(string) != v {
-					t.Errorf("Expected %v, got %v", v, result)
-				}
-			case int:
-				if result.(int) != v {
-					t.Errorf("Expected %v, got %v", v, result)
-				}
-			}
-		})
-	}
-}
-
-func TestClient_Track(t *testing.T) {
-	requestReceived := false
-
+func TestClient_IsEnabled(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestReceived = true
-
-		if r.Method != "POST" {
-			t.Errorf("Expected POST request, got %s", r.Method)
-		}
-		if r.URL.Path != "/v1/events" {
-			t.Errorf("Expected path /v1/events, got %s", r.URL.Path)
-		}
-
-		// Verify request body
-		var body map[string]interface{}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Errorf("Failed to decode request body: %v", err)
-		}
-
-		if body["event"] != "button_click" {
-			t.Errorf("Expected event 'button_click', got %v", body["event"])
-		}
-
-		w.WriteHeader(200)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"enabled":true}`))
 	}))
 	defer server.Close()
 
 	client, err := NewClient(Config{
-		APIUrl:          server.URL,
-		SDKKey:          "test-sdk-key",
-		Environment:     "test",
-		EnableWebSocket: false,
-		PollingInterval: 0,
+		APIKey:  "sdk_test_key",
+		BaseURL: server.URL,
 	})
 	if err != nil {
 		t.Fatalf("Failed to create client: %v", err)
 	}
 	defer client.Close()
 
-	ctx := Context{UserID: "user-123"}
-	properties := map[string]interface{}{
-		"button": "checkout",
-		"value":  99.99,
+	if !client.IsEnabled("test-flag", &Context{UserID: "user-123"}) {
+		t.Error("IsEnabled() = false, want true")
+	}
+}
+
+func TestClient_IsEnabledUsesDefaultOnError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	client, err := NewClient(Config{
+		APIKey:   "sdk_test_key",
+		BaseURL:  server.URL,
+		Defaults: map[string]bool{"test-flag": true},
+		OnError:  func(error) {},
+	})
+	if err != nil {
+		t.Fatalf("Failed to create client: %v", err)
+	}
+	defer client.Close()
+
+	if !client.IsEnabled("test-flag", &Context{UserID: "user-123"}) {
+		t.Error("IsEnabled() = false, want the configured default true")
+	}
+}
+
+func TestClient_GetVariation(t *testing.T) {
+	tests := []struct {
+		name          string
+		responseBody  string
+		wantVariation string
+		wantEnabled   bool
+	}{
+		{
+			name:          "named variation",
+			responseBody:  `{"enabled":true,"variation":"variant_a"}`,
+			wantVariation: "variant_a",
+			wantEnabled:   true,
+		},
+		{
+			name:          "no variation falls back to control",
+			responseBody:  `{"enabled":false}`,
+			wantVariation: "control",
+			wantEnabled:   false,
+		},
 	}
 
-	client.Track("button_click", ctx, properties)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(tt.responseBody))
+			}))
+			defer server.Close()
 
-	// Give some time for async operation
-	time.Sleep(100 * time.Millisecond)
+			client, err := NewClient(Config{
+				APIKey:  "sdk_test_key",
+				BaseURL: server.URL,
+			})
+			if err != nil {
+				t.Fatalf("Failed to create client: %v", err)
+			}
+			defer client.Close()
 
-	if !requestReceived {
-		t.Error("Track request was not received")
+			result, err := client.GetVariation("test-flag", &Context{UserID: "user-123"})
+			if err != nil {
+				t.Fatalf("GetVariation() error = %v", err)
+			}
+			if result.Variation != tt.wantVariation {
+				t.Errorf("Variation = %q, want %q", result.Variation, tt.wantVariation)
+			}
+			if result.Enabled != tt.wantEnabled {
+				t.Errorf("Enabled = %v, want %v", result.Enabled, tt.wantEnabled)
+			}
+		})
 	}
 }
 
@@ -290,114 +294,90 @@ func TestContext(t *testing.T) {
 	if ctx.UserID != "user-123" {
 		t.Errorf("Expected UserID 'user-123', got %s", ctx.UserID)
 	}
-
 	if ctx.Attributes["email"] != "test@example.com" {
 		t.Errorf("Expected email 'test@example.com', got %v", ctx.Attributes["email"])
 	}
-
 	if ctx.Attributes["plan"] != "pro" {
 		t.Errorf("Expected plan 'pro', got %v", ctx.Attributes["plan"])
 	}
-
 	if ctx.Attributes["age"] != 30 {
 		t.Errorf("Expected age 30, got %v", ctx.Attributes["age"])
 	}
 }
 
-func TestConfig_Defaults(t *testing.T) {
-	config := Config{
-		SDKKey:      "test-key",
-		Environment: "",
-	}
-
-	client, err := NewClient(config)
-	if err != nil {
-		t.Fatalf("Failed to create client: %v", err)
-	}
-	defer client.Close()
-
-	// Test that defaults are applied
-	// This would require exposing client config or testing behavior
-}
-
 func TestClient_Concurrent(t *testing.T) {
+	var requests int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(200)
-		w.Write([]byte(`{"enabled":true}`))
+		atomic.AddInt32(&requests, 1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"enabled":true}`))
 	}))
 	defer server.Close()
 
 	client, err := NewClient(Config{
-		APIUrl:          server.URL,
-		SDKKey:          "test-sdk-key",
-		Environment:     "test",
-		EnableWebSocket: false,
-		PollingInterval: 0,
+		APIKey:  "sdk_test_key",
+		BaseURL: server.URL,
 	})
 	if err != nil {
 		t.Fatalf("Failed to create client: %v", err)
 	}
 	defer client.Close()
 
-	ctx := Context{UserID: "user-123"}
+	ctx := &Context{UserID: "user-123"}
 
-	// Test concurrent requests
 	done := make(chan bool, 10)
 	for i := 0; i < 10; i++ {
 		go func(id int) {
-			_, err := client.IsEnabled("test-flag", ctx)
+			result, err := client.Evaluate("test-flag", ctx)
 			if err != nil {
 				t.Errorf("Request %d failed: %v", id, err)
+			} else if !result.Value {
+				t.Errorf("Request %d: Value = false, want true", id)
 			}
 			done <- true
 		}(i)
 	}
 
-	// Wait for all goroutines
 	for i := 0; i < 10; i++ {
 		<-done
 	}
 }
 
 func TestClient_Caching(t *testing.T) {
-	callCount := 0
+	var callCount int32
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		callCount++
-		w.WriteHeader(200)
-		w.Write([]byte(`{"enabled":true}`))
+		atomic.AddInt32(&callCount, 1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"enabled":true}`))
 	}))
 	defer server.Close()
 
 	client, err := NewClient(Config{
-		APIUrl:          server.URL,
-		SDKKey:          "test-sdk-key",
-		Environment:     "test",
-		EnableWebSocket: false,
-		PollingInterval: 0,
-		CacheTTL:        time.Second * 5,
+		APIKey:   "sdk_test_key",
+		BaseURL:  server.URL,
+		CacheTTL: 5 * time.Second,
 	})
 	if err != nil {
 		t.Fatalf("Failed to create client: %v", err)
 	}
 	defer client.Close()
 
-	ctx := Context{UserID: "user-123"}
+	ctx := &Context{UserID: "user-123"}
 
-	// First call
-	_, err = client.IsEnabled("test-flag", ctx)
+	first, err := client.Evaluate("test-flag", ctx)
 	if err != nil {
 		t.Fatalf("First request failed: %v", err)
 	}
-
-	// Second call should use cache
-	_, err = client.IsEnabled("test-flag", ctx)
+	second, err := client.Evaluate("test-flag", ctx)
 	if err != nil {
 		t.Fatalf("Second request failed: %v", err)
 	}
 
-	// Should only have called API once due to caching
-	if callCount != 1 {
-		t.Errorf("Expected 1 API call, got %d", callCount)
+	if first.Reason != "evaluated" || second.Reason != "cached" {
+		t.Errorf("reasons = %q, %q; want \"evaluated\", \"cached\"", first.Reason, second.Reason)
+	}
+	if n := atomic.LoadInt32(&callCount); n != 1 {
+		t.Errorf("Expected 1 API call, got %d", n)
 	}
 }

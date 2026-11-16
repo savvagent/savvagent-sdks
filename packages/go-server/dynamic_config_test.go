@@ -1,4 +1,4 @@
-package savvagent
+package savvagentflags
 
 import (
 	"encoding/json"
