@@ -306,3 +306,81 @@ describe('FlagCache cap handling', () => {
     expect(sweep.mock.calls.length).toBeLessThanOrEqual(1);
   });
 });
+
+describe('FlagCache result metadata (#165)', () => {
+  it('stores version and scope with the entry', () => {
+    const cache = new FlagCache(60000);
+    cache.set('flag', true, 'flag-1', undefined, undefined, 'ctx', { version: 3, scope: 'application' });
+    expect(cache.getEntry('flag', 'ctx')).toMatchObject({
+      value: true,
+      flagId: 'flag-1',
+      version: 3,
+      scope: 'application',
+    });
+  });
+
+  it('leaves version and scope undefined when none are given', () => {
+    const cache = new FlagCache(60000);
+    cache.set('flag', true, undefined, undefined, undefined, 'ctx');
+    const entry = cache.getEntry('flag', 'ctx');
+    expect(entry?.version).toBeUndefined();
+    expect(entry?.scope).toBeUndefined();
+  });
+});
+
+describe('FlagCache generation (stale re-cache guard, #166)', () => {
+  it('a write with the current generation is stored', () => {
+    const cache = new FlagCache(60000);
+    const generation = cache.generation('flag');
+    cache.set('flag', true, undefined, undefined, undefined, 'ctx', undefined, generation);
+    expect(cache.get('flag', 'ctx')).toBe(true);
+  });
+
+  it('invalidating the flag drops a write read before it', () => {
+    const cache = new FlagCache(60000);
+    const generation = cache.generation('flag');
+    cache.invalidate('flag');
+    cache.set('flag', true, undefined, undefined, undefined, 'ctx', undefined, generation);
+    expect(cache.get('flag', 'ctx')).toBeNull();
+    expect(cache.size).toBe(0);
+  });
+
+  it.each([
+    ['invalidate()', (c: FlagCache) => c.invalidate()],
+    ['clear()', (c: FlagCache) => c.clear()],
+  ])('%s drops a write for every flag read before it', (_name, wipe) => {
+    const cache = new FlagCache(60000);
+    const a = cache.generation('a');
+    const b = cache.generation('b');
+    wipe(cache);
+    cache.set('a', true, undefined, undefined, undefined, '', undefined, a);
+    cache.set('b', true, undefined, undefined, undefined, '', undefined, b);
+    expect(cache.size).toBe(0);
+  });
+
+  it("invalidating another flag does not change this flag's generation", () => {
+    const cache = new FlagCache(60000);
+    const generation = cache.generation('flag');
+    cache.invalidate('other');
+    expect(cache.generation('flag')).toBe(generation);
+    cache.set('flag', true, undefined, undefined, undefined, '', undefined, generation);
+    expect(cache.get('flag')).toBe(true);
+  });
+
+  it('a generation is never reused after an epoch bump resets per-flag counters', () => {
+    const cache = new FlagCache(60000);
+    cache.invalidate('flag');
+    const before = cache.generation('flag');
+    cache.clear();
+    expect(cache.generation('flag')).not.toBe(before);
+    cache.invalidate('flag');
+    expect(cache.generation('flag')).not.toBe(before);
+  });
+
+  it('a write without a generation is always stored', () => {
+    const cache = new FlagCache(60000);
+    cache.invalidate('flag');
+    cache.set('flag', true);
+    expect(cache.get('flag')).toBe(true);
+  });
+});

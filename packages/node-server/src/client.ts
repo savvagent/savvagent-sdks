@@ -13,11 +13,28 @@ import {
 } from './types';
 
 /**
+ * Whether `key` can be a flag key. Mirrors the server's rule: 1-128 characters
+ * from `[A-Za-z0-9._-]`, and not `.` or `..`. The key is a URL path segment,
+ * and `.` and `..` cannot be carried in one (clients normalize them away), so
+ * no flag can have those keys. Checking before the request keeps an invalid
+ * key, and the API key sent with it, from steering the request to another
+ * endpoint (#118).
+ */
+function isValidFlagKey(key: unknown): key is string {
+  return typeof key === 'string' && key !== '.' && key !== '..' && /^[A-Za-z0-9._-]{1,128}$/.test(key);
+}
+
+/**
  * Savvagent Server Client for feature flag evaluation with AI-powered error detection
  */
 export class FlagClient {
   private config: Required<FlagClientConfig>;
   private cache: FlagCache;
+  /**
+   * The most recent evaluated value per flag, for trackError when the error's
+   * context has no cached entry of its own (bounded by the host's flag keys).
+   */
+  private lastValues: Map<string, boolean> = new Map();
   private telemetry: TelemetryService;
   private realtime: RealtimeService | null = null;
   private configOverrides: Map<string, ConfigOverrideEntry> = new Map();
@@ -89,6 +106,23 @@ export class FlagClient {
    * Evaluate a feature flag
    */
   async evaluate(flagKey: string, context?: FlagContext): Promise<FlagEvaluationResult> {
+    if (!isValidFlagKey(flagKey)) {
+      // Untyped callers can pass anything here.
+      const key: unknown = flagKey;
+      const described =
+        typeof key === 'string'
+          ? `${JSON.stringify(key.slice(0, 64))} (length ${key.length})`
+          : `non-string value of type ${typeof key}`;
+      this.config.onError(
+        new Error(`Invalid flag key ${described}: keys are 1-128 characters of [A-Za-z0-9._-] and not "." or ".."`)
+      );
+      return {
+        key: String(key),
+        value: (typeof key === 'string' && this.config.defaults[key]) || false,
+        reason: 'error',
+      };
+    }
+
     const startTime = Date.now();
 
     try {
@@ -128,7 +162,14 @@ export class FlagClient {
           configuration,
           variation,
           reason: 'cached',
+          metadata: {
+            flagId: cachedEntry.flagId,
+            version: cachedEntry.version,
+            scope: cachedEntry.scope,
+          },
         };
+
+        this.lastValues.set(flagKey, cachedEntry.value);
 
         // Track evaluation
         this.telemetry.trackEvaluation({
@@ -142,12 +183,16 @@ export class FlagClient {
         return result;
       }
 
+      // Read before the request: an invalidation while it is in flight means
+      // its result may predate the change, so it is returned but not cached.
+      const generation = this.cache.generation(flagKey);
+
       // Call API
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), this.config.timeout);
 
       // Per SDK Developer Guide: POST /api/flags/{key}/evaluate
-      const response = await fetch(`${this.config.baseUrl}/api/flags/${flagKey}/evaluate`, {
+      const response = await fetch(`${this.config.baseUrl}/api/flags/${encodeURIComponent(flagKey)}/evaluate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -163,22 +208,48 @@ export class FlagClient {
         throw new Error(`API error: ${response.status} ${response.statusText}`);
       }
 
-      const data = await response.json() as {
-        enabled?: boolean;
+      const data = (await response.json()) as {
+        enabled?: unknown;
         configuration?: any;
-        variation?: string;
+        variation?: string | null;
         flagId?: string;
         description?: string;
         variant?: string;
-      };
-      const value = data.enabled ?? this.config.defaults[flagKey] ?? false;
+        version?: unknown;
+        scope?: unknown;
+      } | null;
+      // The result is `enabled` (SDK developer guide). A body without a
+      // boolean `enabled` is a failed lookup: substituting the default here
+      // would cache it for the TTL as if the server had said so (#126).
+      if (typeof data !== 'object' || data === null || typeof data.enabled !== 'boolean') {
+        throw new Error(`The evaluate response for ${JSON.stringify(flagKey)} has no boolean \`enabled\``);
+      }
+      const value = data.enabled;
+      this.lastValues.set(flagKey, value);
+      // The server sends both as null when the flag has none; the SDK's types say undefined.
+      const configuration = data.configuration ?? undefined;
+      const variation = data.variation ?? undefined;
+      // Metadata the server sends; a malformed field is dropped, never a failed lookup (#165).
+      const version =
+        typeof data.version === 'number' && Number.isInteger(data.version) ? data.version : undefined;
+      const scope = typeof data.scope === 'string' ? data.scope : undefined;
 
-      // Cache the result (including configuration and variation)
-      this.cache.set(flagKey, value, data.flagId, data.configuration, data.variation, contextKey);
+      // Cache the result (including configuration, variation and metadata),
+      // unless the flag was invalidated while the request was in flight (#166).
+      this.cache.set(
+        flagKey,
+        value,
+        data.flagId,
+        configuration,
+        variation,
+        contextKey,
+        { version, scope },
+        generation
+      );
 
       // Apply overrides to evaluated result
-      let finalConfiguration = data.configuration;
-      let finalVariation = data.variation;
+      let finalConfiguration = configuration;
+      let finalVariation = variation;
 
       const configOverride = this.configOverrides.get(flagKey);
       if (configOverride) {
@@ -203,6 +274,8 @@ export class FlagClient {
           flagId: data.flagId,
           description: data.description,
           variant: data.variant,
+          version,
+          scope,
         },
       };
 
@@ -298,13 +371,18 @@ export class FlagClient {
    * Track an error that occurred in flagged code
    */
   trackError(flagKey: string, error: Error, context?: FlagContext): void {
-    let flagEnabled = false;
+    // The value cached for this error's own context; else the flag's most
+    // recent evaluation (an error is often reported without the context it
+    // was evaluated with, and reporting false would count flag-on errors as
+    // flag-off); else false for a flag never evaluated (#128).
+    let cached: boolean | null = null;
     try {
-      flagEnabled = this.cache.get(flagKey, contextCacheKey(this.buildEvalContext(context))) ?? false;
+      cached = this.cache.get(flagKey, contextCacheKey(this.buildEvalContext(context)));
     } catch {
       // A context that cannot be keyed (e.g. cyclic) must not turn error
-      // tracking itself into a thrown error; report the flag as off.
+      // tracking itself into a thrown error; fall back as for a cache miss.
     }
+    const flagEnabled = cached ?? this.lastValues.get(flagKey) ?? false;
 
     this.telemetry.trackError({
       flagKey,
@@ -326,6 +404,7 @@ export class FlagClient {
     this.config.environment = environment;
     // Clear cache when environment changes since flag values may differ
     this.cache.clear();
+    this.lastValues.clear();
   }
 
   /**
@@ -351,6 +430,7 @@ export class FlagClient {
       this.realtime.close();
     }
     this.cache.clear();
+    this.lastValues.clear();
   }
 
   /**
@@ -468,6 +548,7 @@ export class FlagClient {
     this.configOverrides.clear();
     this.variationOverrides.clear();
     this.cache.clear();
+    this.lastValues.clear();
   }
 
   /**

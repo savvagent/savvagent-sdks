@@ -192,7 +192,10 @@ Evaluate a feature flag and return detailed results.
 ```typescript
 const result = await client.evaluate('my-flag', { user_id: '123' });
 // Returns: { key, value, reason, metadata? }
+// metadata: { version?, scope? } as sent by the server, on evaluated and cached results
 ```
+
+Flag keys are 1-128 characters of `[A-Za-z0-9._-]` and not `.` or `..`. An invalid key returns the default with `reason: 'error'` (and calls `onError`) without sending a request. A response without a boolean `enabled` is a failed lookup: it returns the default with `reason: 'error'` and is not cached.
 
 ##### isEnabled(flagKey, context?)
 
