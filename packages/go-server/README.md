@@ -17,8 +17,10 @@ Official Go Server SDK for Savvagent Flags - AI-powered feature flags with autom
 
 ## Installation
 
+The module is not published with a version tag yet. Pin a commit of savvagent/flags-sdks:
+
 ```bash
-go get github.com/savvagent/flags-sdks/packages/go-server
+go get github.com/savvagent/flags-sdks/packages/go-server@<commit>
 ```
 
 ## Quick Start

@@ -64,6 +64,13 @@ uv add "savvagent-flags @ git+https://github.com/savvagent/flags-sdks@<commit>#s
 ```
 
 **Java:**
+The Java SDK is not published to Maven Central. Build it from source at a pinned commit (replace `<commit>`), which installs it into your local Maven repository:
+```bash
+git clone https://github.com/savvagent/flags-sdks
+git -C flags-sdks checkout <commit>
+mvn -B -f flags-sdks/packages/java-server/pom.xml install
+```
+Then add the dependency:
 ```xml
 <dependency>
     <groupId>com.savvagent.flags</groupId>
@@ -282,7 +289,7 @@ let config = client.get_config("flag-key", None).await?;
 
 // Option 2: Get full details
 let result = client.evaluate("flag-key", None).await?;
-println!("{} {} {:?}", result.value, result.variation, result.configuration);
+println!("{} {:?} {:?}", result.value, result.variation, result.configuration);
 
 // Option 3: Get variation
 let variation = client.get_variation("flag-key", None).await?;

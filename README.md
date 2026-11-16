@@ -72,9 +72,9 @@ Official SDKs, MCP servers, and example applications for [Savvagent](https://sav
   - Memory-safe with Rust ownership
   - Full type safety
 
-#### Installing the Python, Go and Rust SDKs
+#### Installing the Python, Go, Rust and Java SDKs
 
-These SDKs are not published to a package registry yet. Install them from this repository, pinned to a commit
+These SDKs are not published to a package registry yet (Java is not published to Maven Central). Install them from this repository, pinned to a commit
 (replace `<commit>` with the commit you want):
 
 ```bash
@@ -92,7 +92,15 @@ go get github.com/savvagent/flags-sdks/packages/go-server@<commit>
 savvagent-flags = { git = "https://github.com/savvagent/flags-sdks", rev = "<commit>" }
 ```
 
-Java is a Maven artifact:
+Java: The Java SDK is not published to Maven Central. Build it from source at a pinned commit (replace `<commit>`), which installs it into your local Maven repository:
+
+```bash
+git clone https://github.com/savvagent/flags-sdks
+git -C flags-sdks checkout <commit>
+mvn -B -f flags-sdks/packages/java-server/pom.xml install
+```
+
+Then add the dependency:
 
 ```xml
 <dependency>
@@ -412,7 +420,7 @@ MIT License - see [LICENSE](./LICENSE) for details
 | Package | Language | Version | Status |
 |---------|----------|---------|--------|
 | [@savvagent/node-server](./packages/node-server) | Node.js | v0.1.0 | Beta |
-| [savvagent-flags](./packages/python-server) | Python 3.9+ | v0.1.0 | Beta |
+| [savvagent-flags](./packages/python-server) | Python 3.9+ | v1.1.0 | Beta |
 | [savvagent-flags-java-server-sdk](./packages/java-server) | Java 11+ | v0.1.0 | Beta |
 | [github.com/savvagent/flags-sdks/packages/go-server](./packages/go-server) | Go 1.21+ | v0.1.0 | Beta |
 | [savvagent-flags](./packages/rust-server) | Rust 1.70+ | v0.1.0 | Beta |

@@ -18,6 +18,14 @@ Official Java Server SDK for Savvagent Flags - AI-powered feature flags with aut
 
 ## Installation
 
+The Java SDK is not published to Maven Central. Build it from source at a pinned commit (replace `<commit>`), which installs it into your local Maven repository:
+
+```bash
+git clone https://github.com/savvagent/flags-sdks
+git -C flags-sdks checkout <commit>
+mvn -B -f flags-sdks/packages/java-server/pom.xml install
+```
+
 ### Maven
 
 ```xml

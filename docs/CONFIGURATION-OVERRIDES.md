@@ -77,6 +77,7 @@ func main() {
 
     // Get config with override applied
     config, _ := client.GetConfig("checkout-experience", nil)
+    _ = config
 }
 ```
 
@@ -147,7 +148,7 @@ public class Example {
         client.setVariationOverride("search-algorithm", "variant_b");
 
         // Get config with override applied
-        Object config = client.getConfig("checkout-experience");
+        Object checkoutConfig = client.getConfig("checkout-experience");
     }
 }
 ```

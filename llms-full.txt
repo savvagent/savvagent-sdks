@@ -71,6 +71,13 @@ go get github.com/savvagent/flags-sdks/packages/go-server@<commit>
 ```
 
 ### Java (Maven)
+The Java SDK is not published to Maven Central. Build it from source at a pinned commit (replace `<commit>`), which installs it into your local Maven repository:
+```bash
+git clone https://github.com/savvagent/flags-sdks
+git -C flags-sdks checkout <commit>
+mvn -B -f flags-sdks/packages/java-server/pom.xml install
+```
+Then add the dependency:
 ```xml
 <dependency>
   <groupId>com.savvagent.flags</groupId>

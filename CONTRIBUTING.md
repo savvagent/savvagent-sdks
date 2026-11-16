@@ -86,26 +86,25 @@ same checks for each (see `.github/workflows/ci.yml`), so run them before you pu
 
 ```bash
 # Rust: crate savvagent-flags (lib savvagent_flags)
-cd packages/rust-server
-cargo fmt --check
-cargo clippy --locked --all-targets -- -D warnings
-cargo test --locked
+(cd packages/rust-server \
+  && cargo fmt --check \
+  && cargo clippy --locked --all-targets -- -D warnings \
+  && cargo test --locked)
 
 # Python: distribution savvagent-flags (module savvagent_flags)
-cd packages/python-server
-uv run --extra dev ruff check .
-uv run --extra dev mypy
-uv run --extra dev pytest
+(cd packages/python-server \
+  && uv run --extra dev ruff check . \
+  && uv run --extra dev mypy \
+  && uv run --extra dev pytest)
 
 # Go: module github.com/savvagent/flags-sdks/packages/go-server (package savvagentflags)
-cd packages/go-server
-test -z "$(gofmt -l .)"
-go vet ./...
-go test ./...
+(cd packages/go-server \
+  && test -z "$(gofmt -l .)" \
+  && go vet ./... \
+  && go test ./...)
 
 # Java: com.savvagent.flags:savvagent-flags-java-server-sdk
-cd packages/java-server
-mvn -B install
+(cd packages/java-server && mvn -B install)
 ```
 
 Each SDK's example (in `examples/<language>-server`) is built in CI too. The Java example
