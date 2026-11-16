@@ -81,6 +81,37 @@ pnpm lint
 pnpm format
 ```
 
+The Rust, Python, Go and Java SDKs are not part of the pnpm workspace. CI runs the
+same checks for each (see `.github/workflows/ci.yml`), so run them before you push:
+
+```bash
+# Rust: crate savvagent-flags (lib savvagent_flags)
+cd packages/rust-server
+cargo fmt --check
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked
+
+# Python: distribution savvagent-flags (module savvagent_flags)
+cd packages/python-server
+uv run --extra dev ruff check .
+uv run --extra dev mypy
+uv run --extra dev pytest
+
+# Go: module github.com/savvagent/flags-sdks/packages/go-server (package savvagentflags)
+cd packages/go-server
+test -z "$(gofmt -l .)"
+go vet ./...
+go test ./...
+
+# Java: com.savvagent.flags:savvagent-flags-java-server-sdk
+cd packages/java-server
+mvn -B install
+```
+
+Each SDK's example (in `examples/<language>-server`) is built in CI too. The Java example
+needs the SDK installed first (`mvn install` above), and the Go example uses a `replace`
+directive to build against the local SDK.
+
 ### 4. Add a Changeset
 
 For any changes that affect published packages, add a changeset:

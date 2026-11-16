@@ -51,11 +51,11 @@ const config = await client.getConfig('checkout-experience');
 package main
 
 import (
-    "github.com/savvagent/go-server"
+    savvagentflags "github.com/savvagent/flags-sdks/packages/go-server"
 )
 
 func main() {
-    client, _ := savvagent.NewClient(savvagent.Config{
+    client, _ := savvagentflags.NewClient(savvagentflags.Config{
         APIKey: "sdk_dev_abc123",
     })
 
@@ -70,7 +70,7 @@ func main() {
     // Override with merge
     client.SetConfigOverride("payment-settings", map[string]interface{}{
         "gateway": "stripe_test",
-    }, &savvagent.ConfigOverrideOptions{Merge: true})
+    }, &savvagentflags.ConfigOverrideOptions{Merge: true})
 
     // Override variation
     client.SetVariationOverride("search-algorithm", "variant_b")
@@ -83,7 +83,7 @@ func main() {
 ### Rust
 
 ```rust
-use savvagent_sdk::{Config, ConfigOverrideOptions, FlagClient};
+use savvagent_flags::{Config, ConfigOverrideOptions, FlagClient};
 use serde_json::json;
 
 #[tokio::main]
@@ -121,14 +121,13 @@ async fn main() {
 ### Java
 
 ```java
-import com.savvagent.sdk.*;
+import com.savvagent.flags.sdk.*;
 import java.util.HashMap;
 import java.util.Map;
 
 public class Example {
     public static void main(String[] args) {
-        FlagClientConfig config = new FlagClientConfig.Builder()
-            .apiKey("sdk_dev_abc123")
+        FlagClientConfig config = FlagClientConfig.builder("sdk_dev_abc123")
             .build();
 
         FlagClient client = new FlagClient(config);

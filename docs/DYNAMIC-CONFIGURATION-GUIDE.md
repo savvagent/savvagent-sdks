@@ -217,17 +217,17 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/savvagent/go-server"
+	savvagentflags "github.com/savvagent/flags-sdks/packages/go-server"
 )
 
 func main() {
-	client, _ := savvagent.NewClient(savvagent.Config{
+	client, _ := savvagentflags.NewClient(savvagentflags.Config{
 		APIKey:        os.Getenv("SAVVAGENT_API_KEY"),
 		ApplicationID: "my-app",
 	})
 	defer client.Close()
 
-	ctx := &savvagent.Context{
+	ctx := &savvagentflags.Context{
 		UserID: "user-123",
 	}
 
@@ -277,7 +277,7 @@ func main() {
 ### Rust
 
 ```rust
-use savvagent_sdk::{Config, Context, FlagClient};
+use savvagent_flags::{Config, Context, FlagClient};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -324,13 +324,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### Java
 
 ```java
-import com.savvagent.sdk.*;
+import com.savvagent.flags.sdk.*;
 import com.google.gson.JsonObject;
 
 public class Example {
     public static void main(String[] args) {
-        FlagClientConfig config = new FlagClientConfig.Builder()
-            .apiKey(System.getenv("SAVVAGENT_API_KEY"))
+        FlagClientConfig config = FlagClientConfig.builder(System.getenv("SAVVAGENT_API_KEY"))
             .applicationId("my-app")
             .build();
 

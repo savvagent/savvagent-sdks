@@ -49,23 +49,33 @@ yarn upgrade @savvagent/node-server
 
 **Go:**
 ```bash
-go get -u github.com/savvagent/go-server@latest
+go get github.com/savvagent/flags-sdks/packages/go-server@<commit>
 ```
 
 **Rust:**
 ```toml
 [dependencies]
-savvagent-sdk = "2.0"
+savvagent-flags = { git = "https://github.com/savvagent/flags-sdks", rev = "<commit>" }
+```
+
+**Python:**
+```bash
+uv add "savvagent-flags @ git+https://github.com/savvagent/flags-sdks@<commit>#subdirectory=packages/python-server"
 ```
 
 **Java:**
 ```xml
 <dependency>
-    <groupId>com.savvagent</groupId>
-    <artifactId>savvagent-sdk</artifactId>
-    <version>2.0.0</version>
+    <groupId>com.savvagent.flags</groupId>
+    <artifactId>savvagent-flags-java-server-sdk</artifactId>
+    <version>0.1.0</version>
 </dependency>
 ```
+
+The Go, Rust and Python SDKs are not published to a registry yet. Replace `<commit>` with the commit of
+[savvagent/flags-sdks](https://github.com/savvagent/flags-sdks) you want to pin. The Rust crate is
+`savvagent-flags` (imported as `savvagent_flags`), the Python distribution is `savvagent-flags`
+(imported as `savvagent_flags`), and the Go package is `savvagentflags`.
 
 **Android/iOS:**
 Update via your package manager (Gradle/CocoaPods/SPM).
