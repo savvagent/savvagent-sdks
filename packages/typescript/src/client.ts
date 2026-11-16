@@ -298,6 +298,34 @@ export class FlagClient {
   }
 
   /**
+   * The configured default for a flag: `true` only when `defaults` has its
+   * own `true` entry for the key. A plain index would read inherited
+   * properties, so `__proto__`, `toString` and `constructor` (all valid flag
+   * keys) would return `Object.prototype` or a function instead of a boolean.
+   */
+  private defaultFor(key: string): boolean {
+    const defaults = this.config.defaults;
+    return Object.prototype.hasOwnProperty.call(defaults, key) && defaults[key] === true;
+  }
+
+  /**
+   * `fetch` with a 10 second abort timeout. The timer is cleared however the
+   * call ends, including when `fetch` throws synchronously (for example when
+   * it is not defined), which a `.finally` on its promise would miss.
+   */
+  private async fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+    }, 10000);
+    try {
+      return await fetch(url, { ...init, signal: controller.signal });
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  /**
    * Execute a fetch request with retry logic
    * @param requestFn - Function that returns a fetch promise
    * @param operationName - Name of the operation for logging
@@ -396,8 +424,9 @@ export class FlagClient {
       );
       this.config.onError(error);
       return {
-        key: String(key),
-        value: (typeof key === 'string' ? this.config.defaults[key] : undefined) ?? false,
+        // Not String(key): that throws for an object with a null prototype.
+        key: typeof key === 'string' ? key : typeof key,
+        value: typeof key === 'string' ? this.defaultFor(key) : false,
         reason: 'error',
         metadata: {
           description: error.message,
@@ -424,7 +453,7 @@ export class FlagClient {
 
       // If auth has failed, return default immediately to prevent request spam
       if (this.authFailed) {
-        const defaultValue = this.config.defaults[flagKey] ?? false;
+        const defaultValue = this.defaultFor(flagKey);
         return {
           key: flagKey,
           value: defaultValue,
@@ -464,35 +493,35 @@ export class FlagClient {
 
       // Fetch from API with retry logic
       const response = await this.fetchWithRetry(
-        () => {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => {
-            controller.abort();
-          }, 10000);
-
-          return fetch(`${this.config.baseUrl}/api/flags/${encodeURIComponent(flagKey)}/evaluate`, {
+        () =>
+          // Defence in depth: every valid key is RFC 3986 unreserved, so this
+          // encoding changes nothing for a key that passed isValidFlagKey.
+          this.fetchWithTimeout(`${this.config.baseUrl}/api/flags/${encodeURIComponent(flagKey)}/evaluate`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               Authorization: `Bearer ${this.config.apiKey}`,
             },
             body: JSON.stringify(requestBody),
-            signal: controller.signal,
-          }).finally(() => {
-            clearTimeout(timeoutId);
-          });
-        },
+          }),
         `Flag evaluation (${flagKey})`
       );
 
       // Parse response with type safety
-      const data: ApiEvaluateResponse = await response.json();
-      const value = data.enabled || false;
+      const data = (await response.json()) as ApiEvaluateResponse | null;
+      // The result is `enabled` (SDK developer guide). A body without a
+      // boolean `enabled` is a failed lookup: substituting the default here
+      // would cache it for the TTL as if the server had said so.
+      if (typeof data !== 'object' || data === null || typeof data.enabled !== 'boolean') {
+        throw new Error(`The evaluate response for ${JSON.stringify(flagKey)} has no boolean \`enabled\``);
+      }
+      const value = data.enabled;
 
       const metadata: FlagEvaluationResult['metadata'] = {
         scope: data.scope,
-        configuration: data.configuration,
-        variation: data.variation,
+        // The server sends both as null when the flag has none; the SDK's types say undefined.
+        configuration: data.configuration ?? undefined,
+        variation: data.variation ?? undefined,
         timestamp: data.timestamp,
       };
 
@@ -518,7 +547,7 @@ export class FlagClient {
       };
     } catch (error) {
       // Use default value if provided
-      const defaultValue = this.config.defaults[flagKey] ?? false;
+      const defaultValue = this.defaultFor(flagKey);
 
       this.config.onError(error as Error);
 
@@ -787,25 +816,16 @@ export class FlagClient {
 
     try {
       const response = await this.fetchWithRetry(
-        () => {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => {
-            controller.abort();
-          }, 10000);
-
-          return fetch(
+        () =>
+          this.fetchWithTimeout(
             `${this.config.baseUrl}/api/sdk/flags?environment=${encodeURIComponent(environment)}`,
             {
               method: 'GET',
               headers: {
                 Authorization: `Bearer ${this.config.apiKey}`,
               },
-              signal: controller.signal,
             }
-          ).finally(() => {
-            clearTimeout(timeoutId);
-          });
-        },
+          ),
         'Get all flags'
       );
 
@@ -844,25 +864,16 @@ export class FlagClient {
 
     try {
       const response = await this.fetchWithRetry(
-        () => {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => {
-            controller.abort();
-          }, 10000);
-
-          return fetch(
+        () =>
+          this.fetchWithTimeout(
             `${this.config.baseUrl}/api/sdk/enterprise-flags?environment=${encodeURIComponent(environment)}`,
             {
               method: 'GET',
               headers: {
                 Authorization: `Bearer ${this.config.apiKey}`,
               },
-              signal: controller.signal,
             }
-          ).finally(() => {
-            clearTimeout(timeoutId);
-          });
-        },
+          ),
         'Get enterprise flags'
       );
 

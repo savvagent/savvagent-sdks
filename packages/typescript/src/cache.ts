@@ -207,6 +207,12 @@ export class FlagCache {
   invalidate(key: string): void {
     // Advance even when nothing is cached: a request may be in flight.
     this.generations.set(key, (this.generations.get(key) ?? 0) + 1);
+    // Bound the map: past the cap, advancing the epoch invalidates every
+    // outstanding generation at once, so the per-flag counts can be dropped.
+    if (this.generations.size > this.maxEntries) {
+      this.epoch++;
+      this.generations.clear();
+    }
     const keys = this.byFlag.get(key);
     if (!keys) return;
     for (const entryKey of keys) this.entries.delete(entryKey);
