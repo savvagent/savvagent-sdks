@@ -384,3 +384,37 @@ describe('FlagCache generation (stale re-cache guard, #166)', () => {
     expect(cache.get('flag')).toBe(true);
   });
 });
+
+describe('FlagCache generation bound (#166)', () => {
+  it('keeps at most maxEntries per-flag counters, moving to a new epoch past the cap', () => {
+    const cache = new FlagCache(60000, 3);
+    const before = cache.generation('kept');
+    for (let i = 0; i < 100; i++) cache.invalidate(`flag-${i}`);
+    expect((cache as any).generations.size).toBeLessThanOrEqual(3);
+    // The epoch move is conservative: a write read before it is dropped.
+    cache.set('kept', true, undefined, undefined, undefined, '', undefined, before);
+    expect(cache.get('kept')).toBeNull();
+  });
+
+  it('a generation read after the epoch move still writes', () => {
+    const cache = new FlagCache(60000, 1);
+    cache.invalidate('a');
+    cache.invalidate('b'); // past the cap
+    const generation = cache.generation('a');
+    cache.set('a', true, undefined, undefined, undefined, '', undefined, generation);
+    expect(cache.get('a')).toBe(true);
+  });
+
+  it('an invalidated flag never gets back a generation it had before', () => {
+    const cache = new FlagCache(60000, 1);
+    const seen = new Set<string>([cache.generation('a')]);
+    for (let i = 0; i < 20; i++) {
+      cache.invalidate(i % 2 === 0 ? 'a' : `other-${i}`);
+      const g = cache.generation('a');
+      if (i % 2 === 0) {
+        expect(seen.has(g)).toBe(false);
+        seen.add(g);
+      }
+    }
+  });
+});

@@ -99,7 +99,7 @@ export class FlagCache {
       this.generations.set(key, (this.generations.get(key) ?? 0) + 1);
     } else {
       // The epoch makes every earlier generation unequal, so the per-flag
-      // counters can restart and the map stays bounded.
+      // counters can restart.
       this.epoch++;
       this.generations.clear();
     }
@@ -226,6 +226,13 @@ export class FlagCache {
       return;
     }
     this.bump(key);
+    // Keep the per-flag counters bounded like the entries: past the cap,
+    // move to a new epoch. That drops every in-flight write (a spurious
+    // miss, never a stale hit), and resets the map.
+    if (this.generations.size > this.maxEntries) {
+      this.epoch++;
+      this.generations.clear();
+    }
     const keys = this.byFlag.get(key);
     if (!keys) return;
     for (const entryKey of keys) this.entries.delete(entryKey);

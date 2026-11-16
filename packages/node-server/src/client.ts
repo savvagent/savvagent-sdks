@@ -83,10 +83,33 @@ export class FlagClient {
       // Subscribe to all flag updates to invalidate cache
       this.realtime.subscribe('*', (event) => {
         console.log(`[Savvagent] Flag ${event.type}: ${event.flagKey}`);
-        this.cache.invalidate(event.flagKey);
+        this.invalidateFlag(event.flagKey);
       });
 
       this.realtime.connect();
+    }
+  }
+
+  /**
+   * The configured default for a flag. An own-property lookup, so a key such
+   * as `__proto__` or `toString` never reads `Object.prototype`.
+   */
+  private defaultFor(key: string): boolean {
+    const defaults = this.config.defaults;
+    return Object.prototype.hasOwnProperty.call(defaults, key) && defaults[key] === true;
+  }
+
+  /**
+   * Invalidate a flag (or every flag) in the cache and forget its last
+   * evaluated value, so trackError does not report a value from before the
+   * change.
+   */
+  private invalidateFlag(flagKey?: string): void {
+    this.cache.invalidate(flagKey);
+    if (flagKey) {
+      this.lastValues.delete(flagKey);
+    } else {
+      this.lastValues.clear();
     }
   }
 
@@ -113,13 +136,15 @@ export class FlagClient {
         typeof key === 'string'
           ? `${JSON.stringify(key.slice(0, 64))} (length ${key.length})`
           : `non-string value of type ${typeof key}`;
-      this.config.onError(
-        new Error(`Invalid flag key ${described}: keys are 1-128 characters of [A-Za-z0-9._-] and not "." or ".."`)
+      const error = new Error(
+        `Invalid flag key ${described}: keys are 1-128 characters of [A-Za-z0-9._-] and not "." or ".."`
       );
+      this.config.onError(error);
       return {
         key: String(key),
-        value: (typeof key === 'string' && this.config.defaults[key]) || false,
+        value: typeof key === 'string' && this.defaultFor(key),
         reason: 'error',
+        metadata: { description: error.message },
       };
     }
 
@@ -192,17 +217,21 @@ export class FlagClient {
       const timeoutId = setTimeout(() => controller.abort(), this.config.timeout);
 
       // Per SDK Developer Guide: POST /api/flags/{key}/evaluate
-      const response = await fetch(`${this.config.baseUrl}/api/flags/${encodeURIComponent(flagKey)}/evaluate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.config.apiKey}`,
-        },
-        body: JSON.stringify({ context: evalContext }),
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
+      let response: Response;
+      try {
+        response = await fetch(`${this.config.baseUrl}/api/flags/${encodeURIComponent(flagKey)}/evaluate`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${this.config.apiKey}`,
+          },
+          body: JSON.stringify({ context: evalContext }),
+          signal: controller.signal,
+        });
+      } finally {
+        // Also on a rejected fetch, so a failed request leaves no timer behind.
+        clearTimeout(timeoutId);
+      }
 
       if (!response.ok) {
         throw new Error(`API error: ${response.status} ${response.statusText}`);
@@ -225,7 +254,11 @@ export class FlagClient {
         throw new Error(`The evaluate response for ${JSON.stringify(flagKey)} has no boolean \`enabled\``);
       }
       const value = data.enabled;
-      this.lastValues.set(flagKey, value);
+      // Like the cache write below, a result that predates an invalidation
+      // of this flag is not remembered for trackError (#166).
+      if (this.cache.generation(flagKey) === generation) {
+        this.lastValues.set(flagKey, value);
+      }
       // The server sends both as null when the flag has none; the SDK's types say undefined.
       const configuration = data.configuration ?? undefined;
       const variation = data.variation ?? undefined;
@@ -294,7 +327,7 @@ export class FlagClient {
       this.config.onError(err);
 
       // Return default value
-      const defaultValue = this.config.defaults[flagKey] ?? false;
+      const defaultValue = this.defaultFor(flagKey);
 
       // Track evaluation with error
       this.telemetry.trackEvaluation({
@@ -371,10 +404,11 @@ export class FlagClient {
    * Track an error that occurred in flagged code
    */
   trackError(flagKey: string, error: Error, context?: FlagContext): void {
-    // The value cached for this error's own context; else the flag's most
-    // recent evaluation (an error is often reported without the context it
-    // was evaluated with, and reporting false would count flag-on errors as
-    // flag-off); else false for a flag never evaluated (#128).
+    // The value cached for this error's own context. An error reported
+    // without a context falls back to the flag's most recent evaluation
+    // (reporting false would count flag-on errors as flag-off). A context
+    // with no cached entry reports false: another context's value would
+    // skew flag health for targeted flags (#128).
     let cached: boolean | null = null;
     try {
       cached = this.cache.get(flagKey, contextCacheKey(this.buildEvalContext(context)));
@@ -382,7 +416,8 @@ export class FlagClient {
       // A context that cannot be keyed (e.g. cyclic) must not turn error
       // tracking itself into a thrown error; fall back as for a cache miss.
     }
-    const flagEnabled = cached ?? this.lastValues.get(flagKey) ?? false;
+    const flagEnabled =
+      cached ?? (context === undefined ? this.lastValues.get(flagKey) : undefined) ?? false;
 
     this.telemetry.trackError({
       flagKey,
@@ -418,7 +453,7 @@ export class FlagClient {
    * Invalidate cache for a specific flag or all flags
    */
   invalidateCache(flagKey?: string): void {
-    this.cache.invalidate(flagKey);
+    this.invalidateFlag(flagKey);
   }
 
   /**
@@ -616,18 +651,21 @@ export class FlagClient {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), this.config.timeout);
 
-      const response = await fetch(
-        `${this.config.baseUrl}/api/sdk/flags?environment=${encodeURIComponent(environment)}`,
-        {
-          method: 'GET',
-          headers: {
-            Authorization: `Bearer ${this.config.apiKey}`,
-          },
-          signal: controller.signal,
-        }
-      );
-
-      clearTimeout(timeoutId);
+      let response: Response;
+      try {
+        response = await fetch(
+          `${this.config.baseUrl}/api/sdk/flags?environment=${encodeURIComponent(environment)}`,
+          {
+            method: 'GET',
+            headers: {
+              Authorization: `Bearer ${this.config.apiKey}`,
+            },
+            signal: controller.signal,
+          }
+        );
+      } finally {
+        clearTimeout(timeoutId);
+      }
 
       if (!response.ok) {
         throw new Error(`Failed to fetch flags: ${response.status}`);
@@ -665,18 +703,21 @@ export class FlagClient {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), this.config.timeout);
 
-      const response = await fetch(
-        `${this.config.baseUrl}/api/sdk/enterprise-flags?environment=${encodeURIComponent(environment)}`,
-        {
-          method: 'GET',
-          headers: {
-            Authorization: `Bearer ${this.config.apiKey}`,
-          },
-          signal: controller.signal,
-        }
-      );
-
-      clearTimeout(timeoutId);
+      let response: Response;
+      try {
+        response = await fetch(
+          `${this.config.baseUrl}/api/sdk/enterprise-flags?environment=${encodeURIComponent(environment)}`,
+          {
+            method: 'GET',
+            headers: {
+              Authorization: `Bearer ${this.config.apiKey}`,
+            },
+            signal: controller.signal,
+          }
+        );
+      } finally {
+        clearTimeout(timeoutId);
+      }
 
       if (!response.ok) {
         throw new Error(`Failed to fetch enterprise flags: ${response.status}`);

@@ -1,4 +1,6 @@
 import { FlagClient } from './client';
+import { FlagCache } from './cache';
+import { RealtimeService } from './realtime';
 import { FlagContext } from './types';
 
 // Mock global fetch
@@ -543,6 +545,14 @@ describe('FlagClient evaluation cache (cross-user isolation, #22)', () => {
  * contract (#126), the trackError fallback (#128), result metadata (#165) and
  * the stale re-cache guard (#166).
  */
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
 describe('FlagClient archived-repo ports (#40)', () => {
   const baseUrl = 'https://flags.example.test';
   let fetchMock: jest.Mock;
@@ -597,6 +607,8 @@ describe('FlagClient archived-repo ports (#40)', () => {
       expect(fetchMock).not.toHaveBeenCalled();
       expect(onError).toHaveBeenCalledTimes(1);
       expect(onError.mock.calls[0][0]).toBeInstanceOf(Error);
+      // The error result carries the error message, as the TS SDK's does.
+      expect(result.metadata?.description).toBe(onError.mock.calls[0][0].message);
       client.close();
     });
 
@@ -733,14 +745,14 @@ describe('FlagClient archived-repo ports (#40)', () => {
       await client.evaluate('checkout', { user_id: 'a' }); // true, fetched
       await client.evaluate('checkout', { user_id: 'b' }); // false, cached
 
-      client.trackError('checkout', new Error('x'), { user_id: 'nobody' });
+      client.trackError('checkout', new Error('x'));
 
       expect(fetchMock).toHaveBeenCalledTimes(2);
       expect((spy.mock.calls[0][0] as any).flagEnabled).toBe(false);
       client.close();
     });
 
-    test('trackError with a cyclic context falls back to the last evaluation', async () => {
+    test('trackError with a cyclic context reports false, not another context\'s value', async () => {
       const client = makeClient();
       const spy = spyOnTrackError(client);
       await client.evaluate('checkout', { user_id: 'a' });
@@ -750,7 +762,56 @@ describe('FlagClient archived-repo ports (#40)', () => {
       expect(() =>
         client.trackError('checkout', new Error('x'), { user_id: 'a', attributes: cyclic })
       ).not.toThrow();
-      expect((spy.mock.calls[0][0] as any).flagEnabled).toBe(true);
+      expect((spy.mock.calls[0][0] as any).flagEnabled).toBe(false);
+      client.close();
+    });
+
+    test("a cache miss for one context never reports another context's value", async () => {
+      const client = new FlagClient({
+        apiKey: 'sdk_test_key',
+        baseUrl,
+        enableRealtime: false,
+        enableTelemetry: false,
+        cacheTtl: 0,
+      });
+      const spy = spyOnTrackError(client);
+      await client.evaluate('checkout', { user_id: 'b' }); // false
+      await client.evaluate('checkout', { user_id: 'a' }); // true, the last evaluation
+
+      client.trackError('checkout', new Error('x'), { user_id: 'b' });
+
+      expect((spy.mock.calls[0][0] as any).flagEnabled).toBe(false);
+      client.close();
+    });
+
+    test('a response that predates an invalidation is not remembered', async () => {
+      const client = makeClient();
+      const spy = spyOnTrackError(client);
+      fetchMock.mockImplementation(async () => {
+        client.invalidateCache('checkout'); // the kill switch flips mid-request
+        return { ok: true, json: async () => ({ enabled: true }) };
+      });
+
+      const result = await client.evaluate('checkout', { user_id: 'a' });
+      client.trackError('checkout', new Error('x'));
+
+      expect(result.value).toBe(true);
+      expect((spy.mock.calls[0][0] as any).flagEnabled).toBe(false);
+      client.close();
+    });
+
+    test('invalidateCache forgets the flag\'s last evaluation', async () => {
+      const client = makeClient();
+      const spy = spyOnTrackError(client);
+      await client.evaluate('checkout', { user_id: 'a' });
+      await client.evaluate('other', { user_id: 'a' });
+
+      client.invalidateCache('checkout');
+      client.trackError('checkout', new Error('x'));
+      client.trackError('other', new Error('x'));
+
+      expect((spy.mock.calls[0][0] as any).flagEnabled).toBe(false);
+      expect((spy.mock.calls[1][0] as any).flagEnabled).toBe(true);
       client.close();
     });
 
@@ -878,20 +939,118 @@ describe('FlagClient archived-repo ports (#40)', () => {
       client.close();
     });
 
-    test('a realtime flag update during the request drops its result', async () => {
-      const client = makeClient();
+    test('a realtime flag.updated event during the request drops its result', async () => {
+      // No real SSE connection: the event is delivered through the realtime
+      // service's own handler, so the client's real subscriber callback runs.
+      const connect = jest.spyOn(RealtimeService.prototype, 'connect').mockImplementation(() => {});
+      const log = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const client = new FlagClient({
+        apiKey: 'sdk_test_key',
+        baseUrl,
+        enableRealtime: true,
+        enableTelemetry: false,
+      });
+      const spy = jest.spyOn((client as any).telemetry, 'trackError').mockImplementation(() => {});
+      const realtime = (client as any).realtime;
       let n = 0;
       fetchMock.mockImplementation(async () => {
         n++;
-        // What the realtime subscription does on a flag.updated event.
-        if (n === 1) (client as any).cache.invalidate('checkout');
-        return { ok: true, json: async () => ({ enabled: true }) };
+        if (n === 1) {
+          realtime.handleFlagEvent('flag.updated', { data: JSON.stringify({ key: 'checkout' }) });
+        }
+        return { ok: true, json: async () => ({ enabled: n === 1 }) };
       });
 
-      await client.evaluate('checkout', { user_id: 'a' });
-      await client.evaluate('checkout', { user_id: 'a' });
+      const first = await client.evaluate('checkout', { user_id: 'a' });
+      client.trackError('checkout', new Error('x'));
+      const second = await client.evaluate('checkout', { user_id: 'a' });
 
+      expect(connect).toHaveBeenCalledTimes(1);
+      expect(first.value).toBe(true);
+      expect((spy.mock.calls[0][0] as any).flagEnabled).toBe(false);
+      expect(second.reason).toBe('evaluated');
+      expect(second.value).toBe(false);
       expect(fetchMock).toHaveBeenCalledTimes(2);
+      client.close();
+      connect.mockRestore();
+      log.mockRestore();
+    });
+
+    test('out of order across an invalidation: the newer result is cached, the older dropped', async () => {
+      const client = makeClient();
+      const older = deferred<unknown>();
+      const newer = deferred<unknown>();
+      const queue = [older, newer];
+      fetchMock.mockImplementation(() => queue.shift()!.promise);
+
+      const pOlder = client.evaluate('checkout', { user_id: 'a' });
+      client.invalidateCache('checkout');
+      const pNewer = client.evaluate('checkout', { user_id: 'a' });
+      newer.resolve({ ok: true, json: async () => ({ enabled: false }) });
+      await pNewer;
+      older.resolve({ ok: true, json: async () => ({ enabled: true }) });
+      expect((await pOlder).value).toBe(true);
+
+      const third = await client.evaluate('checkout', { user_id: 'a' });
+      expect(third.reason).toBe('cached');
+      expect(third.value).toBe(false);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      client.close();
+    });
+
+    test('an LRU eviction during the request does not drop the write', () => {
+      const cache = new FlagCache(60000, 1);
+      const generation = cache.generation('checkout');
+      cache.set('x', true, undefined, undefined, undefined, 'a');
+      cache.set('y', true, undefined, undefined, undefined, 'b'); // evicts x
+      cache.set('checkout', true, undefined, undefined, undefined, 'u', undefined, generation);
+      expect(cache.get('checkout', 'u')).toBe(true);
+    });
+  });
+
+  describe('request timer (pre-existing defect)', () => {
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    test.each([
+      ['evaluate', (c: FlagClient) => c.evaluate('checkout')],
+      ['getAllFlags', (c: FlagClient) => c.getAllFlags()],
+      ['getEnterpriseFlags', (c: FlagClient) => c.getEnterpriseFlags()],
+    ])('%s leaves no abort timer behind when fetch rejects', async (_name, call) => {
+      jest.useFakeTimers();
+      fetchMock.mockRejectedValue(new Error('network down'));
+      const onError = jest.fn();
+      const client = makeClient(onError);
+
+      await call(client);
+
+      expect(onError).toHaveBeenCalledTimes(1);
+      expect(jest.getTimerCount()).toBe(0);
+      client.close();
+    });
+  });
+
+  describe('defaults lookup (pre-existing defect)', () => {
+    test.each(['__proto__', 'toString', 'constructor', 'hasOwnProperty'])(
+      'an inherited property name %j is not a default',
+      async (key) => {
+        fetchMock.mockResolvedValue({ ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) });
+        const client = makeClient();
+
+        const result = await client.evaluate(key);
+
+        expect(result.reason).toBe('error');
+        expect(result.value).toBe(false);
+        client.close();
+      }
+    );
+
+    test('an own default of true is still used', async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) });
+      const client = makeClient(jest.fn(), { toString: true });
+
+      expect((await client.evaluate('toString')).value).toBe(true);
       client.close();
     });
   });
