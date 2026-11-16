@@ -1,7 +1,3 @@
-module github.com/savvagent/savvagent-go-server-sdk
+module github.com/savvagent/flags-sdks/packages/go-server
 
 go 1.21
-
-require (
-	github.com/google/uuid v1.5.0
-)

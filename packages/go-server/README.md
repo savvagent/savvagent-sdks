@@ -1,6 +1,6 @@
-# Savvagent Go Server SDK
+# Savvagent Flags Go Server SDK
 
-Official Go Server SDK for Savvagent - AI-powered feature flags with automatic error detection.
+Official Go Server SDK for Savvagent Flags - AI-powered feature flags with automatic error detection.
 
 ## Features
 
@@ -18,7 +18,7 @@ Official Go Server SDK for Savvagent - AI-powered feature flags with automatic e
 ## Installation
 
 ```bash
-go get github.com/savvagent/savvagent-go-server-sdk
+go get github.com/savvagent/flags-sdks/packages/go-server
 ```
 
 ## Quick Start
@@ -30,24 +30,24 @@ import (
     "fmt"
     "log"
 
-    savvagent "github.com/savvagent/savvagent-go-server-sdk"
+    savvagentflags "github.com/savvagent/flags-sdks/packages/go-server"
 )
 
 func main() {
     // Initialize the client
-    config := savvagent.Config{
+    config := savvagentflags.Config{
         APIKey:        "sdk_your_api_key_here",
         ApplicationID: "your-app-id",
     }
 
-    client, err := savvagent.NewClient(config)
+    client, err := savvagentflags.NewClient(config)
     if err != nil {
         log.Fatal(err)
     }
     defer client.Close()
 
     // Evaluate a flag
-    ctx := &savvagent.Context{
+    ctx := &savvagentflags.Context{
         UserID:      "user-123",
         Environment: "production",
     }
@@ -69,11 +69,11 @@ func main() {
 ## Configuration
 
 ```go
-config := savvagent.Config{
+config := savvagentflags.Config{
     APIKey:          "sdk_your_api_key_here",
     ApplicationID:   "your-app-id",
     BaseURL:         "https://api.savvagent.com/flags", // optional
-    EnableRealtime:  true,                         // default: true
+    EnableRealtime:  true,                         // default: false; true opens the update stream
     CacheTTL:        60 * time.Second,            // default: 60 seconds
     EnableTelemetry: true,                         // default: true
     Timeout:         5 * time.Second,             // default: 5 seconds
@@ -82,16 +82,29 @@ config := savvagent.Config{
         "feature-b": true,
     },
     OnError: func(err error) {
-        log.Printf("Savvagent error: %v", err)
+        log.Printf("Savvagent Flags error: %v", err)
     },
 }
 
-client, err := savvagent.NewClient(config)
+client, err := savvagentflags.NewClient(config)
 if err != nil {
     log.Fatal(err)
 }
 defer client.Close()
 ```
+
+Evaluations are cached per flag and per evaluation context for `CacheTTL`, so two users never share a cached result. At most 10,000 contexts are cached per flag.
+
+### Real-time updates
+
+With `EnableRealtime: true` the client reads the server's flag-change stream in a background
+goroutine and drops a changed flag's cached results as soon as the change arrives, so a kill switch
+does not wait for `CacheTTL`. The default is off (a Go `bool` cannot default to true), so set it
+for services that need fast changes. The stream never delays or fails a lookup; while it is down,
+`CacheTTL` bounds how stale a result can be. It reconnects with exponential backoff (about 1 second
+up to 30 seconds, 5 minutes if the key is rejected) and drops the whole cache on every connection,
+since changes may have been missed. Call `Close` to stop it. `OnError` is called once per failed
+connection attempt, possibly from the stream goroutine, so it must be safe for concurrent use.
 
 ## Usage Examples
 
@@ -102,17 +115,17 @@ package main
 
 import (
     "net/http"
-    savvagent "github.com/savvagent/savvagent-go-server-sdk"
+    savvagentflags "github.com/savvagent/flags-sdks/packages/go-server"
 )
 
 func main() {
-    client, _ := savvagent.NewClient(savvagent.Config{
+    client, _ := savvagentflags.NewClient(savvagentflags.Config{
         APIKey: "sdk_your_key",
     })
     defer client.Close()
 
     http.HandleFunc("/api/data", func(w http.ResponseWriter, r *http.Request) {
-        ctx := &savvagent.Context{
+        ctx := &savvagentflags.Context{
             UserID:    r.Header.Get("X-User-ID"),
             IPAddress: r.RemoteAddr,
             UserAgent: r.UserAgent(),
@@ -141,11 +154,11 @@ package main
 
 import (
     "github.com/gin-gonic/gin"
-    savvagent "github.com/savvagent/savvagent-go-server-sdk"
+    savvagentflags "github.com/savvagent/flags-sdks/packages/go-server"
 )
 
 func main() {
-    client, _ := savvagent.NewClient(savvagent.Config{
+    client, _ := savvagentflags.NewClient(savvagentflags.Config{
         APIKey: "sdk_your_key",
     })
     defer client.Close()
@@ -154,7 +167,7 @@ func main() {
 
     // Middleware for feature flags
     r.Use(func(c *gin.Context) {
-        ctx := &savvagent.Context{
+        ctx := &savvagentflags.Context{
             UserID:    c.GetHeader("X-User-ID"),
             IPAddress: c.ClientIP(),
             UserAgent: c.Request.UserAgent(),
@@ -165,7 +178,7 @@ func main() {
     })
 
     r.GET("/premium-feature", func(c *gin.Context) {
-        ctx := c.MustGet("flagContext").(*savvagent.Context)
+        ctx := c.MustGet("flagContext").(*savvagentflags.Context)
 
         if !client.IsEnabled("premium-access", ctx) {
             c.JSON(403, gin.H{"error": "Premium access required"})
@@ -188,10 +201,10 @@ import (
     "context"
 
     "google.golang.org/grpc"
-    savvagent "github.com/savvagent/savvagent-go-server-sdk"
+    savvagentflags "github.com/savvagent/flags-sdks/packages/go-server"
 )
 
-func FlagInterceptor(client *savvagent.FlagClient) grpc.UnaryServerInterceptor {
+func FlagInterceptor(client *savvagentflags.FlagClient) grpc.UnaryServerInterceptor {
     return func(
         ctx context.Context,
         req interface{},
@@ -199,7 +212,7 @@ func FlagInterceptor(client *savvagent.FlagClient) grpc.UnaryServerInterceptor {
         handler grpc.UnaryHandler,
     ) (interface{}, error) {
         // Extract user context from gRPC metadata
-        flagCtx := &savvagent.Context{
+        flagCtx := &savvagentflags.Context{
             UserID: extractUserID(ctx),
         }
 
@@ -217,8 +230,8 @@ type MyService struct {
 }
 
 func (s *MyService) GetData(ctx context.Context, req *Request) (*Response, error) {
-    client := ctx.Value("flagClient").(*savvagent.FlagClient)
-    flagCtx := ctx.Value("flagContext").(*savvagent.Context)
+    client := ctx.Value("flagClient").(*savvagentflags.FlagClient)
+    flagCtx := ctx.Value("flagContext").(*savvagentflags.Context)
 
     if client.IsEnabled("new-feature", flagCtx) {
         return newImplementation(req), nil
@@ -231,7 +244,7 @@ func (s *MyService) GetData(ctx context.Context, req *Request) (*Response, error
 
 ```go
 func handler(w http.ResponseWriter, r *http.Request) {
-    ctx := &savvagent.Context{
+    ctx := &savvagentflags.Context{
         UserID:      r.Header.Get("X-User-ID"),
         SessionID:   getSessionID(r),
         Environment: os.Getenv("ENVIRONMENT"),
@@ -304,7 +317,16 @@ type EvaluationResult struct {
     Reason   string    // "cached", "evaluated", "default", "error"
     Metadata *Metadata
 }
+
+// Metadata: the server sends only Version and Scope.
+type Metadata struct {
+    Version int64  // flag version that produced the result; 0 when the server sent none
+    Scope   string // e.g. "application"; empty when the server sent none
+    // FlagID, Description and Variant exist for compatibility; the server never sends them.
+}
 ```
+
+Version and Scope are also set on `cached` results.
 
 ### Methods
 
@@ -313,7 +335,7 @@ type EvaluationResult struct {
 Creates a new FlagClient with the given configuration.
 
 ```go
-client, err := savvagent.NewClient(config)
+client, err := savvagentflags.NewClient(config)
 ```
 
 #### Evaluate(flagKey string, ctx *Context) (*EvaluationResult, error)
@@ -389,6 +411,6 @@ MIT
 
 ## Support
 
-- Documentation: https://flags-docs.savvagent.com
+- Documentation: https://github.com/savvagent/flags-sdks#readme
 - Issues: https://github.com/savvagent/flags-sdks/issues
 - Email: support@savvagent.com
