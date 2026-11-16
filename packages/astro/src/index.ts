@@ -435,7 +435,11 @@ export function createSavvagentLocals(
     )
   ) as FlagContext;
 
-  const defaultFor = (flagKey: string) => options.defaults?.[flagKey] ?? false;
+  // Own-property lookup: a key like `__proto__` must not read Object.prototype.
+  const defaultFor = (flagKey: string): boolean => {
+    const defaults = options.defaults;
+    return !!defaults && Object.prototype.hasOwnProperty.call(defaults, flagKey) && defaults[flagKey] === true;
+  };
 
   if (!client) {
     return {

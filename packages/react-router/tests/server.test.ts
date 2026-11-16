@@ -373,6 +373,17 @@ describe('invalid configuration', () => {
     expect(error).toHaveBeenCalledTimes(1);
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it('never treats an inherited property name as a default', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.stubGlobal('fetch', vi.fn());
+    const savvagent = createSavvagentServer({ apiKey: '', defaults: { 'on-by-default': true } });
+    const scope = await savvagent.forRequest(request());
+    for (const key of ['__proto__', 'toString', 'constructor', 'hasOwnProperty']) {
+      expect(await scope.isEnabled(key)).toBe(false);
+      expect((await scope.evaluate(key)).value).toBe(false);
+    }
+  });
 });
 
 describe('throttleErrors', () => {
