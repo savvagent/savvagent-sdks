@@ -517,8 +517,16 @@ export class FlagClient {
       }
       const value = data.enabled;
 
+      // `version` and `scope` are read untyped: the generated response type has no `version`,
+      // and a malformed value is dropped rather than failing the lookup.
+      const raw = data as { version?: unknown; scope?: unknown };
+      const version =
+        typeof raw.version === 'number' && Number.isInteger(raw.version) ? raw.version : undefined;
+      const scope = typeof raw.scope === 'string' || raw.scope === null ? raw.scope : undefined;
+
       const metadata: FlagEvaluationResult['metadata'] = {
-        scope: data.scope,
+        scope,
+        version,
         // The server sends both as null when the flag has none; the SDK's types say undefined.
         configuration: data.configuration ?? undefined,
         variation: data.variation ?? undefined,
