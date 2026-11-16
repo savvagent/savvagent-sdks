@@ -64,6 +64,8 @@ func newClient(config Config, streamOpts realtimeOptions) (*FlagClient, error) {
 		config: config,
 		httpClient: &http.Client{
 			Timeout: config.Timeout,
+			// Never follow redirects: Go would forward Authorization to the redirect target.
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},
 		cache:              newCache(config.CacheTTL),
 		configOverrides:    make(map[string]configOverrideEntry),
@@ -75,6 +77,9 @@ func newClient(config Config, streamOpts realtimeOptions) (*FlagClient, error) {
 
 	return client, nil
 }
+
+// maxResponseBytes bounds an evaluate response body.
+const maxResponseBytes = 1 << 20
 
 // Evaluate evaluates a feature flag and returns the result
 func (c *FlagClient) Evaluate(flagKey string, ctx *Context) (*EvaluationResult, error) {
@@ -169,8 +174,13 @@ func (c *FlagClient) Evaluate(flagKey string, ctx *Context) (*EvaluationResult, 
 	}
 
 	// Parse response
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
 	if err != nil {
+		c.config.OnError(err)
+		return c.getDefaultResult(flagKey, err), err
+	}
+	if len(body) > maxResponseBytes {
+		err := fmt.Errorf("evaluate response for %q exceeds %d bytes", flagKey, maxResponseBytes)
 		c.config.OnError(err)
 		return c.getDefaultResult(flagKey, err), err
 	}
