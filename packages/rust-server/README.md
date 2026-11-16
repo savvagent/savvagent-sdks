@@ -1,14 +1,15 @@
-# Savvagent Rust Server SDK
+# Savvagent Flags Rust Server SDK
 
-Official Rust Server SDK for Savvagent - AI-powered feature flags with automatic error detection.
+Official Rust Server SDK for Savvagent Flags - AI-powered feature flags with automatic error detection.
 
 ## Features
 
 - 🚀 **Fast Evaluation**: Thread-safe in-memory caching with configurable TTL
-- 📊 **Telemetry**: Automatic tracking of flag evaluations
+- 📊 **Telemetry**: Evaluation counts and reported errors, batched, for flag health and auto-rollback
 - 🤖 **AI Error Detection**: Correlate errors with flag changes
 - 📦 **Type Safe**: Full Rust type safety with comprehensive documentation
 - 🌐 **Server-Optimized**: Built specifically for Rust server environments
+- 📡 **Real-time updates**: a flag change drops its cached results over the server's event stream
 - ⚡ **High Performance**: Async/await with Tokio runtime
 - 🔒 **Memory Safe**: Zero-cost abstractions with Rust's ownership system
 
@@ -22,19 +23,21 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-savvagent = "0.1.0"
+savvagent_flags = "0.1.0"
 tokio = { version = "1.0", features = ["full"] }
 ```
 
 ## Quick Start
 
 ```rust
-use savvagent::{Config, Context, FlagClient};
+use savvagent_flags::{Config, Context, FlagClient};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize the client
-    let config = Config::new("sdk_your_api_key_here")
+    // A server uses the app's secret server key (srv_...); the public client key (sdk_...)
+    // also works.
+    let config = Config::new("srv_your_server_key_here")
         .with_application_id("your-app-id");
 
     let client = FlagClient::new(config)?;
@@ -52,6 +55,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // New feature code
     }
 
+    // Send queued telemetry before exiting
+    client.flush().await;
+
     Ok(())
 }
 ```
@@ -59,19 +65,69 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ## Configuration
 
 ```rust
-use savvagent::Config;
+use savvagent_flags::Config;
 use std::time::Duration;
 
-let config = Config::new("sdk_your_api_key_here")
+let config = Config::new("srv_your_server_key_here")
     .with_application_id("your-app-id")
     .with_base_url("https://api.savvagent.com/flags")
     .with_cache_ttl(Duration::from_secs(60))
     .with_timeout(Duration::from_secs(5))
+    .with_failure_cooldown(Duration::from_secs(5)) // the default
     .with_default("feature-a", false)
     .with_default("feature-b", true);
 
 let client = FlagClient::new(config)?;
 ```
+
+### Keys
+
+`FlagClient::new` accepts the app's server key (`srv_...`) or its client key (`sdk_...`). Use the
+server key in a server: it is secret, and only telemetry reported with it drives auto-rollback by
+default (reports made with the public client key count only for policies that opt in). Never ship
+a `srv_` key to a browser or mobile app.
+
+## Telemetry
+
+With telemetry on (the default), the SDK reports to Savvagent Flags, with the client's key:
+
+- **Evaluations**: one per lookup that got the server's answer (`reason` `"evaluated"` or
+  `"cached"`): the flag key, the result, the variation, the context's `environment`, and a
+  timestamp. No user id, attributes, or other context. Fallbacks (`reason: "error"`) are not
+  reported.
+- **Errors** you report with `track_error`, for errors raised while a flag was in play:
+
+```rust
+use savvagent_flags::ErrorReport;
+
+match charge(&order).await {
+    Ok(receipt) => receipt,
+    Err(e) => {
+        client.track_error(ErrorReport::from_error("new-checkout", enabled, &e));
+        return Err(e.into());
+    }
+}
+// Or by hand:
+client.track_error(
+    ErrorReport::new("new-checkout", true, "PaymentDeclined", "card declined")
+        .with_environment("production"),
+);
+```
+
+Flag health compares the error rate with a flag on against the rate with it off, and
+auto-rollback acts on it, so report errors from both code paths.
+
+Events are queued in memory and sent in batches every 5 seconds by a background task on the
+Tokio runtime, sooner when a full batch (1,000) is waiting, but at most one send pass per kind a
+second; each request carries up to 1,000 events, so a busy process sends about one request per
+1,000 lookups. Call `client.flush().await` before the process exits (it also
+waits for a send already under way), or the last few seconds of events are lost.
+
+The error message and stack trace are stored by Savvagent Flags for 14 days and shown to the agents
+that manage your flags: keep end-user data (emails, ids, query values) out of them. A `srv_` key
+is secret: use an `https` `base_url` (the SDK warns otherwise). Telemetry never blocks or fails a lookup: if the
+queue is full (10,000 events per kind) new events are dropped, and a batch that cannot be sent is
+logged at `warn` and dropped, not retried. Turn it off with `Config::with_telemetry(false)`.
 
 ## Usage Examples
 
@@ -79,7 +135,7 @@ let client = FlagClient::new(config)?;
 
 ```rust
 use actix_web::{web, App, HttpResponse, HttpServer};
-use savvagent::{Config, Context, FlagClient};
+use savvagent_flags::{Config, Context, FlagClient};
 
 struct AppState {
     flag_client: FlagClient,
@@ -130,7 +186,7 @@ use axum::{
     routing::get,
     Router,
 };
-use savvagent::{Config, Context, FlagClient};
+use savvagent_flags::{Config, Context, FlagClient};
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -175,7 +231,7 @@ async fn main() {
 
 ```rust
 use rocket::{State, get, launch, routes};
-use savvagent::{Config, Context, FlagClient};
+use savvagent_flags::{Config, Context, FlagClient};
 
 #[get("/")]
 async fn index(client: &State<FlagClient>) -> String {
@@ -203,7 +259,7 @@ fn rocket() -> _ {
 ### Middleware Pattern
 
 ```rust
-use savvagent::{Context, FlagClient};
+use savvagent_flags::{Context, FlagClient};
 
 async fn feature_middleware(
     client: &FlagClient,
@@ -223,7 +279,7 @@ async fn feature_middleware(
 ### With Custom Context
 
 ```rust
-use savvagent::Context;
+use savvagent_flags::Context;
 use serde_json::json;
 
 let context = Context::new()
@@ -243,16 +299,39 @@ let result = client.evaluate("premium-features", Some(context)).await?;
 
 #### Config
 
-Configuration builder for the FlagClient.
+Configuration builder for the FlagClient. `with_default_env` accepts `1`, `true`, `yes`, `on` and
+`0`, `false`, `no`, `off` (ignoring case and surrounding whitespace). An unset variable is ignored
+silently; an empty, non-Unicode or unrecognized one is ignored with a warning that names the
+variable, not its value. Either way any earlier default (else `false`) stays.
 
 ```rust
-let config = Config::new("sdk_key")
+let config = Config::new("srv_key")  // or "sdk_key"
     .with_application_id("app-id")
     .with_base_url("https://api.savvagent.com/flags")
     .with_cache_ttl(Duration::from_secs(60))
     .with_timeout(Duration::from_secs(5))
-    .with_default("flag", false);
+    .with_failure_cooldown(Duration::from_secs(5)) // the default
+    .with_telemetry(true)             // the default
+    .with_realtime(true)              // the default; false opens no stream
+    .with_default("flag", false)
+    .with_default_env("other-flag", "OTHER_FLAG") // default from an env var, read once
+    .with_default_fn("third-flag", || Some(false)); // default from any closure
 ```
+
+Results are cached for `cache_ttl` per flag key and evaluation context: a different context
+(another user, other attributes) is evaluated by the server, and `invalidate_cache(Some(key))`
+drops a flag's cached results for every context.
+
+#### Real-time updates
+
+Real-time updates are on by default. The client reads the server's flag-change stream in the
+background and drops a changed flag's cached results as soon as the change arrives, so a kill switch
+does not wait for `cache_ttl`. The stream connects when the client is created inside a Tokio
+runtime, otherwise on the first `evaluate`; it never delays or fails a lookup. While it is down,
+`cache_ttl` bounds how stale a result can be, as without it. It reconnects with exponential backoff
+(about 1 second up to 30 seconds, 5 minutes if the key is rejected) and drops the whole cache on every
+connection, since changes may have been missed. Clones of a client share one stream. Turn it off
+with `with_realtime(false)`.
 
 #### Context
 
@@ -274,14 +353,22 @@ Result from flag evaluation.
 pub struct EvaluationResult {
     pub key: String,
     pub value: bool,
+    pub configuration: Option<serde_json::Value>,
+    pub variation: Option<String>,
     pub reason: String,  // "cached", "evaluated", "error"
-    pub metadata: Option<Metadata>,
+    pub metadata: Option<Metadata>,  // None when reason is "error"
+}
+
+pub struct Metadata {
+    pub version: Option<i64>,     // the flag version that produced the result
+    pub scope: Option<String>,    // "application" or "enterprise"
+    // flag_id, description, variant: not sent by the server; always None
 }
 ```
 
 ### Methods
 
-#### FlagClient::new(config: Config) -> Result<Self, SavvagentError>
+#### FlagClient::new(config: Config) -> Result<Self, SavvagentFlagsError>
 
 Creates a new FlagClient.
 
@@ -289,9 +376,11 @@ Creates a new FlagClient.
 let client = FlagClient::new(config)?;
 ```
 
-#### evaluate(&self, flag_key: &str, context: Option<Context>) -> Result<EvaluationResult, SavvagentError>
+#### evaluate(&self, flag_key: &str, context: Option<Context>) -> Result<EvaluationResult, SavvagentFlagsError>
 
-Evaluates a feature flag.
+Evaluates a feature flag. Flag keys are 1-128 ASCII letters, digits, `-`, `_` and `.` (but not
+`.` or `..`), as the server requires; any other key returns its default with `reason: "error"`
+and makes no request.
 
 ```rust
 let result = client.evaluate("my-flag", Some(context)).await?;
@@ -305,12 +394,39 @@ Checks if a flag is enabled (convenience method).
 let enabled = client.is_enabled("my-flag", Some(context)).await;
 ```
 
+#### is_enabled_cached(&self, flag_key: &str, context: Option<&Context>) -> bool
+
+A synchronous read for code that cannot be `async`. It makes no request and does not wait: it
+returns the unexpired cached value for this flag and context, else the flag's configured default.
+Overrides never change the answer. The cache is per context, and an entry lives for `cache_ttl`, so
+call `evaluate` or
+`is_enabled` from async code with the same context at least once per TTL to keep it warm; a flag
+that was never looked up, or whose entry expired or was invalidated, gets its default.
+
+```rust
+fn render_banner(client: &FlagClient, ctx: &Context) -> &'static str {
+    if client.is_enabled_cached("new-banner", Some(ctx)) { "new" } else { "old" }
+}
+```
+
+#### FlagClient::static_flags(flags) -> FlagClient
+
+A client that serves fixed values and never uses the network, for tests. Flags not listed are
+`false`; `evaluate` reports `reason: "static"`; overrides still apply. It makes no request, reports
+no telemetry, opens no stream and needs no Tokio runtime to build.
+
+```rust
+let client = FlagClient::static_flags([("new-checkout", true), ("beta-banner", false)]);
+assert!(client.is_enabled_cached("new-checkout", None));
+assert!(client.is_enabled("new-checkout", None).await);
+```
+
 #### invalidate_cache(&self, flag_key: Option<&str>)
 
 Invalidates the cache.
 
 ```rust
-client.invalidate_cache(Some("my-flag")); // Specific flag
+client.invalidate_cache(Some("my-flag")); // Specific flag, every context
 client.invalidate_cache(None);            // All flags
 ```
 
@@ -322,26 +438,52 @@ Clears all cached values.
 client.clear_cache();
 ```
 
-## Error Handling
+#### track_error(&self, report: ErrorReport)
+
+Queues an error raised while a flag was in play (see [Telemetry](#telemetry)).
+
+#### flush(&self)
+
+Sends all queued telemetry now; call it before the process exits.
 
 ```rust
-use savvagent::SavvagentError;
+client.flush().await;
+```
 
-match client.evaluate("my-flag", None).await {
-    Ok(result) => {
-        println!("Flag value: {}", result.value);
-    }
-    Err(SavvagentError::InvalidApiKey) => {
-        eprintln!("Invalid API key");
-    }
-    Err(SavvagentError::RequestFailed(e)) => {
-        eprintln!("Request failed: {}", e);
-    }
-    Err(SavvagentError::ApiError(msg)) => {
-        eprintln!("API error: {}", msg);
-    }
+## Error Handling
+
+A flag lookup never fails your request. `evaluate`, `is_enabled`, `get_config`, and
+`get_variation` fall back to the flag's configured default (`with_default`, else `false`) when the
+key is invalid, the server is unreachable or slow (`with_timeout`), it answers with an error
+status, or the response is not an evaluate response. The fallback has `reason: "error"`, is logged
+through `tracing` (at `error` when the server refuses the SDK key, else `warn`), and is not cached,
+so a later lookup asks the server again (after the cooldown below). Config and variation
+overrides are not applied to a fallback; `get_config` gives `None` and `get_variation` gives
+`"control"`, so use `evaluate` when you need to tell a fallback from a real answer. The lookup
+methods keep their `Result` for compatibility but do not return `Err`, so `?` is safe.
+
+After a failed lookup the client backs off for `failure_cooldown` (5 seconds by default;
+`Duration::ZERO` turns it off): lookups in that window return their default with
+`reason: "error"` without a request, so an outage costs one request and one warning per window
+instead of one per lookup. A 404 (no such flag) pauses only that flag. A failure caused by the
+request itself (another 4xx except 401, 408 and 429, a context over 64 KiB, which is not
+sent, or a response body over 1 MiB, the most the SDK reads) pauses nothing, so a context built from one end user's input cannot switch
+flags off for everyone. Any other failure (a timeout, a 5xx, a rejected key, a response that is
+not an evaluate response) pauses every flag. A `Retry-After` in seconds on a 429 or 503
+lengthens the window, up to 60 seconds; it never shortens it. Cached answers are still served
+during a cooldown, and the first lookup after it goes to the server. A `base_url` with a wrong
+path prefix makes every flag answer 404, which pauses each flag separately: one warning per flag
+per window.
+
+```rust
+let result = client.evaluate("my-flag", None).await?;
+if result.reason == "error" {
+    // The server's answer was unavailable; `result.value` is the default.
 }
 ```
+
+Only `FlagClient::new` returns `Err` in practice: `SavvagentFlagsError::InvalidApiKey` for a key that
+starts with neither `srv_` nor `sdk_`, or `RequestFailed` if the HTTP client cannot be built.
 
 ## Best Practices
 
@@ -378,7 +520,7 @@ MIT
 
 ## Support
 
-- Documentation: https://flags-docs.savvagent.com
-- API Docs: https://docs.rs/savvagent
+- Documentation: https://github.com/savvagent/flags-sdks#readme
+- API Docs: https://docs.rs/savvagent-flags
 - Issues: https://github.com/savvagent/flags-sdks/issues
 - Email: support@savvagent.com

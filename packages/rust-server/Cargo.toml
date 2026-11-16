@@ -1,14 +1,20 @@
+# An empty [workspace] makes this standalone crate its own workspace root. Without it, cargo
+# searches parent directories for a workspace and can find an enclosing checkout's root
+# Cargo.toml whose `exclude` list does not match this path (for example, in a git worktree
+# nested inside the main checkout), and refuses to build.
+[workspace]
+
 [package]
-name = "savvagent"
+name = "savvagent-flags"
 version = "0.1.0"
 edition = "2021"
-authors = ["Savvagent Team <support@savvagent.com>"]
-description = "Rust Server SDK for Savvagent feature flags with AI-powered error detection"
+authors = ["Savvagent Flags Team <support@savvagent.com>"]
+description = "Rust Server SDK for Savvagent Flags feature flags with AI-powered error detection"
 license = "MIT"
 repository = "https://github.com/savvagent/flags-sdks"
-homepage = "https://savvagent.com"
-documentation = "https://docs.rs/savvagent"
-keywords = ["feature-flags", "feature-toggles", "savvagent", "ai"]
+homepage = "https://github.com/savvagent/flags-sdks"
+documentation = "https://docs.rs/savvagent-flags"
+keywords = ["feature-flags", "feature-toggles", "savvagent-flags", "ai"]
 categories = ["web-programming", "api-bindings"]
 readme = "README.md"
 
