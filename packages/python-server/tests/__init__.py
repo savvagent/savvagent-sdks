@@ -1,1 +1,1 @@
-"""Savvagent SDK Tests"""
+"""Savvagent Flags SDK Tests"""

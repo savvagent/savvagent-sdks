@@ -1,11 +1,11 @@
 """
-Flask Example for Savvagent SDK
+Flask Example for Savvagent Flags SDK
 
-This example demonstrates how to use the Savvagent SDK with Flask,
+This example demonstrates how to use the Savvagent Flags SDK with Flask,
 including module-level client initialization and request context extraction.
 
 Requirements:
-    pip install savvagent flask
+    pip install savvagent_flags flask
 
 Run:
     python examples/flask_example.py
@@ -16,7 +16,7 @@ import os
 
 from flask import Flask, g, jsonify, request
 
-from savvagent import FlagClient, FlagClientConfig, FlagContext
+from savvagent_flags import FlagClient, FlagClientConfig, FlagContext
 
 app = Flask(__name__)
 
@@ -53,7 +53,7 @@ def before_request():
 @app.route("/")
 def root():
     """Health check endpoint."""
-    return jsonify({"status": "ok", "service": "savvagent-flask-example"})
+    return jsonify({"status": "ok", "service": "savvagent-flags-flask-example"})
 
 
 @app.route("/api/features/<user_id>")

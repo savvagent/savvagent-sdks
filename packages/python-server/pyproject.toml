@@ -1,15 +1,15 @@
 [project]
-name = "savvagent"
+name = "savvagent-flags"
 version = "1.1.0"
-description = "Savvagent Python Server SDK for feature flags with AI-powered error detection"
+description = "Savvagent Flags Python Server SDK for feature flags with AI-powered error detection"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.9"
-authors = [{ name = "Savvagent" }]
+authors = [{ name = "Savvagent Flags" }]
 keywords = [
     "feature-flags",
     "feature-toggles",
-    "savvagent",
+    "savvagent-flags",
     "ai",
     "error-detection",
     "python",
@@ -45,7 +45,7 @@ dev = [
     "pytest-cov>=4.0.0",
     "respx>=0.20.0",
     "mypy>=1.0.0",
-    "ruff>=0.1.0",
+    "ruff>=0.17.0",
 ]
 
 [project.urls]
@@ -58,7 +58,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/savvagent"]
+packages = ["src/savvagent_flags"]
 
 [tool.hatch.build.targets.sdist]
 include = [
@@ -74,7 +74,7 @@ testpaths = ["tests"]
 addopts = "-v --tb=short"
 
 [tool.mypy]
-python_version = "3.9"
+python_version = "3.10"
 strict = true
 warn_return_any = true
 warn_unused_configs = true
@@ -84,5 +84,5 @@ line-length = 100
 target-version = "py39"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
+select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM", "FA102"]
 ignore = ["E501"]

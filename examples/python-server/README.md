@@ -1,6 +1,6 @@
-# Savvagent Python Server Example
+# Savvagent Flags Python Server Example
 
-Example Python backend demonstrating how to use the Savvagent SDK in a server environment with both FastAPI (async) and Flask (sync) implementations.
+Example Python backend demonstrating how to use the Savvagent Flags SDK in a server environment with both FastAPI (async) and Flask (sync) implementations.
 
 ## Features
 
@@ -141,7 +141,7 @@ Example response:
 ### FastAPI with Async Client
 
 ```python
-from savvagent import AsyncFlagClient, FlagClientConfig, FlagContext
+from savvagent_flags import AsyncFlagClient, FlagClientConfig, FlagContext
 
 config = FlagClientConfig(api_key="sdk_your_key")
 
@@ -160,7 +160,7 @@ async with AsyncFlagClient(config) as client:
 ### Flask with Sync Client
 
 ```python
-from savvagent import FlagClient, FlagClientConfig, FlagContext
+from savvagent_flags import FlagClient, FlagClientConfig, FlagContext
 
 config = FlagClientConfig(api_key="sdk_your_key")
 client = FlagClient(config)
@@ -217,4 +217,4 @@ curl http://localhost:8000/api/experiment/user-123
 
 - [FastAPI Documentation](https://fastapi.tiangolo.com/)
 - [Flask Documentation](https://flask.palletsprojects.com/)
-- [Savvagent Python SDK](../../packages/python-server/README.md)
+- [Savvagent Flags Python SDK](../../packages/python-server/README.md)

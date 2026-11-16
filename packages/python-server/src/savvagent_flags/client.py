@@ -1,24 +1,29 @@
 """
-Savvagent Python Server SDK - Asynchronous Client
+Savvagent Flags Python Server SDK - Synchronous Client
 
-Savvagent Server Client for feature flag evaluation with AI-powered error detection.
+Savvagent Flags Server Client for feature flag evaluation with AI-powered error detection.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import sys
 import time
 import traceback
 from datetime import datetime, timezone
 from typing import Any, Callable, TypeVar
+from urllib.parse import quote
 
 import httpx
 
-from .cache import AsyncFlagCache
-from .exceptions import InvalidAPIKeyError
-from .realtime import AsyncRealtimeService
-from .telemetry import AsyncTelemetryService
+from ._context_key import context_key
+from ._flag_key import default_for, describe_flag_key, is_valid_flag_key
+from ._response import evaluate_payload, response_metadata
+from .cache import FlagCache
+from .exceptions import InvalidAPIKeyError, InvalidFlagKeyError
+from .realtime import RealtimeService
+from .telemetry import TelemetryService
 from .types import (
     ConfigOverrideEntry,
     ConfigOverrideOptions,
@@ -36,28 +41,27 @@ from .types import (
 T = TypeVar("T")
 
 
-class AsyncFlagClient:
+class FlagClient:
     """
-    Asynchronous Savvagent Server Client for feature flag evaluation.
+    Savvagent Flags Server Client for feature flag evaluation with AI-powered error detection.
 
-    This is the async client for use with asyncio-based applications.
-    For synchronous applications, use FlagClient.
+    This is the synchronous client. For async applications, use AsyncFlagClient.
 
     Example:
         ```python
-        from savvagent import AsyncFlagClient, FlagClientConfig, FlagContext
+        from savvagent_flags import FlagClient, FlagClientConfig, FlagContext
 
         config = FlagClientConfig(api_key="sdk_your_key_here")
 
-        async with AsyncFlagClient(config) as client:
-            if await client.is_enabled("new-feature", FlagContext(user_id="123")):
-                await do_new_thing()
+        with FlagClient(config) as client:
+            if client.is_enabled("new-feature", FlagContext(user_id="123")):
+                do_new_thing()
         ```
     """
 
     def __init__(self, config: FlagClientConfig) -> None:
         """
-        Initialize the AsyncFlagClient.
+        Initialize the FlagClient.
 
         Args:
             config: Client configuration including API key and options.
@@ -74,58 +78,44 @@ class AsyncFlagClient:
             )
 
         self._config = config
-        self._cache = AsyncFlagCache(config.cache_ttl)
-        self._telemetry = AsyncTelemetryService(
+        self._cache = FlagCache(config.cache_ttl)
+        # The most recent evaluated value per flag, for track_error when the error's
+        # context has no cached entry of its own (bounded by the host's flag keys).
+        self._last_values: dict[str, bool] = {}
+        self._telemetry = TelemetryService(
             config.base_url,
             config.api_key,
             config.enable_telemetry,
         )
-        self._realtime: AsyncRealtimeService | None = None
+        self._realtime: RealtimeService | None = None
         self._config_overrides: dict[str, ConfigOverrideEntry] = {}
         self._variation_overrides: dict[str, VariationOverrideEntry] = {}
-        self._client: httpx.AsyncClient | None = None
+        self._client = httpx.Client(timeout=config.timeout)
 
-        # Initialize real-time service (will be connected in __aenter__)
+        # Initialize real-time updates
         if config.enable_realtime:
-            self._realtime = AsyncRealtimeService(
+            self._realtime = RealtimeService(
                 config.base_url,
                 config.api_key,
                 lambda connected: print(
-                    f"[Savvagent] Real-time: {'connected' if connected else 'disconnected'}",
+                    f"[Savvagent Flags] Real-time: {'connected' if connected else 'disconnected'}",
                     file=sys.stderr,
                 ),
             )
 
-    async def __aenter__(self) -> "AsyncFlagClient":
-        """Async context manager entry."""
-        self._client = httpx.AsyncClient(timeout=self._config.timeout)
-        await self._telemetry.start()
-
-        if self._realtime:
             # Subscribe to all flag updates to invalidate cache
-            self._realtime.subscribe(
-                "*", lambda event: self._sync_invalidate_cache(event.flag_key)
-            )
-            await self._realtime.connect()
+            self._realtime.subscribe("*", lambda event: self._cache.invalidate(event.flag_key))
+            self._realtime.connect()
 
+    def __enter__(self) -> FlagClient:
+        """Context manager entry."""
         return self
 
-    async def __aexit__(self, *args: Any) -> None:
-        """Async context manager exit - ensures cleanup."""
-        await self.close()
+    def __exit__(self, *args: Any) -> None:
+        """Context manager exit - ensures cleanup."""
+        self.close()
 
-    def _sync_invalidate_cache(self, flag_key: str) -> None:
-        """Synchronously mark a cache entry for invalidation (called from SSE callback)."""
-        # Note: Since SSE callbacks are sync, we store keys to invalidate
-        # and the next async operation will handle it
-        import asyncio
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(self._cache.invalidate(flag_key))
-        except RuntimeError:
-            pass  # No running loop, cache will be invalidated on next access
-
-    async def evaluate(
+    def evaluate(
         self, flag_key: str, context: FlagContext | None = None
     ) -> FlagEvaluationResult:
         """
@@ -138,8 +128,18 @@ class AsyncFlagClient:
         Returns:
             FlagEvaluationResult with value, configuration, and metadata.
         """
-        if not self._client:
-            raise RuntimeError("Client not initialized. Use 'async with' context manager.")
+        if not is_valid_flag_key(flag_key):
+            # Never put an unvalidated key in the URL path (#107): no request,
+            # no telemetry, just the configured default.
+            if self._config.on_error:
+                self._config.on_error(
+                    InvalidFlagKeyError(f"Invalid flag key: {describe_flag_key(flag_key)}")
+                )
+            return FlagEvaluationResult(
+                key=flag_key,
+                value=default_for(self._config.defaults, flag_key),
+                reason="error",
+            )
 
         start_time = time.time()
 
@@ -147,8 +147,16 @@ class AsyncFlagClient:
             # Check for variation override first
             variation_override = self._variation_overrides.get(flag_key)
 
+            # The cache key is the context as sent, computed before the lookup.
+            eval_context = self._prepare_context(context)
+            ctx_key = context_key(eval_context.to_dict())
+
             # Check cache
-            cached_entry = await self._cache.get_entry(flag_key)
+            cached_entry = (
+                self._cache.get_entry(flag_key, context_key=ctx_key)
+                if ctx_key is not None
+                else None
+            )
             if cached_entry is not None:
                 configuration = cached_entry.configuration
                 variation = cached_entry.variation
@@ -173,19 +181,24 @@ class AsyncFlagClient:
                     configuration=configuration,
                     variation=variation,
                     reason="cached",
+                    metadata=FlagMetadata(
+                        flag_id=cached_entry.flag_id,
+                        version=cached_entry.version,
+                        scope=cached_entry.scope,
+                    ),
                 )
 
-                await self._track_evaluation(flag_key, cached_entry.value, context, start_time)
+                self._last_values[flag_key] = cached_entry.value
+                self._track_evaluation(flag_key, cached_entry.value, context, start_time)
                 return result
 
-            # Prepare context
-            eval_context = context or FlagContext()
-            if not eval_context.application_id and self._config.application_id:
-                eval_context.application_id = self._config.application_id
+            # Read before the request: an invalidation while it is in flight
+            # makes the cache drop this result instead of storing it stale.
+            generation = self._cache.generation(flag_key)
 
             # Call API - Per SDK Developer Guide: POST /api/flags/{key}/evaluate
-            response = await self._client.post(
-                f"{self._config.base_url}/api/flags/{flag_key}/evaluate",
+            response = self._client.post(
+                f"{self._config.base_url}/api/flags/{quote(flag_key, safe='')}/evaluate",
                 json={"context": eval_context.to_dict()},
                 headers={
                     "Content-Type": "application/json",
@@ -194,17 +207,23 @@ class AsyncFlagClient:
             )
             response.raise_for_status()
 
-            data = response.json()
-            value = data.get("enabled", self._config.defaults.get(flag_key, False))
+            data, value = evaluate_payload(response.json())
+            self._last_values[flag_key] = value
+            version, scope = response_metadata(data)
 
             # Cache the result (including configuration and variation)
-            await self._cache.set(
-                flag_key,
-                value,
-                data.get("flagId"),
-                data.get("configuration"),
-                data.get("variation"),
-            )
+            if ctx_key is not None:
+                self._cache.set(
+                    flag_key,
+                    value,
+                    data.get("flagId"),
+                    data.get("configuration"),
+                    data.get("variation"),
+                    version=version,
+                    scope=scope,
+                    context_key=ctx_key,
+                    generation=generation,
+                )
 
             # Apply overrides to evaluated result
             final_configuration = data.get("configuration")
@@ -232,10 +251,12 @@ class AsyncFlagClient:
                     flag_id=data.get("flagId"),
                     description=data.get("description"),
                     variant=data.get("variant"),
+                    version=version,
+                    scope=scope,
                 ),
             )
 
-            await self._track_evaluation(flag_key, value, eval_context, start_time)
+            self._track_evaluation(flag_key, value, eval_context, start_time)
             return result
 
         except Exception as e:
@@ -243,7 +264,7 @@ class AsyncFlagClient:
                 self._config.on_error(e)
 
             default_value = self._config.defaults.get(flag_key, False)
-            await self._track_evaluation(flag_key, default_value, context, start_time)
+            self._track_evaluation(flag_key, default_value, context, start_time)
 
             return FlagEvaluationResult(
                 key=flag_key,
@@ -251,7 +272,7 @@ class AsyncFlagClient:
                 reason="error",
             )
 
-    async def is_enabled(self, flag_key: str, context: FlagContext | None = None) -> bool:
+    def is_enabled(self, flag_key: str, context: FlagContext | None = None) -> bool:
         """
         Check if a flag is enabled (convenience method).
 
@@ -262,10 +283,10 @@ class AsyncFlagClient:
         Returns:
             True if the flag is enabled, False otherwise.
         """
-        result = await self.evaluate(flag_key, context)
+        result = self.evaluate(flag_key, context)
         return result.value
 
-    async def get_config(
+    def get_config(
         self,
         flag_key: str,
         context: FlagContext | None = None,
@@ -284,14 +305,14 @@ class AsyncFlagClient:
         Returns:
             The configuration value, or default if flag is disabled.
         """
-        result = await self.evaluate(flag_key, context)
+        result = self.evaluate(flag_key, context)
 
         if not result.value:
             return default
 
         return result.configuration if result.configuration is not None else default
 
-    async def get_variation(
+    def get_variation(
         self,
         flag_key: str,
         context: FlagContext | None = None,
@@ -308,7 +329,7 @@ class AsyncFlagClient:
         Returns:
             VariationResult with variation identifier and configuration.
         """
-        result = await self.evaluate(flag_key, context)
+        result = self.evaluate(flag_key, context)
         return VariationResult(
             variation=result.variation or "control",
             enabled=result.value,
@@ -331,12 +352,12 @@ class AsyncFlagClient:
             An unsubscribe function.
         """
         if not self._realtime:
-            print("[Savvagent] Real-time updates are disabled", file=sys.stderr)
+            print("[Savvagent Flags] Real-time updates are disabled", file=sys.stderr)
             return lambda: None
 
         return self._realtime.subscribe(flag_key, lambda _: callback())
 
-    async def track_error(
+    def track_error(
         self,
         flag_key: str,
         error: Exception,
@@ -352,9 +373,22 @@ class AsyncFlagClient:
             error: The exception that was raised.
             context: Optional context for the evaluation.
         """
-        flag_enabled = await self._cache.get(flag_key) or False
+        # The value cached for this error's own context; else the flag's most recent
+        # evaluation (an error is often reported without the context it was evaluated
+        # with, and reporting False would count flag-on errors as flag-off); else False
+        # for a flag never evaluated. Never raise into the caller's error handling.
+        cached: bool | None = None
+        try:
+            ctx_key = context_key(self._prepare_context(context).to_dict())
+            if ctx_key is not None:
+                cached = self._cache.get(flag_key, context_key=ctx_key)
+        except Exception:
+            cached = None
+        if cached is None:
+            cached = self._last_values.get(flag_key)
+        flag_enabled = bool(cached)
 
-        await self._telemetry.track_error(
+        self._telemetry.track_error(
             ErrorEvent(
                 flag_key=flag_key,
                 flag_enabled=flag_enabled,
@@ -366,24 +400,46 @@ class AsyncFlagClient:
             )
         )
 
-    async def invalidate_cache(self, flag_key: str | None = None) -> None:
+    def invalidate_cache(self, flag_key: str | None = None) -> None:
         """
         Invalidate cache for a specific flag or all flags.
 
         Args:
             flag_key: The flag key to invalidate, or None for all flags.
         """
-        await self._cache.invalidate(flag_key)
+        self._cache.invalidate(flag_key)
 
-    async def close(self) -> None:
+    def set_environment(self, environment: str) -> None:
+        """
+        Set the environment for flag evaluation.
+
+        Useful for dynamically switching environments (e.g., dev tools).
+
+        Args:
+            environment: The environment name (e.g., "development", "staging", "production", "beta")
+        """
+        self._config.environment = environment
+        # Clear cache when environment changes since flag values may differ
+        self._cache.clear()
+        self._last_values.clear()
+
+    def get_environment(self) -> str:
+        """
+        Get the current environment.
+
+        Returns:
+            The current environment name.
+        """
+        return self._config.environment
+
+    def close(self) -> None:
         """Clean up resources."""
-        await self._telemetry.close()
+        self._telemetry.close()
         if self._realtime:
-            await self._realtime.close()
-        await self._cache.clear()
-        if self._client:
-            await self._client.aclose()
-            self._client = None
+            self._realtime.close()
+        self._cache.clear()
+        self._last_values.clear()
+        self._client.close()
 
     # Override methods
 
@@ -413,7 +469,7 @@ class AsyncFlagClient:
             try:
                 json.dumps(config)
             except (TypeError, ValueError) as e:
-                raise ValueError(f"Invalid configuration for flag '{flag_key}': {e}")
+                raise ValueError(f"Invalid configuration for flag '{flag_key}': {e}") from e
 
         # Store override
         self._config_overrides[flag_key] = ConfigOverrideEntry(
@@ -422,7 +478,8 @@ class AsyncFlagClient:
             timestamp=time.time(),
         )
 
-        # Note: Cache invalidation happens on next async access
+        # Invalidate cache to force re-evaluation with override
+        self._cache.invalidate(flag_key)
 
     def clear_config_override(self, flag_key: str) -> None:
         """
@@ -432,6 +489,7 @@ class AsyncFlagClient:
             flag_key: The flag key to clear override for.
         """
         self._config_overrides.pop(flag_key, None)
+        self._cache.invalidate(flag_key)
 
     def set_variation_override(self, flag_key: str, variation: str) -> None:
         """
@@ -447,6 +505,7 @@ class AsyncFlagClient:
             variation=variation,
             timestamp=time.time(),
         )
+        self._cache.invalidate(flag_key)
 
     def clear_variation_override(self, flag_key: str) -> None:
         """
@@ -456,6 +515,7 @@ class AsyncFlagClient:
             flag_key: The flag key to clear override for.
         """
         self._variation_overrides.pop(flag_key, None)
+        self._cache.invalidate(flag_key)
 
     def has_config_override(self, flag_key: str) -> bool:
         """
@@ -505,17 +565,26 @@ class AsyncFlagClient:
             for key, entry in self._variation_overrides.items()
         }
 
-    async def clear_all_overrides(self) -> None:
+    def clear_all_overrides(self) -> None:
         """Clear all configuration and variation overrides."""
         self._config_overrides.clear()
         self._variation_overrides.clear()
-        await self._cache.clear()
+        self._cache.clear()
+        self._last_values.clear()
 
-    async def get_all_flags(self, environment: str = "development") -> list[FlagDefinition]:
+    def get_all_flags(self, environment: str = "development") -> list[FlagDefinition]:
         """
         Get all flags for the application (and enterprise-scoped flags).
 
         Per SDK Developer Guide: GET /api/sdk/flags
+
+        Use cases:
+        - Local override UI: Display all available flags for developers to toggle
+        - Offline mode: Pre-fetch flags for mobile/desktop apps
+        - SDK initialization: list the flags on startup (this does not fill the
+          evaluation cache: a listed `enabled` is the environment switch, not a
+          context's result)
+        - DevTools integration: Show available flags in browser dev panels
 
         Args:
             environment: Environment to evaluate enabled state for.
@@ -523,11 +592,8 @@ class AsyncFlagClient:
         Returns:
             List of flag definitions.
         """
-        if not self._client:
-            raise RuntimeError("Client not initialized. Use 'async with' context manager.")
-
         try:
-            response = await self._client.get(
+            response = self._client.get(
                 f"{self._config.base_url}/api/sdk/flags",
                 params={"environment": environment},
                 headers={"Authorization": f"Bearer {self._config.api_key}"},
@@ -548,10 +614,6 @@ class AsyncFlagClient:
                 for f in data.get("flags", [])
             ]
 
-            # Cache all flags
-            for flag in flags:
-                await self._cache.set(flag.key, flag.enabled, flag.key, flag.configuration)
-
             return flags
 
         except Exception as e:
@@ -559,11 +621,13 @@ class AsyncFlagClient:
                 self._config.on_error(e)
             return []
 
-    async def get_enterprise_flags(self, environment: str = "development") -> list[FlagDefinition]:
+    def get_enterprise_flags(self, environment: str = "development") -> list[FlagDefinition]:
         """
         Get only enterprise-scoped flags for the organization.
 
         Per SDK Developer Guide: GET /api/sdk/enterprise-flags
+
+        Enterprise flags are shared across all applications in the organization.
 
         Args:
             environment: Environment to evaluate enabled state for.
@@ -571,11 +635,8 @@ class AsyncFlagClient:
         Returns:
             List of enterprise flag definitions.
         """
-        if not self._client:
-            raise RuntimeError("Client not initialized. Use 'async with' context manager.")
-
         try:
-            response = await self._client.get(
+            response = self._client.get(
                 f"{self._config.base_url}/api/sdk/enterprise-flags",
                 params={"environment": environment},
                 headers={"Authorization": f"Bearer {self._config.api_key}"},
@@ -601,7 +662,21 @@ class AsyncFlagClient:
                 self._config.on_error(e)
             return []
 
-    async def _track_evaluation(
+    def _prepare_context(self, context: FlagContext | None) -> FlagContext:
+        """
+        Copy the caller's context and fill in the configured defaults.
+
+        The copy keeps the caller's object unmodified, so the same object can
+        be reused without its filled-in fields leaking into later calls.
+        """
+        eval_context = dataclasses.replace(context) if context is not None else FlagContext()
+        if not eval_context.application_id and self._config.application_id:
+            eval_context.application_id = self._config.application_id
+        if not eval_context.environment:
+            eval_context.environment = self._config.environment
+        return eval_context
+
+    def _track_evaluation(
         self,
         flag_key: str,
         result: bool,
@@ -609,7 +684,7 @@ class AsyncFlagClient:
         start_time: float,
     ) -> None:
         """Track an evaluation event."""
-        await self._telemetry.track_evaluation(
+        self._telemetry.track_evaluation(
             EvaluationEvent(
                 flag_key=flag_key,
                 result=result,

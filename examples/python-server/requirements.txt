@@ -1,7 +1,7 @@
-# Savvagent SDK - install from local package:
+# Savvagent Flags SDK - install from local package:
 #   pip install -e ../../packages/python-server
 # Or when published to PyPI:
-#   pip install savvagent
+#   pip install savvagent-flags
 
 # FastAPI example dependencies
 fastapi>=0.100.0
