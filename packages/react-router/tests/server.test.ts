@@ -134,6 +134,78 @@ describe('forRequest', () => {
   });
 });
 
+describe('getUserId bound and failure fallback (#26)', () => {
+  const trusted = () => request('http://localhost/', { cookie: 'user_id=cookie-user; savvagent_anonymous_id=anon-1' });
+
+  it('bounds a hanging getUserId by evaluationTimeoutMs and drops a trusted cookie user', async () => {
+    vi.useFakeTimers();
+    try {
+      const onError = vi.fn();
+      const savvagent = createSavvagentServer(
+        { ...config, onError },
+        { trustUserIdCookie: true, getUserId: () => new Promise<string>(() => {}), evaluationTimeoutMs: 300 }
+      );
+      const pending = savvagent.forRequest(trusted());
+      await vi.advanceTimersByTimeAsync(300);
+      const scope = await pending;
+
+      expect(scope.context).not.toHaveProperty('user_id');
+      expect(scope.context.anonymous_id).toBe('anon-1');
+      expect(onError).toHaveBeenCalledTimes(1);
+      expect(onError.mock.calls[0][0].message).toBe('getUserId timed out after 300ms; evaluating without a user_id');
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    ['rejects', () => Promise.reject(new Error('session store down'))],
+    [
+      'throws synchronously',
+      () => {
+        throw new Error('session store down');
+      },
+    ],
+  ])('continues without a user_id when getUserId %s, and reports it', async (_label, getUserId) => {
+    const onError = vi.fn();
+    const savvagent = createSavvagentServer({ ...config, onError }, { trustUserIdCookie: true, getUserId });
+
+    const scope = await savvagent.forRequest(trusted());
+
+    expect(scope.context).not.toHaveProperty('user_id');
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError.mock.calls[0][0].message).toBe('getUserId failed; evaluating without a user_id');
+    expect(onError.mock.calls[0][0].cause?.message).toBe('session store down');
+  });
+
+  it('keeps the trusted cookie user when getUserId returns nothing', async () => {
+    const onError = vi.fn();
+    const savvagent = createSavvagentServer({ ...config, onError }, { trustUserIdCookie: true, getUserId: () => undefined });
+    expect((await savvagent.forRequest(trusted())).context.user_id).toBe('cookie-user');
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it('lets the middleware request continue when getUserId fails', async () => {
+    const { calls } = mockFlagsApi(() => true);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const savvagent = createSavvagentServer(config, {
+      getUserId: () => Promise.reject(new Error('auth down')),
+    });
+    const context = new RouterContextProvider();
+    const response = await savvagent.middleware(
+      { request: request('http://localhost/', { cookie: 'savvagent_anonymous_id=anon-1' }), context, params: {}, url: new URL('http://localhost/'), pattern: '/' } as never,
+      async () => {
+        await getSavvagent(context).isEnabled('a');
+        return new Response('ok');
+      }
+    );
+    expect((response as Response).status).toBe(200);
+    expect(calls[0].context).toMatchObject({ anonymous_id: 'anon-1' });
+    expect(calls[0].context).not.toHaveProperty('user_id');
+  });
+});
+
 describe('loader and action evaluation', () => {
   it('evaluates flags in a loader with the request context', async () => {
     const { calls } = mockFlagsApi((flagKey) => flagKey === 'new-feature');

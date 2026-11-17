@@ -190,7 +190,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 The evaluation `user_id` decides user targeting and percentage rollouts, so take it from a source the visitor cannot forge. In order of precedence:
 
 1. `forRequest(request, { userId })`: an explicit ID from your own auth.
-2. `getUserId({ request, context })`: called for every request. `context` is the router context when it runs in the middleware, so it can read a user that your auth middleware stored there.
+2. `getUserId({ request, context })`: called once for every request scope. `context` is the router context when it runs in the middleware, so it can read a user that your auth middleware stored there. It is bounded by `evaluationTimeoutMs` (default 1000 ms). If it throws, rejects or times out, the request scope is still created: the failure goes to `onError` (`getUserId failed; evaluating without a user_id`, with the original error as its `cause`, or `getUserId timed out after <n>ms; evaluating without a user_id`) and the request is evaluated without any `user_id`, a trusted cookie's included. If it returns nothing, a trusted `user_id` cookie is used.
 3. The `user_id` cookie, only with `trustUserIdCookie: true`.
 
 > **Warning:** the `user_id` cookie is set by the browser, so any visitor can claim any user's ID and receive that user's targeted flags. It is ignored by default. Enable `trustUserIdCookie` only for demos, or when nothing gated by a flag is sensitive.
@@ -210,7 +210,7 @@ The server applies these defaults, so a slow or unreachable Flags API cannot sta
 | Setting | Server default | Why |
 |---|---|---|
 | `config.retryAttempts` | `1` (the browser SDK default is 3, with backoff) | A page waits on these evaluations, so there are no retries. |
-| `evaluationTimeoutMs` (option) | `1000` | Each evaluation resolves with the flag's default (`reason: 'error'`) after this many milliseconds. |
+| `evaluationTimeoutMs` (option) | `1000` | Each evaluation resolves with the flag's default (`reason: 'error'`) after this many milliseconds. `getUserId` has the same bound, so creating a request scope with a hanging `getUserId` takes at most this long. |
 | `config.onError` | Called at most once per 60 seconds for the same error message | When the API is down, every request fails the same way. Without `onError`, errors go to `console.error`. |
 | `config.enableRealtime` | `false` | No SSE connection from the server. |
 | `config.disableLanguageDetection` | `true` | `language` comes from `Accept-Language`, not the server's locale. |
