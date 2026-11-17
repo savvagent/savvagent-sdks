@@ -277,6 +277,9 @@ importers:
       '@savvagent/svelte':
         specifier: workspace:*
         version: link:../../packages/svelte
+      '@savvagent/sveltekit':
+        specifier: workspace:*
+        version: link:../../packages/sveltekit
     devDependencies:
       '@sveltejs/adapter-auto':
         specifier: ^8.0.0

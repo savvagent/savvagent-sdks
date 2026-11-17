@@ -7,6 +7,12 @@ export interface AppConfig {
   framework: 'react' | 'nextjs' | 'angular' | 'vue' | 'svelte' | 'sveltekit' | 'astro' | 'solid' | 'react-router';
   isSSR: boolean;
   startupTimeout: number;
+  /**
+   * The app also evaluates a flag on its server through the framework's
+   * server SDK, against the mock Flags API (see SERVER_FLAGS_ENV), and
+   * renders the result. Enables e2e/specs/server-evaluation.spec.ts.
+   */
+  serverFlags?: boolean;
 }
 
 export const APP_CONFIGS: Record<string, AppConfig> = {
@@ -29,6 +35,7 @@ export const APP_CONFIGS: Record<string, AppConfig> = {
     framework: 'nextjs',
     isSSR: true,
     startupTimeout: 45000,
+    serverFlags: true,
   },
   'angular-app': {
     name: 'Angular',
@@ -69,6 +76,7 @@ export const APP_CONFIGS: Record<string, AppConfig> = {
     framework: 'sveltekit',
     isSSR: true,
     startupTimeout: 45000,
+    serverFlags: true,
   },
   'astro-app': {
     name: 'Astro',
@@ -114,4 +122,20 @@ export const BETA_ENV = {
   PUBLIC_SAVVAGENT_SDK_KEY: E2E_SDK_KEY,
   NEXT_PUBLIC_SAVVAGENT_API_URL: E2E_API_URL,
   NEXT_PUBLIC_SAVVAGENT_SDK_KEY: E2E_SDK_KEY,
+};
+
+/** Port of the mock Flags API (e2e/mock-flags-api.mjs) the server-side evaluations use. */
+export const MOCK_FLAGS_API_PORT = 5190;
+export const MOCK_FLAGS_API_URL = `http://127.0.0.1:${MOCK_FLAGS_API_PORT}`;
+
+/**
+ * Server-side Flags API settings for apps with `serverFlags`. Playwright
+ * cannot intercept requests made by an app's server, so its server client
+ * talks to the mock, which makes the server path deterministic with or
+ * without a real key. The mock accepts any bearer key; this one never
+ * reaches the real API. The browser SDK still uses BETA_ENV.
+ */
+export const SERVER_FLAGS_ENV = {
+  SAVVAGENT_FLAGS_API_URL: MOCK_FLAGS_API_URL,
+  SAVVAGENT_FLAGS_API_KEY: 'sdk_e2e_mock_flags_api',
 };
