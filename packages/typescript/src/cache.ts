@@ -65,6 +65,24 @@ export const DEFAULT_CACHE_MAX_ENTRIES = 10000;
  * it to {@link FlagCache.set}: a result whose request started before an
  * invalidation is then not cached, so a kill switch flipped mid-request is not
  * undone by the stale answer.
+ *
+ * Public contract (exported from `@savvagent/sdk` and used by
+ * `@savvagent/node-server`):
+ *
+ * - Every read and write takes a flag key and a context key. The context key
+ *   is {@link contextCacheKey} of the evaluation context exactly as it is sent
+ *   to the server (after the client fills in `application_id`, `environment`
+ *   and the user and anonymous IDs). It defaults to `''`, the empty-context
+ *   entry: `get(key)` and `getEntry(key)` read only a value stored with
+ *   `set(key, value)` (or an explicit `''`), never a value cached for some
+ *   other context. To read what a client cached for a user, pass that user's
+ *   context key.
+ * - A read returns `null` for a missing or expired entry; a hit becomes the
+ *   most recently used entry.
+ * - {@link FlagCache.invalidate} drops a flag for every context and
+ *   {@link FlagCache.clear} drops everything; both advance the
+ *   {@link FlagCache.generation} that {@link FlagCache.set} checks.
+ * - A TTL of 0 (or less), or `maxEntries` of 0, stores nothing.
  */
 export class FlagCache {
   /** Entries in least-recently-used order (Map iteration order). */
@@ -111,7 +129,8 @@ export class FlagCache {
 
   /**
    * Get a cached entry for a flag and context key. A hit becomes the most
-   * recently used entry.
+   * recently used entry. Without `contextKey` this reads only the
+   * empty-context entry (`''`), not a value cached for another context.
    */
   getEntry(key: string, contextKey: string = ''): CacheEntry | null {
     const entryKey = FlagCache.entryKey(key, contextKey);
@@ -130,7 +149,9 @@ export class FlagCache {
   }
 
   /**
-   * Get a cached flag value for a flag and context key.
+   * Get a cached flag value for a flag and context key, or `null` on a miss.
+   * Without `contextKey` this reads only the empty-context entry (`''`), not a
+   * value cached for another context.
    */
   get(key: string, contextKey: string = ''): boolean | null {
     const entry = this.getEntry(key, contextKey);
