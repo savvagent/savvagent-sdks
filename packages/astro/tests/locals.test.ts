@@ -37,11 +37,11 @@ import savvagent, {
   getRequestContext,
   evaluateForRequest,
   createFlagMiddleware,
-  helperScope,
   ANONYMOUS_ID_COOKIE,
   type SavvagentLocals,
 } from '../src/index';
 import { FlagClient } from '@savvagent/sdk';
+import { withoutCookieUser } from '../src/helper-scope';
 import { fileURLToPath } from 'node:url';
 
 function makeRequest(headers: Record<string, string> = {}): Request {
@@ -459,11 +459,7 @@ describe('a helper can narrow the user_id cookie trust, never widen it (#57)', (
     expect(mockEvaluate).toHaveBeenCalledWith('g', { anonymous_id: 'anon_1', user_id: 'explicit' });
   });
 
-  const narrowedScope = (base: SavvagentLocals) =>
-    helperScope(new Request('http://localhost:4321/'), {
-      locals: { savvagent: base } as unknown as App.Locals,
-      trustUserIdCookie: false,
-    });
+  const narrowedScope = (base: SavvagentLocals) => withoutCookieUser(base) as SavvagentLocals;
 
   const narrowedOptions = (context: { locals: unknown }) => ({
     locals: context.locals as unknown as App.Locals,
@@ -825,13 +821,14 @@ describe('createSavvagentLocals without a client', () => {
 describe('helperScope fallback without an initialised client', () => {
   it('returns defaults instead of throwing for an unrecognised scope', async () => {
     vi.resetModules();
-    const { helperScope } = await import('../src/index');
+    const { evaluateForRequest: evaluateFresh } = await import('../src/index');
     const request = makeRequest({ cookie: 'user_id=cookie-user' });
-    const scope = helperScope(request, {
-      locals: { savvagent: { client: null } } as unknown as App.Locals,
-      trustUserIdCookie: false,
-    });
-    await expect(scope.evaluate('f')).resolves.toMatchObject({ value: false, reason: 'error' });
+    await expect(
+      evaluateFresh(request, 'f', undefined, {
+        locals: { savvagent: { client: null } } as unknown as App.Locals,
+        trustUserIdCookie: false,
+      })
+    ).resolves.toBe(false);
   });
 });
 
