@@ -2,7 +2,7 @@
   "name": "@savvagent-sdks/monorepo",
   "version": "0.0.0",
   "private": false,
-  "description": "Savvagent SDKs, MCP servers, and example applications",
+  "description": "Savvagent SDKs and example applications",
   "repository": {
     "type": "git",
     "url": "https://github.com/savvagent/flags-sdks.git"

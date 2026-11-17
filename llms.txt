@@ -98,4 +98,3 @@ interface EvaluationContext {
 
 - [Examples Repository](https://raw.githubusercontent.com/savvagent/flags-sdks/master/examples): Working example apps for all frameworks
 - [Migration Guide](https://raw.githubusercontent.com/savvagent/flags-sdks/master/docs/MIGRATION.md): Migrating from the old savvagent-flags repo layout to the published `@savvagent/*` packages
-- [MCP SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/mcp-sdk/README.md): Building observability integrations

@@ -1,6 +1,6 @@
 # Savvagent SDKs
 
-Official SDKs, MCP servers, and example applications for [Savvagent](https://savvagent.com) - the AI-powered feature flag platform that prevents production incidents.
+Official SDKs and example applications for [Savvagent](https://savvagent.com) - the AI-powered feature flag platform that prevents production incidents.
 
 ## Packages
 
@@ -111,20 +111,6 @@ Then add the dependency:
 </dependency>
 ```
 
-### MCP Servers
-
-HTTP [Model Context Protocol](https://modelcontextprotocol.io) servers that expose a monitoring tool's data as MCP tools (for example `get_errors` and `get_service_health`). Each one is a library: you host it in your own HTTP server at `POST /mcp`, behind a Bearer token.
-
-- **[@savvagent/mcp-sdk](./packages/mcp-sdk)** - Base framework: `MCPServer`, the HTTP handler, Bearer auth and a stdio handler
-- **[@savvagent/mcp-sentry](./packages/mcp-sentry)** - Sentry error tracking
-- **[@savvagent/mcp-datadog](./packages/mcp-datadog)** - Datadog APM and monitoring
-- **[@savvagent/mcp-dynatrace](./packages/mcp-dynatrace)** - Dynatrace APM and monitoring
-- **[@savvagent/mcp-newrelic](./packages/mcp-newrelic)** - New Relic APM and monitoring
-- **[@savvagent/mcp-pagerduty](./packages/mcp-pagerduty)** - PagerDuty incident management
-- **[@savvagent/mcp-splunk](./packages/mcp-splunk)** - Splunk log analytics
-
-These are separate from Savvagent's own MCP server at `mcp.savvagent.com`, which agents use to manage flags.
-
 ## Quick Start
 
 ### Installation
@@ -201,7 +187,6 @@ Working example applications are available in the [examples](./examples) directo
 - **[SDK Integration Guide](./docs/SDK-INTEGRATION.md)** - Complete integration instructions
 - **[Migration Guide](./docs/MIGRATION.md)** - Migrating from the old repo structure
 - **[API Reference](./packages/typescript/README.md)** - Full SDK API documentation
-- **[MCP Integration Guide](./packages/mcp-sdk/README.md)** - Building MCP servers
 
 ## AI-Assisted Development
 
@@ -306,14 +291,7 @@ flags-sdks/
 │   ├── python-server/      # Python server SDK (savvagent-flags)
 │   ├── java-server/        # Java server SDK
 │   ├── go-server/          # Go server SDK
-│   ├── rust-server/        # Rust server SDK
-│   ├── mcp-sdk/            # @savvagent/mcp-sdk
-│   ├── mcp-sentry/         # @savvagent/mcp-sentry
-│   ├── mcp-datadog/        # @savvagent/mcp-datadog
-│   ├── mcp-dynatrace/      # @savvagent/mcp-dynatrace
-│   ├── mcp-newrelic/       # @savvagent/mcp-newrelic
-│   ├── mcp-pagerduty/      # @savvagent/mcp-pagerduty
-│   └── mcp-splunk/         # @savvagent/mcp-splunk
+│   └── rust-server/        # Rust server SDK
 ├── examples/
 │   ├── ios-app/            # iOS SwiftUI example
 │   ├── android-app/        # Android Jetpack Compose example
@@ -445,15 +423,3 @@ MIT License - see [LICENSE](./LICENSE) for details
 | [savvagent-flags-java-server-sdk](./packages/java-server) | Java 11+ | v0.1.0 | Beta |
 | [github.com/savvagent/flags-sdks/packages/go-server](./packages/go-server) | Go 1.21+ | v0.1.0 | Beta |
 | [savvagent-flags](./packages/rust-server) | Rust (stable) | v0.1.0 | Beta |
-
-### MCP Servers
-
-| Package | Version | Status |
-|---------|---------|--------|
-| [@savvagent/mcp-sdk](./packages/mcp-sdk) | [![npm](https://img.shields.io/npm/v/@savvagent/mcp-sdk)](https://www.npmjs.com/package/@savvagent/mcp-sdk) | Beta |
-| [@savvagent/mcp-sentry](./packages/mcp-sentry) | [![npm](https://img.shields.io/npm/v/@savvagent/mcp-sentry)](https://www.npmjs.com/package/@savvagent/mcp-sentry) | Beta |
-| [@savvagent/mcp-datadog](./packages/mcp-datadog) | [![npm](https://img.shields.io/npm/v/@savvagent/mcp-datadog)](https://www.npmjs.com/package/@savvagent/mcp-datadog) | Beta |
-| [@savvagent/mcp-dynatrace](./packages/mcp-dynatrace) | [![npm](https://img.shields.io/npm/v/@savvagent/mcp-dynatrace)](https://www.npmjs.com/package/@savvagent/mcp-dynatrace) | Beta |
-| [@savvagent/mcp-newrelic](./packages/mcp-newrelic) | [![npm](https://img.shields.io/npm/v/@savvagent/mcp-newrelic)](https://www.npmjs.com/package/@savvagent/mcp-newrelic) | Beta |
-| [@savvagent/mcp-pagerduty](./packages/mcp-pagerduty) | [![npm](https://img.shields.io/npm/v/@savvagent/mcp-pagerduty)](https://www.npmjs.com/package/@savvagent/mcp-pagerduty) | Beta |
-| [@savvagent/mcp-splunk](./packages/mcp-splunk) | [![npm](https://img.shields.io/npm/v/@savvagent/mcp-splunk)](https://www.npmjs.com/package/@savvagent/mcp-splunk) | Beta |

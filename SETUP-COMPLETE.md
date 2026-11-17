@@ -9,9 +9,7 @@ The `savvagent-sdks` repository has been successfully scaffolded with all packag
 ```
 savvagent-sdks/
 ├── packages/
-│   ├── typescript/          # @savvagent/sdk (renamed from @savvagent/typescript)
-│   ├── mcp-sdk/            # @savvagent/mcp-sdk
-│   └── mcp-sentry/         # @savvagent/mcp-sentry
+│   └── typescript/          # @savvagent/sdk (renamed from @savvagent/typescript)
 ├── examples/
 │   ├── nextjs-app/         # Next.js 14 example
 │   ├── sveltekit-app/      # SvelteKit 2 + Svelte 5 example
