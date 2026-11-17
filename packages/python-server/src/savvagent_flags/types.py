@@ -4,8 +4,24 @@ Savvagent Flags Python Server SDK Types
 
 from __future__ import annotations
 
+import os
+import sys
 from dataclasses import dataclass, field
 from typing import Any, Callable, Literal
+
+_TRUE = frozenset({"1", "true", "yes", "on"})
+_FALSE = frozenset({"0", "false", "no", "off"})
+
+
+def _parse_bool(raw: str) -> bool | None:
+    """``1``/``true``/``yes``/``on`` and ``0``/``false``/``no``/``off``, ignoring case and
+    surrounding whitespace; anything else is None."""
+    value = raw.strip().lower()
+    if value in _TRUE:
+        return True
+    if value in _FALSE:
+        return False
+    return None
 
 
 @dataclass
@@ -52,6 +68,62 @@ class FlagClientConfig:
 
     def __post_init__(self) -> None:
         self.base_url = self.base_url.rstrip("/")
+
+    def set_default_from(
+        self, flag_key: str, value: Callable[[], bool | None]
+    ) -> FlagClientConfig:
+        """
+        Set a flag's default from ``value``, called once now.
+
+        For a default that comes from somewhere other than a constant. A return of
+        None leaves any earlier default (or the built-in ``False``) in place. The
+        result is fixed when this is called, not re-read per lookup.
+
+        Returns:
+            This config, so calls can be chained.
+        """
+        result = value()
+        if result is not None:
+            self.defaults[flag_key] = bool(result)
+        return self
+
+    def set_default_from_env(self, flag_key: str, var: str) -> FlagClientConfig:
+        """
+        Set a flag's default from an environment variable, read once now.
+
+        For a service moving from env-var flags: "when Savvagent Flags cannot be
+        reached, use what the variable says". Accepted values, ignoring case and
+        surrounding whitespace, are ``1``, ``true``, ``yes``, ``on`` and ``0``,
+        ``false``, ``no``, ``off``. An unset variable is ignored silently; one that
+        is empty or says anything else is ignored with a warning on stderr that
+        names the variable but not its value. Either way any earlier default, or
+        the built-in ``False``, stays in place.
+
+        Example:
+            ```python
+            config = FlagClientConfig(api_key="srv_...").set_default_from_env(
+                "new-checkout", "NEW_CHECKOUT_ENABLED"
+            )
+            ```
+
+        Returns:
+            This config, so calls can be chained.
+        """
+
+        def from_env() -> bool | None:
+            raw = os.environ.get(var)
+            if raw is None:
+                return None
+            parsed = _parse_bool(raw)
+            if parsed is None:
+                print(
+                    f"Savvagent Flags: environment variable {var!r} is not a boolean; "
+                    "ignoring it",
+                    file=sys.stderr,
+                )
+            return parsed
+
+        return self.set_default_from(flag_key, from_env)
 
 
 @dataclass
@@ -153,8 +225,8 @@ class FlagEvaluationResult:
     variation: str | None = None
     """Variation identifier for multi-variant flags (Phase 2)."""
 
-    reason: Literal["cached", "evaluated", "default", "error"] = "evaluated"
-    """Reason for the value."""
+    reason: Literal["cached", "evaluated", "default", "error", "static"] = "evaluated"
+    """Reason for the value (``"static"`` from a client built with ``static_flags``)."""
 
     metadata: FlagMetadata | None = None
     """Metadata about the flag."""

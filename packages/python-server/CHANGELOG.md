@@ -17,9 +17,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `InvalidFlagKeyError`: a flag key that is not 1-128 characters of `[A-Za-z0-9._-]` (or is `.` or `..`) is rejected before any request is made
 - Evaluation results carry the flag `version` and `scope` metadata
 - An evaluation in flight when its flag is invalidated no longer re-caches its stale result
+- `AsyncFlagClient.set_environment` / `get_environment`, matching `FlagClient`; changing the environment clears the cache (#49)
+- `FlagClientConfig.set_default_from_env(flag_key, var)` and `set_default_from(flag_key, fn)`: a flag's default read once from an environment variable or a function, the equivalents of the Rust SDK's `with_default_env` / `with_default_fn` (#31)
+- `is_enabled_cached(flag_key, context=None)` on both clients: the unexpired cached value, else the configured default, without a request; a plain method on `AsyncFlagClient` too (#31)
+- `FlagClient.static_flags(flags)` and `AsyncFlagClient.static_flags(flags)`: a client that serves fixed values and never touches the network, for tests; its results have `reason="static"` (#31)
+- Building a client with a `srv_` key and a non-`https`, non-loopback `base_url` prints one warning to stderr: `Savvagent Flags: the server key will be sent over <scheme>; use an https base_url` (#44)
 
 ### Fixed
 
+- `AsyncFlagClient` sends the configured `environment` when the context has none, as `FlagClient` does; it sent none, so the server used its default environment (#49)
+- `AsyncFlagClient` drops a flag's cached entries as soon as the realtime stream invalidates it, instead of on a task scheduled for later
 - `track_error` falls back to the flag's last evaluated value only when called without a context; a cache miss for a given context reports `False` instead of another user's value
 - The last evaluated value is remembered only when no invalidation overtook the request, and it is forgotten on a realtime update and by `invalidate_cache`
 - Keys from the realtime stream are validated before the cache is invalidated; invalid or non-string keys and malformed generic messages are skipped without dropping the connection

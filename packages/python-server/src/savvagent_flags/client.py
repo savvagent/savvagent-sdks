@@ -11,6 +11,7 @@ import json
 import sys
 import time
 import traceback
+from collections.abc import Iterable, Mapping
 from datetime import datetime, timezone
 from typing import Any, Callable, TypeVar
 from urllib.parse import quote
@@ -19,6 +20,7 @@ import httpx
 
 from ._context_key import context_key
 from ._flag_key import default_for, describe_flag_key, is_valid_flag_key
+from ._plain_http import warn_if_plain_http
 from ._response import evaluate_payload, response_metadata
 from .cache import FlagCache
 from .exceptions import InvalidAPIKeyError, InvalidFlagKeyError
@@ -76,8 +78,11 @@ class FlagClient:
             raise InvalidAPIKeyError(
                 'Invalid API key. API keys must start with "sdk_" (SDK key) or "srv_" (Server key)'
             )
+        warn_if_plain_http(config.api_key, config.base_url)
 
         self._config = config
+        # Set by static_flags: the values served instead of any lookup.
+        self._fixed: dict[str, bool] | None = None
         self._cache = FlagCache(config.cache_ttl)
         # The most recent evaluated value per flag, for track_error when the error's
         # context has no cached entry of its own (bounded by the host's flag keys).
@@ -120,6 +125,32 @@ class FlagClient:
         """Context manager exit - ensures cleanup."""
         self.close()
 
+    @classmethod
+    def static_flags(
+        cls, flags: Mapping[str, bool] | Iterable[tuple[str, bool]]
+    ) -> FlagClient:
+        """
+        A client that serves fixed flag values and never touches the network, for tests.
+
+        Each flag in ``flags`` evaluates to its value, any other flag to ``False``;
+        ``evaluate`` reports ``reason="static"``. No request is made, nothing is
+        reported, and no stream is opened; ``get_all_flags`` and
+        ``get_enterprise_flags`` return ``[]``. Config and variation overrides
+        still apply. It is not for production use: it ignores the server entirely.
+
+        Example:
+            ```python
+            client = FlagClient.static_flags({"new-checkout": True})
+            assert client.is_enabled("new-checkout")
+            assert not client.is_enabled("anything-else")
+            ```
+        """
+        client = cls(
+            FlagClientConfig(api_key="sdk_static", enable_realtime=False, enable_telemetry=False)
+        )
+        client._fixed = {key: bool(value) for key, value in dict(flags).items()}
+        return client
+
     def evaluate(
         self, flag_key: str, context: FlagContext | None = None
     ) -> FlagEvaluationResult:
@@ -144,6 +175,23 @@ class FlagClient:
                 key=flag_key,
                 value=default_for(self._config.defaults, flag_key),
                 reason="error",
+            )
+
+        if self._fixed is not None:
+            configuration: Any = None
+            variation: str | None = None
+            config_override = self._config_overrides.get(flag_key)
+            if config_override:
+                configuration = config_override.config
+            variation_override_entry = self._variation_overrides.get(flag_key)
+            if variation_override_entry:
+                variation = variation_override_entry.variation
+            return FlagEvaluationResult(
+                key=flag_key,
+                value=self._fixed.get(flag_key, False),
+                configuration=configuration,
+                variation=variation,
+                reason="static",
             )
 
         start_time = time.time()
@@ -292,6 +340,50 @@ class FlagClient:
         """
         result = self.evaluate(flag_key, context)
         return result.value
+
+    def is_enabled_cached(self, flag_key: str, context: FlagContext | None = None) -> bool:
+        """
+        Read a flag from the cache without making a request.
+
+        Returns the unexpired cached value for this flag and context (the cache is
+        per context, so pass the same context an earlier lookup used), and
+        otherwise the flag's configured default (``defaults``, else ``False``). A
+        flag never looked up, one whose entry outlived ``cache_ttl``, and one
+        invalidated by the realtime stream are all misses, so something must keep
+        the cache warm: call ``evaluate`` or ``is_enabled`` on the same context
+        at least once per TTL. A hit is counted as an evaluation in telemetry, as a cached
+        ``evaluate`` is; a miss is not. On a ``static_flags`` client it returns
+        the fixed value. Overrides never change the answer.
+
+        Args:
+            flag_key: The flag key to read.
+            context: Optional context, as passed to ``evaluate``.
+
+        Returns:
+            The cached value, or the flag's default on a miss.
+        """
+        if not is_valid_flag_key(flag_key):
+            return default_for(self._config.defaults, flag_key)
+        if self._fixed is not None:
+            return self._fixed.get(flag_key, False)
+        start_time = time.time()
+        ctx_key = context_key(self._prepare_context(context).to_dict())
+        entry = (
+            self._cache.get_entry(flag_key, context_key=ctx_key) if ctx_key is not None else None
+        )
+        if entry is None:
+            return default_for(self._config.defaults, flag_key)
+        self._last_values[flag_key] = entry.value
+        self._telemetry.track_evaluation(
+            EvaluationEvent(
+                flag_key=flag_key,
+                result=entry.value,
+                context=context,
+                duration_ms=int((time.time() - start_time) * 1000),
+                timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            )
+        )
+        return entry.value
 
     def get_config(
         self,
@@ -605,6 +697,8 @@ class FlagClient:
         Returns:
             List of flag definitions.
         """
+        if self._fixed is not None:
+            return []
         try:
             response = self._client.get(
                 f"{self._config.base_url}/api/sdk/flags",
@@ -648,6 +742,8 @@ class FlagClient:
         Returns:
             List of enterprise flag definitions.
         """
+        if self._fixed is not None:
+            return []
         try:
             response = self._client.get(
                 f"{self._config.base_url}/api/sdk/enterprise-flags",
