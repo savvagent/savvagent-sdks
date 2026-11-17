@@ -258,3 +258,87 @@ func TestNewStaticClientRejectsInvalidKeysLikeEvaluate(t *testing.T) {
 		t.Error("invalid key: want OnError called")
 	}
 }
+
+func TestIsEnabledCachedReadsTheKeyEvaluateStores(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"enabled": true}`))
+	}))
+	defer server.Close()
+	client, err := NewClient(Config{APIKey: "sdk_test_key", BaseURL: server.URL, ApplicationID: "app-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	ctx := &Context{
+		UserID:      "alice",
+		Environment: "production",
+		Attributes:  map[string]interface{}{"plan": "pro", "a": 1},
+	}
+	if _, err := client.Evaluate("banner", ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	// The key Evaluate stored, pinned to today's bytes: the prepared context's JSON, with the
+	// configured ApplicationID filled in and map keys sorted.
+	const want = `{"user_id":"alice","application_id":"app-1","attributes":{"a":1,"plan":"pro"},"environment":"production"}`
+	client.cache.mu.RLock()
+	stored := make([]string, 0, len(client.cache.entries["banner"]))
+	for k := range client.cache.entries["banner"] {
+		stored = append(stored, k)
+	}
+	client.cache.mu.RUnlock()
+	if len(stored) != 1 || stored[0] != want {
+		t.Fatalf("Evaluate stored keys %q, want [%q]", stored, want)
+	}
+
+	// The key IsEnabledCached reads is the same one.
+	if _, got, err := client.contextKey(ctx); err != nil || got != want {
+		t.Errorf("contextKey = %q, %v; want %q", got, err, want)
+	}
+	// An equal context built separately (other map, other insertion order) hits it.
+	equal := &Context{
+		UserID:      "alice",
+		Environment: "production",
+		Attributes:  map[string]interface{}{"a": 1, "plan": "pro"},
+	}
+	if !client.IsEnabledCached("banner", equal) {
+		t.Error("IsEnabledCached missed the entry Evaluate stored")
+	}
+	if ctx.ApplicationID != "" {
+		t.Error("the caller's context was modified")
+	}
+}
+
+// failingTransport fails the test on any request.
+type failingTransport struct{ t *testing.T }
+
+func (f failingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	f.t.Fatalf("static client made a request: %s %s", r.Method, r.URL)
+	return nil, nil
+}
+
+func TestNewStaticClientNeverTouchesTheNetwork(t *testing.T) {
+	client := NewStaticClient(map[string]bool{"checkout": true})
+	defer client.Close()
+	client.httpClient.Transport = failingTransport{t}
+	if err := client.SetConfigOverride("checkout", map[string]interface{}{"limit": 3}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	if !client.IsEnabled("checkout", &Context{UserID: "u"}) {
+		t.Error("IsEnabled = false, want true")
+	}
+	if result, err := client.Evaluate("unlisted", nil); err != nil || result.Value || result.Reason != "static" {
+		t.Errorf("Evaluate = %+v, %v", result, err)
+	}
+	if cfg, err := client.GetConfig("checkout", nil); err != nil || cfg["limit"] != 3 {
+		t.Errorf("GetConfig = %v, %v", cfg, err)
+	}
+	if v, err := client.GetVariation("checkout", nil); err != nil || !v.Enabled {
+		t.Errorf("GetVariation = %+v, %v", v, err)
+	}
+	if !client.IsEnabledCached("checkout", nil) {
+		t.Error("IsEnabledCached = false, want true")
+	}
+}

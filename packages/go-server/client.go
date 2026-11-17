@@ -142,7 +142,7 @@ func (c *FlagClient) IsEnabledCached(flagKey string, ctx *Context) bool {
 	if c.static != nil {
 		return c.static[flagKey]
 	}
-	ctxKey, err := c.contextKey(ctx)
+	_, ctxKey, err := c.contextKey(ctx)
 	if err != nil {
 		return c.config.Defaults[flagKey]
 	}
@@ -165,11 +165,14 @@ func (c *FlagClient) prepareContext(ctx *Context) Context {
 	return prepared
 }
 
-// contextKey is the cache key for ctx: the JSON of the prepared context (map keys sorted by
-// encoding/json), which is also the request body's context.
-func (c *FlagClient) contextKey(ctx *Context) (string, error) {
-	ctxJSON, err := json.Marshal(c.prepareContext(ctx))
-	return string(ctxJSON), err
+// contextKey prepares ctx and returns it with its cache key: the JSON of the prepared context
+// (map keys sorted by encoding/json), which is also the request body's context. Evaluate (which
+// stores entries) and IsEnabledCached (which reads them) both use it, so the two keys cannot
+// drift apart.
+func (c *FlagClient) contextKey(ctx *Context) (Context, string, error) {
+	prepared := c.prepareContext(ctx)
+	ctxJSON, err := json.Marshal(prepared)
+	return prepared, string(ctxJSON), err
 }
 
 // applyOverrides returns configuration and variation with the flag's overrides applied.
@@ -219,12 +222,10 @@ func (c *FlagClient) Evaluate(flagKey string, ctx *Context) (*EvaluationResult, 
 
 	// Prepare the context on a copy, so the caller's value is never modified. Its JSON (map
 	// keys sorted by encoding/json) is the cache key and the request body.
-	prepared := c.prepareContext(ctx)
-	ctxJSON, err := json.Marshal(prepared)
+	prepared, ctxKey, err := c.contextKey(ctx)
 	if err != nil {
 		return c.getDefaultResult(flagKey, err), err
 	}
-	ctxKey := string(ctxJSON)
 
 	// Check cache first
 	if cachedEntry, found := c.cache.GetEntry(flagKey, ctxKey); found {
@@ -261,7 +262,8 @@ func (c *FlagClient) Evaluate(flagKey string, ctx *Context) (*EvaluationResult, 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.config.APIKey)
 
-	// Make request
+	// Make request. A static client (NewStaticClient) never gets here: Evaluate returns early
+	// for it above, so it never touches the network.
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		c.config.OnError(err)
