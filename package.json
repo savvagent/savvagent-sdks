@@ -13,6 +13,7 @@
     "build": "pnpm -r --filter='./packages/*' run build",
     "test": "pnpm -r --filter='./packages/*' run test",
     "lint": "pnpm -r --filter='./packages/*' run lint",
+    "check:packages": "node scripts/check-packages.mjs",
     "format": "pnpm -r run format",
     "changeset": "changeset",
     "version-packages": "changeset version",
@@ -20,8 +21,10 @@
     "sync:types": "openapi-typescript ../savvagent-flags/docs/openapi.json -o packages/typescript/src/generated/api-types.ts"
   },
   "devDependencies": {
+    "@arethetypeswrong/cli": "0.18.5",
     "@changesets/cli": "^2.29.8",
-    "openapi-typescript": "^7.10.1"
+    "openapi-typescript": "^7.10.1",
+    "publint": "0.3.25"
   },
   "engines": {
     "node": ">=22.23.4",

@@ -50,6 +50,11 @@ jobs:
       - name: Build
         run: pnpm build
 
+      # Packs every published package and runs publint and attw on the tarball.
+      # Ignored attw rules are listed, with reasons, in scripts/check-packages.mjs.
+      - name: Check package shape
+        run: pnpm check:packages --no-build
+
       - name: Test
         run: pnpm test
 
