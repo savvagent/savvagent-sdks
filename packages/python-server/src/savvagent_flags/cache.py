@@ -275,21 +275,30 @@ class AsyncFlagCache:
             The complete CacheEntry, or None if not found or expired.
         """
         async with self._lock:
-            contexts = self._cache.get(key)
-            if contexts is None:
-                return None
-            entry = contexts.get(context_key)
-            if entry is None:
-                return None
+            return self.peek_entry(key, context_key=context_key)
 
-            # Check if expired
-            if time.time() > entry.expires_at:
-                del contexts[context_key]
-                if not contexts:
-                    del self._cache[key]
-                return None
+    def peek_entry(self, key: str, *, context_key: str = "") -> CacheEntry | None:
+        """
+        Synchronous get_entry, for code that cannot await.
 
-            return entry
+        Safe on the event loop's thread without the lock: no critical section of
+        this cache awaits, so none is ever suspended part-way when this runs.
+        """
+        contexts = self._cache.get(key)
+        if contexts is None:
+            return None
+        entry = contexts.get(context_key)
+        if entry is None:
+            return None
+
+        # Check if expired
+        if time.time() > entry.expires_at:
+            del contexts[context_key]
+            if not contexts:
+                del self._cache[key]
+            return None
+
+        return entry
 
     async def set(
         self,
@@ -358,6 +367,14 @@ class AsyncFlagCache:
     def mark_invalidated(self, key: str | None = None) -> None:
         """Bump the generation synchronously (for callbacks that cannot await)."""
         self._bump(key)
+
+    def invalidate_nowait(self, key: str | None = None) -> None:
+        """Synchronous invalidate (see peek_entry for why this needs no lock)."""
+        self._bump(key)
+        if key:
+            self._cache.pop(key, None)
+        else:
+            self._cache.clear()
 
     async def clear(self) -> None:
         """Clear all cached values."""

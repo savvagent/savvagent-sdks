@@ -286,6 +286,21 @@ class AsyncTelemetryService:
             if len(self._evaluation_queue) >= self.BATCH_SIZE:
                 await self._flush_evaluations_unlocked()
 
+    def track_evaluation_nowait(self, event: EvaluationEvent) -> None:
+        """
+        Queue a flag evaluation without awaiting, for code that cannot await.
+
+        The queue is only swapped out under the lock without an await in between,
+        so an append on the event loop's thread is safe. It is sent by the next
+        flush (the periodic one, or a batch filled by track_evaluation).
+
+        Args:
+            event: The evaluation event to track.
+        """
+        if not self._enabled:
+            return
+        self._evaluation_queue.append(event)
+
     async def track_error(self, event: ErrorEvent) -> None:
         """
         Track an error in flagged code.
