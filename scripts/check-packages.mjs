@@ -86,7 +86,7 @@ try {
     const name = manifest.name;
     console.log(`\n=== ${name} (packages/${dir})`);
 
-    if (build && !run('pnpm', ['run', 'build'], path)) {
+    if (build && !run('pnpm', ['run', '--if-present', 'build'], path)) {
       failures.push(`${name}: build`);
       continue;
     }
