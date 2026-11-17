@@ -72,7 +72,7 @@ A `srv_` server key is a secret. When it would be sent over a base URL that is n
 
 ### Defaults from an environment variable or a function
 
-For a service moving from env-var flags, `defaultsFrom` computes defaults when the client is built. `defaultFromEnv(name)` reads a variable once: `1`, `true`, `yes`, `on` and `0`, `false`, `no`, `off` (ignoring case and surrounding whitespace). An unset variable is ignored silently; any other value is ignored with a warning that names the variable but not its value. A function returning `true` or `false` replaces `defaults[key]`; `undefined` leaves `defaults[key]`, or `false`, in place.
+For a service moving from env-var flags, `defaultsFrom` computes defaults when the client is built. `defaultFromEnv(name)` reads a variable once: `1`, `true`, `yes`, `on` and `0`, `false`, `no`, `off` (ignoring case and surrounding whitespace). An unset variable is ignored silently; any other value is ignored with a warning that names the variable but not its value. A function returning `true` or `false` replaces `defaults[key]`; `undefined` leaves `defaults[key]`, or `false`, in place. A function that throws is not caught: the error propagates out of the `FlagClient` constructor, so a broken default fails at startup.
 
 ```typescript
 import { FlagClient, defaultFromEnv } from '@savvagent/node-server';

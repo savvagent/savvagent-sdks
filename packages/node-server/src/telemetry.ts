@@ -13,6 +13,8 @@ export class TelemetryService {
   private flushInterval: NodeJS.Timeout | null = null;
   /** A deferred evaluation flush is pending (see trackEvaluation's deferFlush). */
   private flushScheduled = false;
+  /** Set by close(): a deferred flush scheduled earlier then sends nothing. */
+  private closed = false;
   private readonly BATCH_SIZE = 50;
   private readonly FLUSH_INTERVAL = 5000; // 5 seconds
 
@@ -49,10 +51,11 @@ export class TelemetryService {
 
   /** Flush evaluations once, from a later turn of the event loop. */
   private scheduleFlush(): void {
-    if (this.flushScheduled) return;
+    if (this.flushScheduled || this.closed) return;
     this.flushScheduled = true;
     setImmediate(() => {
       this.flushScheduled = false;
+      if (this.closed) return;
       this.flushEvaluations();
     });
   }
@@ -171,6 +174,7 @@ export class TelemetryService {
    * Clean up resources
    */
   close(): void {
+    this.closed = true;
     if (this.flushInterval) {
       clearInterval(this.flushInterval);
       this.flushInterval = null;

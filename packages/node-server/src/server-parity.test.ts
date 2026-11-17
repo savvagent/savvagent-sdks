@@ -103,6 +103,18 @@ describe('defaultsFrom (#31)', () => {
     expect(fn).toHaveBeenCalledTimes(1);
   });
 
+  test('a function that throws propagates out of the constructor', () => {
+    expect(() =>
+      client({
+        defaultsFrom: {
+          flag: () => {
+            throw new Error('bad default');
+          },
+        },
+      })
+    ).toThrow('bad default');
+  });
+
   test('true or false replaces `defaults`; anything else leaves it in place', () => {
     const c = client({
       defaults: { a: true, b: true, c: true },
@@ -240,6 +252,33 @@ describe('isEnabledCached (#31)', () => {
       expect(global.fetch).toHaveBeenCalledTimes(1);
       expect(String((global.fetch as jest.Mock).mock.calls[0][0])).toContain('/api/telemetry/evaluations');
       c.close();
+    });
+
+    test('a deferred flush pending at close() sends nothing afterwards', async () => {
+      const c = telemetryClient();
+      const telemetry = (c as any).telemetry;
+      const flushEvaluations = jest.spyOn(telemetry, 'flushEvaluations');
+      mockEvaluate(true);
+      await c.isEnabled('flag');
+      (global.fetch as jest.Mock).mockResolvedValue({ ok: true, json: async () => ({}) });
+      for (let i = 0; i < 60; i++) c.isEnabledCached('flag');
+      expect(telemetry.flushScheduled).toBe(true);
+      c.close(); // flushes what is queued itself
+      flushEvaluations.mockClear();
+      (global.fetch as jest.Mock).mockClear();
+      // Queued after close: the pending callback must not send it.
+      telemetry.evaluationQueue.push({ flagKey: 'late', result: true, durationMs: 0, timestamp: new Date().toISOString() });
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(flushEvaluations).not.toHaveBeenCalled();
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    test('no deferred flush is scheduled after close()', () => {
+      const c = telemetryClient();
+      const telemetry = (c as any).telemetry;
+      c.close();
+      telemetry.scheduleFlush();
+      expect(telemetry.flushScheduled).toBe(false);
     });
   });
 });

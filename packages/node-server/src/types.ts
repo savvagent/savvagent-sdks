@@ -38,6 +38,10 @@ export interface FlagClientConfig {
    * (`undefined` included) leaves `defaults[key]`, or the built-in `false`,
    * in place.
    *
+   * A function that throws is not caught: the error propagates out of the
+   * `FlagClient` constructor, so a broken default fails at startup rather
+   * than silently.
+   *
    * @example
    * ```ts
    * defaultsFrom: {
@@ -92,8 +96,17 @@ export interface FlagEvaluationResult {
   configuration?: any;
   /** Variation identifier for multi-variant flags (Phase 2) */
   variation?: string;
-  /** Reason for the value (cached, evaluated, default) */
-  /** `static` is the fixed value of a client from `FlagClient.staticFlags` */
+  /**
+   * Why the client returned this value:
+   * - `cached`: an unexpired cached result for this flag and context.
+   * - `evaluated`: a fresh result from the server.
+   * - `error`: the lookup failed (or the flag key is invalid), so this is the
+   *   configured default.
+   * - `static`: the fixed value of a client from `FlagClient.staticFlags`.
+   *
+   * `default` is kept in the type for compatibility; this client does not
+   * currently produce it.
+   */
   reason: 'cached' | 'evaluated' | 'default' | 'error' | 'static';
   /** Metadata about the flag */
   metadata?: {
