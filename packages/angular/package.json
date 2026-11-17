@@ -9,7 +9,7 @@
   "types": "./dist/types/savvagent-angular.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/types/savvagent-angular.d.ts",
+      "types": "./dist/types/savvagent-angular.d.mts",
       "default": "./dist/fesm2022/savvagent-angular.mjs"
     },
     "./package.json": {
@@ -50,7 +50,7 @@
     "typescript": "~6.0.3"
   },
   "scripts": {
-    "build": "ng-packagr -p ng-package.json",
+    "build": "ng-packagr -p ng-package.json && node -e \"require('fs').copyFileSync('dist/types/savvagent-angular.d.ts', 'dist/types/savvagent-angular.d.mts')\"",
     "dev": "ng-packagr -p ng-package.json --watch",
     "test": "jest",
     "lint": "eslint src --ext .ts",
