@@ -68,8 +68,13 @@ const isEnabled = createFlag('client-feature');
 
 1. `user_id` in the context you pass.
 2. The `getUserId(event)` option of `initSvelteKitServer`, for example from
-   `event.locals` set by your auth hook. If it throws or rejects, the error
-   goes to `onError` and the flag is evaluated without a user.
+   `event.locals` set by your auth hook. It is bounded by
+   `evaluationTimeoutMs` (default 1000 ms). If it throws, rejects or times
+   out, the failure goes to `onError` (as
+   `getUserId failed; evaluating without a user_id`, with the original error
+   as `cause`, or `getUserId timed out ...`) and the flag is evaluated without
+   a user, also without a trusted `user_id` cookie. If it returns nothing,
+   the next source applies.
 3. The `user_id` cookie, only when `trustUserIdCookie: true` is set. Use this
    for demos, or when nothing a flag gates is sensitive.
 
@@ -77,6 +82,23 @@ const isEnabled = createFlag('client-feature');
 but does not call `getUserId`. `isEnabled`, `evaluate` and `withFlag` use only
 the context you pass, so pass the authenticated user's ID yourself:
 `isEnabled('flag', { user_id: locals.user?.id })`.
+
+## Anonymous visitors
+
+`evaluateForEvent` and `getEventContext` evaluate every visitor with their own
+`anonymous_id`, so percentage rollouts bucket anonymous visitors one by one
+instead of all together. The ID comes from the `savvagent_anonymous_id`
+cookie, the cookie the browser SDK reads, so a visitor gets the same flags on
+the server and in the browser.
+
+A visitor without the cookie gets a new `anon_<uuid>` ID, the same for the
+whole request, and `event.cookies.set` stores it: not HttpOnly (the browser
+SDK reads it), `Path=/`, `SameSite=Lax`, one year, and `Secure` on https. If
+SvelteKit refuses the cookie (after a streamed response has started), the
+failure goes to `onError` and the request still uses the new ID.
+
+`isEnabled`, `evaluate` and `withFlag` use only the context you pass; pass
+`getEventContext(event)` to them to get the same anonymous ID.
 
 ## When the Flags API is down
 
@@ -89,7 +111,7 @@ stall every page:
 - `isEnabled`, `evaluate`, `withFlag` and `evaluateForEvent` are bounded by
   `evaluationTimeoutMs` (default 1000 ms). On a timeout or error they resolve
   with the flag's default from `config.defaults` (`reason: 'error'`) and do
-  not throw.
+  not throw. `getUserId` has its own bound of the same length.
 - `onError` receives the same error message at most once a minute.
 
 Calls you make on the raw client from `getServerClient()` are not bounded by
@@ -103,7 +125,7 @@ Calls you make on the raw client from `getServerClient()` are not bounded by
 - `isEnabled(flagKey, context?)` - Check if flag is enabled
 - `evaluate(flagKey, context?)` - Get detailed result
 - `evaluateForEvent(event, flagKey, context?)` - Evaluate with event context
-- `getEventContext(event, overrides?, options?)` - Extract context from event
+- `getEventContext(event, overrides?, options?)` - Extract context from event, assigning a new visitor an anonymous ID (see [Anonymous visitors](#anonymous-visitors))
 - `withFlag(flagKey, callback, context?)` - Run `callback` only if the flag is enabled
 - `trackError(flagKey, error, context?)` - Track errors
 

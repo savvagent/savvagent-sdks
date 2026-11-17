@@ -19,10 +19,11 @@ jest.mock('next/server', () => {
   const actualModule = jest.requireActual('next/server');
   return {
     ...actualModule,
+    // Each mock response has a cookie store, like a NextResponse.
     NextResponse: {
-      next: jest.fn(() => ({ type: 'next' })),
-      redirect: jest.fn((url: URL) => ({ type: 'redirect', url })),
-      rewrite: jest.fn((url: URL) => ({ type: 'rewrite', url })),
+      next: jest.fn(() => ({ type: 'next', cookies: { set: jest.fn() } })),
+      redirect: jest.fn((url: URL) => ({ type: 'redirect', url, cookies: { set: jest.fn() } })),
+      rewrite: jest.fn((url: URL) => ({ type: 'rewrite', url, cookies: { set: jest.fn() } })),
     },
   };
 });
@@ -130,7 +131,7 @@ describe('Middleware Module', () => {
 
       expect(context).toEqual({
         user_id: 'override-user',
-        anonymous_id: undefined,
+        anonymous_id: expect.stringMatching(/^anon_/),
         session_id: undefined,
         language: undefined,
         custom_field: 'custom-value',
@@ -156,7 +157,7 @@ describe('Middleware Module', () => {
 
       expect(context).toEqual({
         user_id: undefined,
-        anonymous_id: undefined,
+        anonymous_id: expect.stringMatching(/^anon_/),
         session_id: undefined,
         language: 'fr-FR',
       });
@@ -176,7 +177,7 @@ describe('Middleware Module', () => {
 
       expect(context).toEqual({
         user_id: undefined,
-        anonymous_id: undefined,
+        anonymous_id: expect.stringMatching(/^anon_/),
         session_id: undefined,
         language: undefined,
       });
@@ -227,12 +228,8 @@ describe('Middleware Module', () => {
 
       expect(result).toBe(true);
       // The browser controls the user_id cookie, so it is not trusted by default.
-      expect(FlagClient.prototype.evaluate).toHaveBeenCalledWith(
-        'test-flag',
-        expect.objectContaining({
-          user_id: undefined,
-        })
-      );
+      expect(FlagClient.prototype.evaluate).toHaveBeenCalledWith('test-flag', expect.any(Object));
+      expect(jest.mocked(FlagClient.prototype.evaluate).mock.calls[0][1]).not.toHaveProperty('user_id');
     });
 
     it('should merge provided context with request context', async () => {
@@ -262,7 +259,7 @@ describe('Middleware Module', () => {
     it('should handle evaluation errors', async () => {
       const mockRequest = {
         cookies: { get: jest.fn(() => undefined) },
-        headers: { get: jest.fn(() => null) },
+        headers: new Headers(),
       } as unknown as NextRequest;
 
       jest.spyOn(FlagClient.prototype, 'evaluate').mockRejectedValue(
@@ -287,13 +284,14 @@ describe('Middleware Module', () => {
       const middleware = createMiddleware();
       const mockRequest = {
         cookies: { get: jest.fn(() => undefined) },
-        headers: { get: jest.fn(() => null) },
+        headers: new Headers(),
       } as unknown as NextRequest;
 
       const response = await middleware(mockRequest);
 
       expect(NextResponse.next).toHaveBeenCalled();
-      expect(response).toEqual({ type: 'next' });
+      expect(response).toBe(jest.mocked(NextResponse.next).mock.results[0].value);
+      expect(response).toMatchObject({ type: 'next' });
     });
 
     it('should execute custom onRequest handler', async () => {
@@ -302,7 +300,7 @@ describe('Middleware Module', () => {
 
       const mockRequest = {
         cookies: { get: jest.fn(() => undefined) },
-        headers: { get: jest.fn(() => null) },
+        headers: new Headers(),
       } as unknown as NextRequest;
 
       await middleware(mockRequest);
@@ -315,18 +313,18 @@ describe('Middleware Module', () => {
     });
 
     it('should return custom response from onRequest handler', async () => {
-      const customResponse = { type: 'custom' };
+      const customResponse = { type: 'custom', cookies: { set: jest.fn() } };
       const onRequest = jest.fn().mockResolvedValue(customResponse);
       const middleware = createMiddleware({ onRequest });
 
       const mockRequest = {
         cookies: { get: jest.fn(() => undefined) },
-        headers: { get: jest.fn(() => null) },
+        headers: new Headers(),
       } as unknown as NextRequest;
 
       const response = await middleware(mockRequest);
 
-      expect(response).toEqual(customResponse);
+      expect(response).toBe(customResponse);
       expect(NextResponse.next).not.toHaveBeenCalled();
     });
 
@@ -339,7 +337,7 @@ describe('Middleware Module', () => {
       const middleware = createMiddleware({ onRequest });
       const mockRequest = {
         cookies: { get: jest.fn(() => undefined) },
-        headers: { get: jest.fn(() => null) },
+        headers: new Headers(),
       } as unknown as NextRequest;
 
       await middleware(mockRequest);
@@ -353,7 +351,7 @@ describe('Middleware Module', () => {
 
       const mockRequest = {
         cookies: { get: jest.fn(() => undefined) },
-        headers: { get: jest.fn(() => null) },
+        headers: new Headers(),
       } as unknown as NextRequest;
 
       await expect(middleware(mockRequest)).rejects.toThrow('Handler error');
@@ -363,12 +361,12 @@ describe('Middleware Module', () => {
       const middleware = createMiddleware();
       const mockRequest = {
         cookies: { get: jest.fn(() => undefined) },
-        headers: { get: jest.fn(() => null) },
+        headers: new Headers(),
       } as unknown as NextRequest;
 
       const response = await middleware(mockRequest);
 
-      expect(response).toEqual({ type: 'next' });
+      expect(response).toBe(jest.mocked(NextResponse.next).mock.results[0].value);
     });
   });
 
@@ -380,7 +378,7 @@ describe('Middleware Module', () => {
     it('should redirect if flag is enabled', async () => {
       const mockRequest = {
         cookies: { get: jest.fn(() => undefined) },
-        headers: { get: jest.fn(() => null) },
+        headers: new Headers(),
         url: 'https://example.com/current',
       } as unknown as NextRequest;
 
@@ -401,7 +399,7 @@ describe('Middleware Module', () => {
     it('should return null if flag is disabled', async () => {
       const mockRequest = {
         cookies: { get: jest.fn(() => undefined) },
-        headers: { get: jest.fn(() => null) },
+        headers: new Headers(),
         url: 'https://example.com/current',
       } as unknown as NextRequest;
 
@@ -420,7 +418,7 @@ describe('Middleware Module', () => {
     it('should merge provided context', async () => {
       const mockRequest = {
         cookies: { get: jest.fn(() => undefined) },
-        headers: { get: jest.fn(() => null) },
+        headers: new Headers(),
         url: 'https://example.com/current',
       } as unknown as NextRequest;
 
@@ -445,7 +443,7 @@ describe('Middleware Module', () => {
     it('should handle absolute redirect URLs', async () => {
       const mockRequest = {
         cookies: { get: jest.fn(() => undefined) },
-        headers: { get: jest.fn(() => null) },
+        headers: new Headers(),
         url: 'https://example.com/current',
       } as unknown as NextRequest;
 
@@ -471,7 +469,7 @@ describe('Middleware Module', () => {
     it('should rewrite if flag is enabled', async () => {
       const mockRequest = {
         cookies: { get: jest.fn(() => undefined) },
-        headers: { get: jest.fn(() => null) },
+        headers: new Headers(),
         url: 'https://example.com/current',
         nextUrl: { pathname: '/current' },
       } as unknown as NextRequest;
@@ -485,15 +483,16 @@ describe('Middleware Module', () => {
       );
 
       expect(response).not.toBeNull();
-      expect(NextResponse.rewrite).toHaveBeenCalledWith(
-        new URL('/beta/current', mockRequest.url)
-      );
+      // The rewritten page sees the anonymous ID assigned to this request.
+      expect(NextResponse.rewrite).toHaveBeenCalledWith(new URL('/beta/current', mockRequest.url), {
+        request: { headers: expect.any(Headers) },
+      });
     });
 
     it('should return null if flag is disabled', async () => {
       const mockRequest = {
         cookies: { get: jest.fn(() => undefined) },
-        headers: { get: jest.fn(() => null) },
+        headers: new Headers(),
         url: 'https://example.com/current',
       } as unknown as NextRequest;
 
@@ -512,7 +511,7 @@ describe('Middleware Module', () => {
     it('should merge provided context', async () => {
       const mockRequest = {
         cookies: { get: jest.fn(() => undefined) },
-        headers: { get: jest.fn(() => null) },
+        headers: new Headers(),
         url: 'https://example.com/current',
       } as unknown as NextRequest;
 
@@ -537,7 +536,7 @@ describe('Middleware Module', () => {
     it('should support dynamic rewrite paths', async () => {
       const mockRequest = {
         cookies: { get: jest.fn(() => undefined) },
-        headers: { get: jest.fn(() => null) },
+        headers: new Headers(),
         url: 'https://example.com/product/123',
         nextUrl: { pathname: '/product/123' },
       } as unknown as NextRequest;
@@ -550,9 +549,9 @@ describe('Middleware Module', () => {
         '/beta' + (mockRequest.nextUrl as any).pathname
       );
 
-      expect(NextResponse.rewrite).toHaveBeenCalledWith(
-        new URL('/beta/product/123', mockRequest.url)
-      );
+      expect(NextResponse.rewrite).toHaveBeenCalledWith(new URL('/beta/product/123', mockRequest.url), {
+        request: { headers: expect.any(Headers) },
+      });
     });
   });
 
@@ -580,7 +579,7 @@ describe('Middleware Module', () => {
 
       const mockRequest = {
         cookies: { get: jest.fn(() => undefined) },
-        headers: { get: jest.fn(() => null) },
+        headers: new Headers(),
         url: 'https://example.com/page',
       } as unknown as NextRequest;
 
@@ -616,7 +615,7 @@ describe('Middleware Module', () => {
             return undefined;
           }),
         },
-        headers: { get: jest.fn(() => null) },
+        headers: new Headers(),
         url: 'https://example.com/home',
       } as unknown as NextRequest;
 
@@ -672,7 +671,7 @@ describe('Middleware Module', () => {
 
       const mockRequest = {
         cookies: { get: jest.fn(() => undefined) },
-        headers: { get: jest.fn(() => null) },
+        headers: new Headers(),
         url: 'https://example.com',
       } as unknown as NextRequest;
 
@@ -694,7 +693,7 @@ describe('Middleware Module', () => {
 
       const mockRequest = {
         cookies: { get: jest.fn(() => undefined) },
-        headers: { get: jest.fn(() => null) },
+        headers: new Headers(),
       } as unknown as NextRequest;
 
       await expect(isEnabled(mockRequest, 'test-flag')).rejects.toThrow(

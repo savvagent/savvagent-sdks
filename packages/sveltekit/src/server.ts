@@ -5,14 +5,22 @@
 import { FlagClient, FlagClientConfig, FlagContext, FlagEvaluationResult } from '@savvagent/sdk';
 import type { RequestEvent } from '@sveltejs/kit';
 import {
-  BoundedClient,
-  boundedEvaluate,
-  boundedWithFlag,
-  createBoundedClient,
-  resolveUserId,
-} from './bounded';
+  ANONYMOUS_ID_COOKIE,
+  RequestScope,
+  RequestScopeOptions,
+  ServerClient,
+  anonymousIdCookieOptions,
+  buildRequestContext,
+  createRequestScope,
+  createServerClient,
+  defaultReportError,
+  evaluateBounded,
+  fallbackResult,
+  isSecureUrl,
+  newAnonymousId,
+} from '@savvagent/sdk/server';
 
-export { DEFAULT_EVALUATION_TIMEOUT_MS } from './bounded';
+export { DEFAULT_EVALUATION_TIMEOUT_MS } from '@savvagent/sdk/server';
 
 /** The parts of a SvelteKit `RequestEvent` the helpers read. */
 export type SavvagentEvent = Pick<RequestEvent, 'cookies' | 'request'> & Partial<Pick<RequestEvent, 'locals'>>;
@@ -22,9 +30,10 @@ export interface SvelteKitServerOptions {
   /**
    * Resolve the authenticated user's ID for a request from your own auth,
    * for example from `event.locals` set in your `handle` hook. This is the
-   * recommended source of `user_id`; {@link evaluateForEvent} calls it. If
-   * it throws or rejects, the error goes to `onError` and the flag is
-   * evaluated without a user.
+   * recommended source of `user_id`; {@link evaluateForEvent} calls it. It
+   * is bounded by `evaluationTimeoutMs`; if it throws, rejects or times out,
+   * the failure goes to `onError` and the flag is evaluated without a user
+   * (also without a trusted `user_id` cookie).
    */
   getUserId?: (event: SavvagentEvent) => string | null | undefined | Promise<string | null | undefined>;
   /**
@@ -35,23 +44,71 @@ export interface SvelteKitServerOptions {
    */
   trustUserIdCookie?: boolean;
   /**
-   * Upper bound on one flag evaluation, in milliseconds (default: 1000).
+   * Upper bound on one flag evaluation, and on `getUserId`, in milliseconds
+   * (default: 1000).
    * When the Flags API is slow or down, the evaluation resolves with the
    * flag's default (`reason: 'error'`) instead of holding up the page.
    */
   evaluationTimeoutMs?: number;
 }
 
-let serverClient: BoundedClient | null = null;
+let serverClient: ServerClient<FlagClient> | null = null;
 let serverOptions: SvelteKitServerOptions = {};
 
-function getBounded(): BoundedClient {
+function getBounded(): ServerClient<FlagClient> {
   if (!serverClient) {
     throw new Error(
       'SvelteKit server client not initialized. Call initSvelteKitServer() first.'
     );
   }
   return serverClient;
+}
+
+/** How evaluations on the server client are bounded, and what a failed one returns. */
+function boundOf(bounded: ServerClient<FlagClient>) {
+  return {
+    timeoutMs: bounded.timeoutMs,
+    reportError: bounded.reportError,
+    // A failed evaluation: the flag's default, `reason: 'error'`, with a timestamp.
+    fallback: (flagKey: string): FlagEvaluationResult => ({
+      ...fallbackResult(flagKey, bounded.config.defaults),
+      metadata: { timestamp: Date.now() },
+    }),
+  };
+}
+
+/** The request scope of an event: its context, its user and bounded evaluation. */
+function eventScope(bounded: ServerClient<FlagClient>, options: Omit<RequestScopeOptions, 'client'>): RequestScope {
+  const { timeoutMs, reportError, fallback } = boundOf(bounded);
+  return createRequestScope({ client: bounded.client, evaluationTimeoutMs: timeoutMs, reportError, fallback, ...options });
+}
+
+/** Anonymous IDs assigned to requests without the cookie, keyed by the request's `cookies`. */
+const assignedIds = new WeakMap<object, string>();
+
+/**
+ * The anonymous ID of a visitor who has no `savvagent_anonymous_id` cookie:
+ * one new ID per request, stored in the cookie (not HttpOnly, so the browser
+ * SDK buckets the visitor the same way; `Path=/`, `SameSite=Lax`, one year,
+ * `Secure` on https).
+ */
+function assignAnonymousId(event: Pick<RequestEvent, 'cookies' | 'request'>): string {
+  let anonymousId = assignedIds.get(event.cookies);
+  if (anonymousId) return anonymousId;
+  anonymousId = newAnonymousId();
+  assignedIds.set(event.cookies, anonymousId);
+  // A hand-built event may have no `set`; the ID then lasts for this request only.
+  if (typeof event.cookies.set === 'function') {
+    try {
+      event.cookies.set(ANONYMOUS_ID_COOKIE, anonymousId, anonymousIdCookieOptions(isSecureUrl(event.request.url)));
+    } catch (error) {
+      // SvelteKit refuses cookies once the response has started (streamed loads).
+      (serverClient?.reportError ?? defaultReportError)(
+        Object.assign(new Error('Could not set the savvagent_anonymous_id cookie'), { cause: error })
+      );
+    }
+  }
+  return anonymousId;
 }
 
 /**
@@ -88,7 +145,7 @@ export function initSvelteKitServer(
   options: SvelteKitServerOptions = {}
 ): FlagClient {
   if (!serverClient) {
-    serverClient = createBoundedClient(FlagClient, config, options.evaluationTimeoutMs);
+    serverClient = createServerClient(FlagClient, config, { evaluationTimeoutMs: options.evaluationTimeoutMs });
     serverOptions = options;
   }
   return serverClient.client;
@@ -107,6 +164,11 @@ export function getServerClient(): FlagClient {
 /**
  * Extract context from SvelteKit RequestEvent: `anonymous_id` and
  * `session_id` from cookies, and `language` from `Accept-Language`.
+ *
+ * A visitor without a `savvagent_anonymous_id` cookie gets a new anonymous
+ * ID, the same for the whole request, and the cookie is set on the
+ * response, so each visitor keeps one rollout bucket on the server and in
+ * the browser.
  *
  * `user_id` is read from the `user_id` cookie only when `trustUserIdCookie`
  * is set (here or in `initSvelteKitServer`), because the browser controls
@@ -132,16 +194,15 @@ export function getEventContext(
   overrides?: FlagContext,
   options?: { trustUserIdCookie?: boolean }
 ): FlagContext {
-  const trustCookie = options?.trustUserIdCookie ?? serverOptions.trustUserIdCookie ?? false;
-  const context: FlagContext = {
-    anonymous_id: event.cookies.get('savvagent_anonymous_id'),
-    session_id: event.cookies.get('session_id'),
-    language: event.request.headers.get('accept-language')?.split(',')[0] || undefined,
-    ...overrides,
-  };
-  // An undefined `overrides.user_id` means "not given", not "no user".
-  context.user_id = overrides?.user_id ?? ((trustCookie ? event.cookies.get('user_id') : undefined) || undefined);
-
+  const context = buildRequestContext(
+    {
+      cookies: (name) => event.cookies.get(name),
+      acceptLanguage: event.request.headers.get('accept-language'),
+      trustUserIdCookie: options?.trustUserIdCookie ?? serverOptions.trustUserIdCookie ?? false,
+    },
+    overrides
+  );
+  if (!context.anonymous_id) context.anonymous_id = assignAnonymousId(event);
   return context;
 }
 
@@ -170,7 +231,7 @@ export async function isEnabled(
   flagKey: string,
   context?: FlagContext
 ): Promise<boolean> {
-  return (await boundedEvaluate(getBounded(), flagKey, context)).value;
+  return (await evaluate(flagKey, context)).value;
 }
 
 /**
@@ -181,7 +242,8 @@ export async function isEnabled(
  * @returns Promise<FlagEvaluationResult>
  */
 export async function evaluate(flagKey: string, context?: FlagContext): Promise<FlagEvaluationResult> {
-  return boundedEvaluate(getBounded(), flagKey, context);
+  const bounded = getBounded();
+  return evaluateBounded(bounded.client, flagKey, context, boundOf(bounded));
 }
 
 /**
@@ -197,7 +259,15 @@ export async function withFlag<T>(
   callback: () => T | Promise<T>,
   context?: FlagContext
 ): Promise<T | null> {
-  return boundedWithFlag(getBounded(), flagKey, callback, context);
+  const bounded = getBounded();
+  if (!(await evaluateBounded(bounded.client, flagKey, context, boundOf(bounded))).value) return null;
+  try {
+    return await callback();
+  } catch (error) {
+    // Tracked against the flag, then re-thrown.
+    bounded.client.trackError(flagKey, error as Error, context);
+    throw error;
+  }
 }
 
 /**
@@ -221,6 +291,7 @@ export function trackError(
  *
  * `user_id` comes from, in order: `context.user_id`, the `getUserId`
  * option, or the `user_id` cookie when `trustUserIdCookie` is set.
+ * `anonymous_id` is the visitor's (see {@link getEventContext}).
  *
  * @param event - SvelteKit RequestEvent
  * @param flagKey - The flag key to evaluate
@@ -243,11 +314,10 @@ export async function evaluateForEvent(
   context?: FlagContext
 ): Promise<boolean> {
   const bounded = getBounded();
-  const eventContext = getEventContext(event, context);
-  if (context?.user_id === undefined) {
-    const { getUserId } = serverOptions;
-    const userId = await resolveUserId(getUserId && (() => getUserId(event)), bounded.reportError);
-    if (userId !== undefined) eventContext.user_id = userId;
-  }
-  return (await boundedEvaluate(bounded, flagKey, eventContext)).value;
+  const { getUserId } = serverOptions;
+  return eventScope(bounded, {
+    context: getEventContext(event),
+    userId: context?.user_id,
+    getUserId: getUserId && (() => getUserId(event)),
+  }).isEnabled(flagKey, context);
 }

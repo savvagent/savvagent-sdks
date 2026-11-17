@@ -362,6 +362,86 @@ export function flagStore(flagKey: string, context?: any) {
 }
 ```
 
+## Server request scope (`@savvagent/sdk/server`)
+
+`@savvagent/sdk/server` is the per-request layer the server integrations
+(`@savvagent/nextjs`, `@savvagent/sveltekit`) are built on. Use it to
+integrate a server framework that has no package of its own. It has no
+runtime dependency on the rest of the SDK: you pass it the `FlagClient`
+constructor (or instance) you already use, and it needs only Web Crypto, so
+it runs on Node.js, edge runtimes, Deno and Bun.
+
+```typescript
+import { FlagClient } from '@savvagent/sdk';
+import {
+  assignAnonymousId,
+  buildRequestContext,
+  createRequestScope,
+  createServerClient,
+  isSecureUrl,
+  parseCookies,
+  serializeAnonymousIdCookie,
+} from '@savvagent/sdk/server';
+
+// Once per process: server defaults and a throttled onError.
+const server = createServerClient(FlagClient, { apiKey: process.env.SAVVAGENT_SDK_KEY! });
+
+async function handle(request: Request): Promise<Response> {
+  const context = buildRequestContext({
+    cookies: parseCookies(request.headers.get('cookie')),
+    acceptLanguage: request.headers.get('accept-language'),
+  });
+  const { anonymousId, isNew } = assignAnonymousId(context);
+  const flags = createRequestScope({
+    client: server.client,
+    context,
+    getUserId: () => verifySession(request), // your auth
+    evaluationTimeoutMs: server.timeoutMs,
+    reportError: server.reportError,
+    defaults: server.config.defaults,
+  });
+
+  const response = new Response((await flags.isEnabled('new-checkout')) ? 'new' : 'old');
+  if (isNew) {
+    response.headers.append('Set-Cookie', serializeAnonymousIdCookie(anonymousId, { secure: isSecureUrl(request.url) }));
+  }
+  return response;
+}
+```
+
+What it guarantees:
+
+- **`user_id`.** The `user_id` cookie is ignored unless you pass
+  `trustUserIdCookie: true` to `buildRequestContext`: the browser sets it, so
+  any visitor could claim another user's ID. `getUserId` is called at most
+  once per scope and bounded by `evaluationTimeoutMs`; if it throws, rejects
+  or times out, the failure is reported and the request is evaluated without
+  any `user_id`. An explicit `userId` option, or `user_id` in the context you
+  pass, wins.
+- **Anonymous ID.** `assignAnonymousId` gives a visitor without the
+  `savvagent_anonymous_id` cookie a new `anon_<uuid>` ID, so no visitor falls
+  into the shared client's process-wide bucket.
+  `serializeAnonymousIdCookie` (or `anonymousIdCookieOptions`, for framework
+  cookie APIs) stores it: not HttpOnly, so the browser SDK reads it;
+  `Path=/`, `SameSite=Lax`, one year, `Secure` on https.
+- **Bounded evaluation.** `toServerConfig` (applied by `createServerClient`)
+  turns off realtime and language detection and makes one attempt per
+  evaluation. `evaluateBounded` and the scope's methods resolve with the
+  flag's default from `defaults` (`reason: 'error'`) after
+  `evaluationTimeoutMs` (default 1000 ms), on an error, or when the client is
+  `null` (it could not be created), and never reject.
+- **Errors.** `throttleErrors` reports each message at most once a minute,
+  and a throwing handler is logged instead of escaping a timer callback.
+
+Exports: the cookie names and `ANONYMOUS_ID_MAX_AGE`; `parseCookies`,
+`parseLanguage`, `newAnonymousId`, `assignAnonymousId`,
+`anonymousIdCookieOptions`, `serializeAnonymousIdCookie`, `isSecureUrl`;
+`buildRequestContext`, `compactContext`, `mergeContext`, `resolveUserId`;
+`toServerConfig`, `createServerClient`, `throttleErrors`, `guardReporter`,
+`defaultReportError`, `withTimeout`, `defaultFor`, `fallbackResult`,
+`evaluateBounded`, `createRequestScope`; `DEFAULT_EVALUATION_TIMEOUT_MS` and
+`ERROR_REPORT_INTERVAL_MS`.
+
 ## Best Practices
 
 ### 1. Initialize Once

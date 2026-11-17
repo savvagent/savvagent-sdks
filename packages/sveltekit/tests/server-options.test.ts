@@ -76,7 +76,13 @@ describe('user_id resolution', () => {
     await expect(server.evaluateForEvent(event({}), 'flag')).resolves.toBe(true);
 
     expect(evaluate.mock.calls[0][1]?.user_id).toBeUndefined();
-    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'auth down' }));
+    // A fixed message keeps attacker-influenced error text out of logs; the original is the cause.
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'getUserId failed; evaluating without a user_id',
+        cause: expect.objectContaining({ message: 'auth down' }),
+      })
+    );
   });
 });
 
@@ -166,5 +172,137 @@ describe('an undefined user_id in the context', () => {
       server.getEventContext(event({ user_id: 'demo' }), { user_id: undefined }, { trustUserIdCookie: true }).user_id
     ).toBe('demo');
     vi.restoreAllMocks();
+  });
+});
+
+describe('per-visitor anonymous ID (#26)', () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** A SvelteKit-like event whose `cookies.set` makes the value visible to later `get`s, as SvelteKit's does. */
+  function liveEvent(initial: Record<string, string>, url = 'https://example.com/') {
+    const jar: Record<string, string> = { ...initial };
+    const set = vi.fn((name: string, value: string) => {
+      jar[name] = value;
+    });
+    return { event: { cookies: { get: (name: string) => jar[name], set }, request: new Request(url) } as any, set };
+  }
+
+  const cookieOptions = { path: '/', maxAge: 31_536_000, sameSite: 'lax', httpOnly: false };
+
+  it('assigns a new visitor one ID per request and sets the cookie once', async () => {
+    const server = await import('../src/server');
+    const { FlagClient } = await import('@savvagent/sdk');
+    server.initSvelteKitServer({ apiKey: 'sdk_test' });
+    const evaluate = vi.spyOn(FlagClient.prototype, 'evaluate').mockResolvedValue(ok);
+    const { event: e, set } = liveEvent({});
+
+    await server.evaluateForEvent(e, 'a');
+    await server.evaluateForEvent(e, 'b');
+    const context = server.getEventContext(e);
+
+    const id = evaluate.mock.calls[0][1]?.anonymous_id;
+    expect(id).toMatch(/^anon_[0-9a-f-]{36}$/);
+    expect(evaluate.mock.calls[1][1]?.anonymous_id).toBe(id);
+    expect(context.anonymous_id).toBe(id);
+    expect(set).toHaveBeenCalledTimes(1);
+    expect(set).toHaveBeenCalledWith('savvagent_anonymous_id', id, { ...cookieOptions, secure: true });
+  });
+
+  it('sets Secure only on https', async () => {
+    const server = await import('../src/server');
+    const { event: e, set } = liveEvent({}, 'http://localhost:5173/');
+
+    server.getEventContext(e);
+
+    expect(set).toHaveBeenCalledWith('savvagent_anonymous_id', expect.stringMatching(/^anon_/), {
+      ...cookieOptions,
+      secure: false,
+    });
+  });
+
+  it('keeps the same ID for one request even when the cookies object does not reflect set values', async () => {
+    const server = await import('../src/server');
+    const set = vi.fn();
+    const e = { cookies: { get: () => undefined, set }, request: new Request('https://example.com/') } as any;
+
+    expect(server.getEventContext(e).anonymous_id).toBe(server.getEventContext(e).anonymous_id);
+    expect(set).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses the cookie and sets nothing for a returning visitor', async () => {
+    const server = await import('../src/server');
+    const { event: e, set } = liveEvent({ savvagent_anonymous_id: 'anon_returning' });
+
+    expect(server.getEventContext(e).anonymous_id).toBe('anon_returning');
+    expect(set).not.toHaveBeenCalled();
+  });
+
+  it('reports a refused cookie and still evaluates with the new ID', async () => {
+    const server = await import('../src/server');
+    const { FlagClient } = await import('@savvagent/sdk');
+    const onError = vi.fn();
+    server.initSvelteKitServer({ apiKey: 'sdk_test', onError });
+    const evaluate = vi.spyOn(FlagClient.prototype, 'evaluate').mockResolvedValue(ok);
+    const e = {
+      cookies: {
+        get: () => undefined,
+        set: () => {
+          throw new Error('Cannot use `cookies.set(...)` after the response has been generated');
+        },
+      },
+      request: new Request('https://example.com/'),
+    } as any;
+
+    await expect(server.evaluateForEvent(e, 'flag')).resolves.toBe(true);
+
+    expect(evaluate.mock.calls[0][1]?.anonymous_id).toMatch(/^anon_/);
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'Could not set the savvagent_anonymous_id cookie' })
+    );
+  });
+});
+
+describe('getUserId is time-bounded (#26)', () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('drops a trusted cookie user and evaluates when getUserId hangs', async () => {
+    const server = await import('../src/server');
+    const { FlagClient } = await import('@savvagent/sdk');
+    const onError = vi.fn();
+    server.initSvelteKitServer(
+      { apiKey: 'sdk_test', onError },
+      { trustUserIdCookie: true, evaluationTimeoutMs: 30, getUserId: () => new Promise<string>(() => {}) }
+    );
+    const evaluate = vi.spyOn(FlagClient.prototype, 'evaluate').mockResolvedValue(ok);
+
+    const started = Date.now();
+    await expect(server.evaluateForEvent(event({ user_id: 'demo-user' }), 'flag')).resolves.toBe(true);
+
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(evaluate.mock.calls[0][1]).not.toHaveProperty('user_id');
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'getUserId timed out after 30ms; evaluating without a user_id' })
+    );
+  });
+
+  it('keeps a trusted cookie user when getUserId returns undefined', async () => {
+    const server = await import('../src/server');
+    const { FlagClient } = await import('@savvagent/sdk');
+    server.initSvelteKitServer({ apiKey: 'sdk_test' }, { trustUserIdCookie: true, getUserId: () => undefined });
+    const evaluate = vi.spyOn(FlagClient.prototype, 'evaluate').mockResolvedValue(ok);
+
+    await server.evaluateForEvent(event({ user_id: 'demo-user' }), 'flag');
+
+    expect(evaluate.mock.calls[0][1]?.user_id).toBe('demo-user');
   });
 });

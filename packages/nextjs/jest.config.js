@@ -8,6 +8,7 @@ module.exports = {
   coverageReporters: ['text', 'lcov', 'html'],
   moduleNameMapper: {
     '^@savvagent/sdk$': '<rootDir>/../typescript/src',
+    '^@savvagent/sdk/server$': '<rootDir>/../typescript/src/server',
     '^@savvagent/react$': '<rootDir>/../react/src',
   },
   transform: {
