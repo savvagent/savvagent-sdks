@@ -4,7 +4,9 @@ import "time"
 
 // Config holds the configuration for the FlagClient
 type Config struct {
-	// APIKey is the SDK API key (starts with sdk_)
+	// APIKey is the API key: a server key (srv_), recommended for server apps, or a client key
+	// (sdk_). A server key is a secret: NewClient logs a warning when it would be sent to a
+	// base URL that is not https, unless the host is localhost, 127.0.0.1 or [::1].
 	APIKey string
 
 	// ApplicationID for application-scoped flags (optional)
@@ -24,10 +26,12 @@ type Config struct {
 	// CacheTTL is the cache time-to-live duration (default: 60 seconds)
 	CacheTTL time.Duration
 
-	// EnableTelemetry enables telemetry tracking (default: true)
+	// EnableTelemetry has no effect: this SDK sends no telemetry. It is kept so existing
+	// code that sets it still compiles.
 	EnableTelemetry bool
 
-	// Defaults provides default flag values when evaluation fails
+	// Defaults provides default flag values when evaluation fails. A missing flag defaults to
+	// false. SetDefaultFromEnv and SetDefaultFunc add defaults that are not constants.
 	Defaults map[string]bool
 
 	// OnError is a custom error handler. With EnableRealtime it can also be called from the
@@ -78,7 +82,7 @@ type EvaluationResult struct {
 	Variation string `json:"variation,omitempty"`
 
 	// Reason indicates why this value was returned
-	Reason string `json:"reason"` // "cached", "evaluated", "default", "error"
+	Reason string `json:"reason"` // "cached", "evaluated", "error", or "static" (NewStaticClient)
 
 	// Metadata about the flag
 	Metadata *Metadata `json:"metadata,omitempty"`
