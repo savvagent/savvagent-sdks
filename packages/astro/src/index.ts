@@ -791,9 +791,11 @@ export interface RequestHelperOptions extends SavvagentMiddlewareOptions {
  * the request's user came from the cookie, calls evaluate without it. The
  * user is settled first, so one from `getUserId` is kept.
  */
-function withoutCookieUser(existing: SavvagentLocals): SavvagentLocals {
+function withoutCookieUser(existing: SavvagentLocals): SavvagentLocals | undefined {
   const internals = localsInternals.get(existing);
-  if (!internals) return existing;
+  // Not a scope created by createSavvagentLocals (for example a copy of it), so
+  // the user's source is unknown. The caller falls back to a fresh scope.
+  if (!internals) return undefined;
   const target = async (): Promise<SavvagentLocals> => ((await internals.cookieUser()) ? internals.withoutUser() : existing);
   return {
     client: existing.client,
@@ -814,7 +816,13 @@ function withoutCookieUser(existing: SavvagentLocals): SavvagentLocals {
  */
 function helperScope(request: Request, options: RequestHelperOptions): SavvagentLocals {
   const existing = (options.locals as Partial<App.Locals> | undefined)?.savvagent;
-  if (existing) return options.trustUserIdCookie === false ? withoutCookieUser(existing) : existing;
+  if (existing) {
+    if (options.trustUserIdCookie !== false) return existing;
+    const narrowed = withoutCookieUser(existing);
+    if (narrowed) return narrowed;
+    // Fail closed: narrowing was asked for, but the reused scope is unknown,
+    // so evaluate with a fresh scope that does not trust the cookie.
+  }
   return createSavvagentLocals(getSavvagent(), request, {
     defaults: clientDefaults,
     trustUserIdCookie: options.trustUserIdCookie,

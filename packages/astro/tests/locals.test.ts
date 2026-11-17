@@ -434,6 +434,16 @@ describe('a helper can narrow the user_id cookie trust, never widen it (#57)', (
     expect(mockEvaluate).toHaveBeenCalledWith('f', { anonymous_id: 'anon_1', user_id: 'cookie-user' });
   });
 
+  it('narrowing fails closed for a copied locals scope: evaluated without the cookie user_id', async () => {
+    const context = await locals({ trustUserIdCookie: true });
+    const copied = { ...(context.locals as { savvagent: object }).savvagent };
+    await evaluateForRequest(context.request, 'f', undefined, {
+      locals: { savvagent: copied } as unknown as App.Locals,
+      trustUserIdCookie: false,
+    });
+    expect(mockEvaluate).toHaveBeenCalledWith('f', { anonymous_id: 'anon_1' });
+  });
+
   it('narrowing keeps a user from getUserId and an explicit user_id in the call context', async () => {
     const context = await locals({ trustUserIdCookie: true, getUserId: () => 'u-integration' });
     const options = { locals: context.locals as unknown as App.Locals, trustUserIdCookie: false };
