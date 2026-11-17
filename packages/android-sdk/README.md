@@ -298,12 +298,16 @@ val config = SavvagentConfig(
 )
 ```
 
-## Testing
+## Building and Testing
 
-The SDK includes comprehensive unit tests:
+The SDK builds on its own with the Gradle wrapper (Gradle 8.14.7, Android Gradle Plugin 8.2.0,
+Kotlin 1.9.22). Run Gradle with JDK 17 or 21, for example the JBR bundled with Android Studio;
+Gradle 8.14 cannot run on JDK 25. Set `ANDROID_HOME` (or `sdk.dir` in `local.properties`) to an
+Android SDK that has platform 34.
 
 ```bash
 ./gradlew test
+./gradlew publishToMavenLocal
 ```
 
 Run instrumentation tests:
@@ -315,6 +319,11 @@ Run instrumentation tests:
 ## Error Handling
 
 The SDK uses Kotlin's `Result` type for error handling:
+
+`evaluate` (and so `isEnabled`, `getConfig` and `getVariationDetails`) returns a failed `Result`
+holding a `SavvagentException`, without making a request, when the flag key is invalid. A valid
+key is 1-128 characters of `[A-Za-z0-9._-]`, and not `.` or `..`. `getVariation` returns its
+default value.
 
 ```kotlin
 val result = client.isEnabled("feature", context)

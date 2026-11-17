@@ -114,6 +114,60 @@ final class SavvagentClientNetworkTests: XCTestCase {
         }
     }
 
+    // MARK: Flag keys
+
+    func testInvalidFlagKeysThrowWithoutARequest() async {
+        var calls = 0
+        MockURLProtocol.requestHandler = { [self] request in
+            calls += 1
+            return ok(request, #"{"key":"f","enabled":true,"variation":null,"configuration":null,"version":1}"#)
+        }
+        let invalidKeys = [
+            "", "/", ".", "..", String(repeating: "a", count: 129),
+            "a/b", "flag?x=1", "flag#x", "fl ag", "flag%2F", "caf\u{00E9}"
+        ]
+        for key in invalidKeys {
+            do {
+                _ = try await client.evaluate(flagKey: key, context: UserContext(userId: "u"))
+                XCTFail("expected throw for \"\(key)\"")
+            } catch SavvagentError.invalidFlagKey(let rejected) {
+                XCTAssertEqual(rejected, key)
+            } catch {
+                XCTFail("unexpected error \(error) for \"\(key)\"")
+            }
+            let fallback = await client.getVariation(flagKey: key, context: UserContext(userId: "u"), defaultValue: "fallback")
+            XCTAssertEqual(fallback, "fallback")
+        }
+        XCTAssertEqual(calls, 0)
+    }
+
+    func testValidFlagKeysAreSent() async throws {
+        var paths: [String] = []
+        MockURLProtocol.requestHandler = { [self] request in
+            paths.append(request.url?.path ?? "")
+            return ok(request, #"{"key":"f","enabled":true,"variation":null,"configuration":null,"version":1}"#)
+        }
+        let validKeys = ["test-flag", "My_Flag.v2", "a", String(repeating: "a", count: 128)]
+        for key in validKeys {
+            let result = try await client.evaluate(flagKey: key, context: UserContext(userId: "u"))
+            XCTAssertTrue(result.value)
+        }
+        XCTAssertEqual(paths, validKeys.map { "/flags/api/flags/\($0)/evaluate" })
+    }
+
+    func testIsValidFlagKey() {
+        XCTAssertTrue(SavvagentClient.isValidFlagKey("test-flag"))
+        XCTAssertTrue(SavvagentClient.isValidFlagKey("My_Flag.v2"))
+        XCTAssertTrue(SavvagentClient.isValidFlagKey("..."))
+        XCTAssertTrue(SavvagentClient.isValidFlagKey(String(repeating: "a", count: 128)))
+        XCTAssertFalse(SavvagentClient.isValidFlagKey(""))
+        XCTAssertFalse(SavvagentClient.isValidFlagKey("/"))
+        XCTAssertFalse(SavvagentClient.isValidFlagKey("."))
+        XCTAssertFalse(SavvagentClient.isValidFlagKey(".."))
+        XCTAssertFalse(SavvagentClient.isValidFlagKey(String(repeating: "a", count: 129)))
+        XCTAssertFalse(SavvagentClient.isValidFlagKey("caf\u{00E9}"))
+    }
+
     // MARK: Variation
 
     func testGetVariationComesFromEvaluateResponse() async {
