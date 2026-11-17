@@ -197,13 +197,20 @@ class SavvagentClient(
     }
 
     /**
+     * Replaces control characters (CR, LF, tab and every other ISO control) with `?` so an
+     * untrusted flag key cannot forge log lines (CWE-117).
+     */
+    private fun sanitizeForMessage(text: String): String =
+        text.map { if (Character.isISOControl(it)) '?' else it }.joinToString("")
+
+    /**
      * Evaluate a feature flag and get full details (Phase 1 & 2)
      */
     suspend fun evaluate(flagKey: String, userContext: UserContext): Result<FlagEvaluationResult> {
         // Reject a key that is not one safe URL path segment before any request is built
         if (!isValidFlagKey(flagKey)) {
             val error = SavvagentException(
-                "Invalid flag key \"${flagKey.take(64)}\" (length ${flagKey.length}): " +
+                "Invalid flag key \"${sanitizeForMessage(flagKey.take(64))}\" (length ${flagKey.length}): " +
                     "keys are 1-128 characters of [A-Za-z0-9._-] and not \".\" or \"..\""
             )
             logError(error.message ?: "Invalid flag key")
