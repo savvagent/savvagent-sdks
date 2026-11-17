@@ -167,6 +167,17 @@ class SavvagentClientNetworkTest {
     }
 
     @Test
+    fun testInvalidFlagKeyMessageHasNoControlCharacters() = runTest {
+        val result = client.evaluate("bad\r\nkey\tx\u0000", UserContext(userId = "user-123"))
+
+        val message = result.exceptionOrNull()!!.message!!
+        assertTrue(message.contains("Invalid flag key"))
+        assertTrue(message.contains("bad??key?x?"))
+        assertTrue(message.none { Character.isISOControl(it) })
+        assertEquals(0, mockWebServer.requestCount)
+    }
+
+    @Test
     fun testValidFlagKeysAreSent() = runTest {
         val longest = "a".repeat(128)
         val validKeys = listOf("test-flag", "My_Flag.v2", "a", "...", longest)

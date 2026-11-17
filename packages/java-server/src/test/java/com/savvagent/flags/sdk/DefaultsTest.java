@@ -164,4 +164,57 @@ class DefaultsTest {
             assertEquals("error", result.getReason());
         }
     }
+
+    @Test
+    void defaultsMapAndDerivedDefaultsGiveTheSameResultInEitherOrder() {
+        Map<String, Boolean> base = new HashMap<>();
+        base.put("f", false);
+        base.put("kept", true);
+        FlagClientConfig derivedFirst = builder()
+                .defaultFromEnv("f", "FLAG", env("FLAG", "yes")::get)
+                .defaultFrom("g", () -> Optional.of(true))
+                .defaults(base)
+                .build();
+        FlagClientConfig derivedLast = builder()
+                .defaults(base)
+                .defaultFromEnv("f", "FLAG", env("FLAG", "yes")::get)
+                .defaultFrom("g", () -> Optional.of(true))
+                .build();
+        assertEquals(derivedLast.getDefaults(), derivedFirst.getDefaults());
+        assertEquals(Boolean.TRUE, derivedFirst.getDefaults().get("f"));
+        assertEquals(Boolean.TRUE, derivedFirst.getDefaults().get("g"));
+        assertEquals(Boolean.TRUE, derivedFirst.getDefaults().get("kept"));
+        assertEquals(Boolean.FALSE, base.get("f"));
+    }
+
+    @Test
+    void sameKeyConflictLaterDerivedCallWinsAndDerivedBeatsBase() {
+        FlagClientConfig config = builder()
+                .defaultFrom("f", () -> Optional.of(true))
+                .defaults(Collections.singletonMap("f", true))
+                .defaultFromEnv("f", "FLAG", env("FLAG", "off")::get)
+                .build();
+        assertEquals(Boolean.FALSE, config.getDefaults().get("f"));
+    }
+
+    @Test
+    void unsetEnvKeepsTheBaseDefaultEvenWhenDefaultsComesAfter() {
+        FlagClientConfig config = builder()
+                .defaultFromEnv("f", "FLAG", env()::get)
+                .defaults(Collections.singletonMap("f", true))
+                .build();
+        assertEquals(Boolean.TRUE, config.getDefaults().get("f"));
+    }
+
+    @Test
+    void callingDefaultsTwiceStillReplacesTheBaseMap() {
+        FlagClientConfig config = builder()
+                .defaults(Collections.singletonMap("a", true))
+                .defaultFrom("b", () -> Optional.of(true))
+                .defaults(Collections.singletonMap("c", true))
+                .build();
+        assertFalse(config.getDefaults().containsKey("a"));
+        assertEquals(Boolean.TRUE, config.getDefaults().get("b"));
+        assertEquals(Boolean.TRUE, config.getDefaults().get("c"));
+    }
 }
