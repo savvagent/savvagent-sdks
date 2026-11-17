@@ -95,7 +95,8 @@ describe('Middleware Module', () => {
         },
       } as unknown as NextRequest;
 
-      const context = getRequestContext(mockRequest);
+      expect(getRequestContext(mockRequest).user_id).toBeUndefined();
+      const context = getRequestContext(mockRequest, undefined, { trustUserIdCookie: true });
 
       expect(context).toEqual({
         user_id: 'user-123',
@@ -220,15 +221,16 @@ describe('Middleware Module', () => {
         },
       } as unknown as NextRequest;
 
-      jest.spyOn(FlagClient.prototype, 'isEnabled').mockResolvedValue(true);
+      jest.spyOn(FlagClient.prototype, 'evaluate').mockResolvedValue({ key: 'test-flag', value: true, reason: 'evaluated' });
 
       const result = await isEnabledInMiddleware(mockRequest, 'test-flag');
 
       expect(result).toBe(true);
-      expect(FlagClient.prototype.isEnabled).toHaveBeenCalledWith(
+      // The browser controls the user_id cookie, so it is not trusted by default.
+      expect(FlagClient.prototype.evaluate).toHaveBeenCalledWith(
         'test-flag',
         expect.objectContaining({
-          user_id: 'user-123',
+          user_id: undefined,
         })
       );
     });
@@ -243,12 +245,12 @@ describe('Middleware Module', () => {
         },
       } as unknown as NextRequest;
 
-      jest.spyOn(FlagClient.prototype, 'isEnabled').mockResolvedValue(true);
+      jest.spyOn(FlagClient.prototype, 'evaluate').mockResolvedValue({ key: 'test-flag', value: true, reason: 'evaluated' });
 
       const customContext = { user_id: 'custom-user', region: 'us-west' };
       await isEnabledInMiddleware(mockRequest, 'test-flag', customContext);
 
-      expect(FlagClient.prototype.isEnabled).toHaveBeenCalledWith(
+      expect(FlagClient.prototype.evaluate).toHaveBeenCalledWith(
         'test-flag',
         expect.objectContaining({
           user_id: 'custom-user',
@@ -263,13 +265,16 @@ describe('Middleware Module', () => {
         headers: { get: jest.fn(() => null) },
       } as unknown as NextRequest;
 
-      jest.spyOn(FlagClient.prototype, 'isEnabled').mockRejectedValue(
+      jest.spyOn(FlagClient.prototype, 'evaluate').mockRejectedValue(
         new Error('Network error')
       );
+      const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
+      // Evaluation failures fall back to the default instead of failing the request.
       await expect(
         isEnabledInMiddleware(mockRequest, 'test-flag')
-      ).rejects.toThrow('Network error');
+      ).resolves.toBe(false);
+      consoleSpy.mockRestore();
     });
   });
 
@@ -379,7 +384,7 @@ describe('Middleware Module', () => {
         url: 'https://example.com/current',
       } as unknown as NextRequest;
 
-      jest.spyOn(FlagClient.prototype, 'isEnabled').mockResolvedValue(true);
+      jest.spyOn(FlagClient.prototype, 'evaluate').mockResolvedValue({ key: 'test-flag', value: true, reason: 'evaluated' });
 
       const response = await redirectIfEnabled(
         mockRequest,
@@ -400,7 +405,7 @@ describe('Middleware Module', () => {
         url: 'https://example.com/current',
       } as unknown as NextRequest;
 
-      jest.spyOn(FlagClient.prototype, 'isEnabled').mockResolvedValue(false);
+      jest.spyOn(FlagClient.prototype, 'evaluate').mockResolvedValue({ key: 'test-flag', value: false, reason: 'evaluated' });
 
       const response = await redirectIfEnabled(
         mockRequest,
@@ -419,7 +424,7 @@ describe('Middleware Module', () => {
         url: 'https://example.com/current',
       } as unknown as NextRequest;
 
-      jest.spyOn(FlagClient.prototype, 'isEnabled').mockResolvedValue(true);
+      jest.spyOn(FlagClient.prototype, 'evaluate').mockResolvedValue({ key: 'test-flag', value: true, reason: 'evaluated' });
 
       const customContext = { user_id: 'custom-user' };
       await redirectIfEnabled(
@@ -429,7 +434,7 @@ describe('Middleware Module', () => {
         customContext
       );
 
-      expect(FlagClient.prototype.isEnabled).toHaveBeenCalledWith(
+      expect(FlagClient.prototype.evaluate).toHaveBeenCalledWith(
         'test-flag',
         expect.objectContaining({
           user_id: 'custom-user',
@@ -444,7 +449,7 @@ describe('Middleware Module', () => {
         url: 'https://example.com/current',
       } as unknown as NextRequest;
 
-      jest.spyOn(FlagClient.prototype, 'isEnabled').mockResolvedValue(true);
+      jest.spyOn(FlagClient.prototype, 'evaluate').mockResolvedValue({ key: 'test-flag', value: true, reason: 'evaluated' });
 
       await redirectIfEnabled(
         mockRequest,
@@ -471,7 +476,7 @@ describe('Middleware Module', () => {
         nextUrl: { pathname: '/current' },
       } as unknown as NextRequest;
 
-      jest.spyOn(FlagClient.prototype, 'isEnabled').mockResolvedValue(true);
+      jest.spyOn(FlagClient.prototype, 'evaluate').mockResolvedValue({ key: 'test-flag', value: true, reason: 'evaluated' });
 
       const response = await rewriteIfEnabled(
         mockRequest,
@@ -492,7 +497,7 @@ describe('Middleware Module', () => {
         url: 'https://example.com/current',
       } as unknown as NextRequest;
 
-      jest.spyOn(FlagClient.prototype, 'isEnabled').mockResolvedValue(false);
+      jest.spyOn(FlagClient.prototype, 'evaluate').mockResolvedValue({ key: 'test-flag', value: false, reason: 'evaluated' });
 
       const response = await rewriteIfEnabled(
         mockRequest,
@@ -511,7 +516,7 @@ describe('Middleware Module', () => {
         url: 'https://example.com/current',
       } as unknown as NextRequest;
 
-      jest.spyOn(FlagClient.prototype, 'isEnabled').mockResolvedValue(true);
+      jest.spyOn(FlagClient.prototype, 'evaluate').mockResolvedValue({ key: 'test-flag', value: true, reason: 'evaluated' });
 
       const customContext = { region: 'us-west' };
       await rewriteIfEnabled(
@@ -521,7 +526,7 @@ describe('Middleware Module', () => {
         customContext
       );
 
-      expect(FlagClient.prototype.isEnabled).toHaveBeenCalledWith(
+      expect(FlagClient.prototype.evaluate).toHaveBeenCalledWith(
         'test-flag',
         expect.objectContaining({
           region: 'us-west',
@@ -537,7 +542,7 @@ describe('Middleware Module', () => {
         nextUrl: { pathname: '/product/123' },
       } as unknown as NextRequest;
 
-      jest.spyOn(FlagClient.prototype, 'isEnabled').mockResolvedValue(true);
+      jest.spyOn(FlagClient.prototype, 'evaluate').mockResolvedValue({ key: 'test-flag', value: true, reason: 'evaluated' });
 
       await rewriteIfEnabled(
         mockRequest,
@@ -579,7 +584,7 @@ describe('Middleware Module', () => {
         url: 'https://example.com/page',
       } as unknown as NextRequest;
 
-      jest.spyOn(FlagClient.prototype, 'isEnabled').mockResolvedValue(true);
+      jest.spyOn(FlagClient.prototype, 'evaluate').mockResolvedValue({ key: 'test-flag', value: true, reason: 'evaluated' });
 
       const response = await middleware(mockRequest);
 
@@ -615,7 +620,7 @@ describe('Middleware Module', () => {
         url: 'https://example.com/home',
       } as unknown as NextRequest;
 
-      jest.spyOn(FlagClient.prototype, 'isEnabled').mockResolvedValue(true);
+      jest.spyOn(FlagClient.prototype, 'evaluate').mockResolvedValue({ key: 'test-flag', value: true, reason: 'evaluated' });
 
       const response = await middleware(mockRequest);
 
@@ -639,11 +644,11 @@ describe('Middleware Module', () => {
         url: 'https://example.com/feature',
       } as unknown as NextRequest;
 
-      jest.spyOn(FlagClient.prototype, 'isEnabled').mockResolvedValue(true);
+      jest.spyOn(FlagClient.prototype, 'evaluate').mockResolvedValue({ key: 'test-flag', value: true, reason: 'evaluated' });
 
-      await isEnabledInMiddleware(mockRequest, 'premium-feature');
+      await isEnabledInMiddleware(mockRequest, 'premium-feature', { user_id: 'premium-user' });
 
-      expect(FlagClient.prototype.isEnabled).toHaveBeenCalledWith(
+      expect(FlagClient.prototype.evaluate).toHaveBeenCalledWith(
         'premium-feature',
         expect.objectContaining({
           user_id: 'premium-user',
@@ -662,7 +667,7 @@ describe('Middleware Module', () => {
       }).not.toThrow();
     });
 
-    it('should propagate flag evaluation errors', async () => {
+    it('should fall back to the default when flag evaluation fails', async () => {
       initMiddlewareClient({ apiKey: 'sdk_test_key', enableRealtime: false });
 
       const mockRequest = {
@@ -671,13 +676,16 @@ describe('Middleware Module', () => {
         url: 'https://example.com',
       } as unknown as NextRequest;
 
-      jest.spyOn(FlagClient.prototype, 'isEnabled').mockRejectedValue(
+      jest.spyOn(FlagClient.prototype, 'evaluate').mockRejectedValue(
         new Error('Network timeout')
       );
+      const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
+      // Evaluation failures fall back to the default instead of failing the request.
       await expect(
         isEnabledInMiddleware(mockRequest, 'test-flag')
-      ).rejects.toThrow('Network timeout');
+      ).resolves.toBe(false);
+      consoleSpy.mockRestore();
     });
 
     it('should handle missing client gracefully', async () => {

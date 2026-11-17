@@ -4,14 +4,54 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { FlagClient, FlagClientConfig, FlagContext } from '@savvagent/sdk';
+import { BoundedClient, boundedEvaluate, createBoundedClient, resolveUserId } from './bounded';
 
-let middlewareClient: FlagClient | null = null;
+/** Options for {@link initMiddlewareClient}. */
+export interface MiddlewareClientOptions {
+  /**
+   * Resolve the authenticated user's ID for a request from your own auth
+   * (for example a verified session token). This is the recommended source
+   * of `user_id`. If it throws or rejects, the error goes to `onError` and
+   * the flag is evaluated without a user.
+   */
+  getUserId?: (request: NextRequest) => string | null | undefined | Promise<string | null | undefined>;
+  /**
+   * Read `user_id` from the `user_id` cookie. Off by default: the browser
+   * sets that cookie, so any visitor can claim another user's ID, receive
+   * that user's targeted flags and steer flag-based redirects and rewrites.
+   * Enable it only for demos.
+   */
+  trustUserIdCookie?: boolean;
+  /**
+   * Upper bound on one flag evaluation, in milliseconds (default: 1000).
+   * When the Flags API is slow or down, the flag evaluates to its default
+   * instead of holding up the request.
+   */
+  evaluationTimeoutMs?: number;
+}
+
+let middlewareClient: BoundedClient | null = null;
+let middlewareOptions: MiddlewareClientOptions = {};
+
+function getBounded(): BoundedClient {
+  if (!middlewareClient) {
+    throw new Error(
+      'Middleware client not initialized. Call initMiddlewareClient() first.'
+    );
+  }
+  return middlewareClient;
+}
 
 /**
  * Initialize the Savvagent client for middleware.
  * Call this at the top of your middleware.ts file.
  *
+ * The client makes one attempt per evaluation and opens no realtime
+ * connection unless `config` says otherwise, and the helpers in this module
+ * bound each evaluation by `options.evaluationTimeoutMs`.
+ *
  * @param config - Client configuration
+ * @param options - User identity and timeout options
  *
  * @example
  * ```ts
@@ -27,9 +67,10 @@ let middlewareClient: FlagClient | null = null;
  * });
  * ```
  */
-export function initMiddlewareClient(config: FlagClientConfig): void {
+export function initMiddlewareClient(config: FlagClientConfig, options: MiddlewareClientOptions = {}): void {
   if (!middlewareClient) {
-    middlewareClient = new FlagClient(config);
+    middlewareClient = createBoundedClient(FlagClient, config, options.evaluationTimeoutMs);
+    middlewareOptions = options;
   }
 }
 
@@ -40,32 +81,36 @@ export function initMiddlewareClient(config: FlagClientConfig): void {
  * @throws Error if client is not initialized
  */
 export function getMiddlewareClient(): FlagClient {
-  if (!middlewareClient) {
-    throw new Error(
-      'Middleware client not initialized. Call initMiddlewareClient() first.'
-    );
-  }
-  return middlewareClient;
+  return getBounded().client;
 }
 
 /**
  * Extract context from Next.js request.
  *
+ * Reads `user_id` from the `user_id` cookie only when `trustUserIdCookie`
+ * is set (here or in `initMiddlewareClient`), because the browser controls
+ * that cookie. It does not call `getUserId`; {@link isEnabledInMiddleware}
+ * and the redirect/rewrite helpers do.
+ *
  * @param request - Next.js request
  * @param overrides - Additional context properties
+ * @param options - `trustUserIdCookie` for this call
  * @returns FlagContext with request data
  */
 export function getRequestContext(
   request: NextRequest,
-  overrides?: FlagContext
+  overrides?: FlagContext,
+  options?: { trustUserIdCookie?: boolean }
 ): FlagContext {
+  const trustCookie = options?.trustUserIdCookie ?? middlewareOptions.trustUserIdCookie ?? false;
   const context: FlagContext = {
-    user_id: request.cookies.get('user_id')?.value,
     anonymous_id: request.cookies.get('savvagent_anonymous_id')?.value,
     session_id: request.cookies.get('session_id')?.value,
     language: request.headers.get('accept-language')?.split(',')[0],
     ...overrides,
   };
+  // An undefined `overrides.user_id` means "not given", not "no user".
+  context.user_id = overrides?.user_id ?? (trustCookie ? request.cookies.get('user_id')?.value : undefined);
 
   return context;
 }
@@ -96,9 +141,14 @@ export async function isEnabledInMiddleware(
   flagKey: string,
   context?: FlagContext
 ): Promise<boolean> {
-  const client = getMiddlewareClient();
+  const bounded = getBounded();
   const requestContext = getRequestContext(request, context);
-  return client.isEnabled(flagKey, requestContext);
+  if (context?.user_id === undefined) {
+    const { getUserId } = middlewareOptions;
+    const userId = await resolveUserId(getUserId && (() => getUserId(request)), bounded.reportError);
+    if (userId !== undefined) requestContext.user_id = userId;
+  }
+  return (await boundedEvaluate(bounded, flagKey, requestContext)).value;
 }
 
 /**
@@ -112,7 +162,9 @@ export interface MiddlewareConfig {
   matcher?: string | string[];
 
   /**
-   * Custom logic to execute in middleware
+   * Custom logic to execute in middleware. `client` is the raw FlagClient:
+   * its calls are not bounded by `evaluationTimeoutMs`. Prefer
+   * {@link isEnabledInMiddleware}, which is.
    */
   onRequest?: (
     request: NextRequest,
@@ -129,16 +181,15 @@ export interface MiddlewareConfig {
  * @example
  * ```ts
  * // middleware.ts
- * import { initMiddlewareClient, createMiddleware } from '@savvagent/nextjs/middleware';
+ * import { initMiddlewareClient, createMiddleware, isEnabledInMiddleware } from '@savvagent/nextjs/middleware';
  *
  * initMiddlewareClient({
  *   apiKey: process.env.SAVVAGENT_API_KEY!,
  * });
  *
  * export default createMiddleware({
- *   async onRequest(request, client) {
- *     const context = { user_id: request.cookies.get('user_id')?.value };
- *     const showMaintenance = await client.isEnabled('maintenance-mode', context);
+ *   async onRequest(request) {
+ *     const showMaintenance = await isEnabledInMiddleware(request, 'maintenance-mode');
  *
  *     if (showMaintenance) {
  *       return NextResponse.rewrite(new URL('/maintenance', request.url));

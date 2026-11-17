@@ -4,30 +4,86 @@
 
 import { FlagClient, FlagClientConfig, FlagContext, FlagEvaluationResult } from '@savvagent/sdk';
 import { cookies, headers } from 'next/headers';
+import {
+  BoundedClient,
+  boundedEvaluate,
+  boundedWithFlag,
+  createBoundedClient,
+  resolveUserId,
+} from './bounded';
+
+export { DEFAULT_EVALUATION_TIMEOUT_MS } from './bounded';
+
+/** Options for {@link initServerClient}. */
+export interface ServerClientOptions {
+  /**
+   * Resolve the authenticated user's ID from your own auth (a session, a
+   * verified token). Called once per evaluation helper call, inside the
+   * request, so it can use `cookies()`, `headers()` or your auth library.
+   * `evaluateForRequest` passes it the request.
+   * This is the recommended source of `user_id`. If it throws or rejects,
+   * the error goes to `onError` and the flag is evaluated without a user.
+   */
+  getUserId?: (request?: Request) => string | null | undefined | Promise<string | null | undefined>;
+  /**
+   * Read `user_id` from the `user_id` cookie. Off by default: the browser
+   * sets that cookie, so any visitor can claim another user's ID and receive
+   * that user's targeted flags. Enable it only for demos, or when nothing a
+   * flag gates is sensitive.
+   */
+  trustUserIdCookie?: boolean;
+  /**
+   * Upper bound on one flag evaluation, in milliseconds (default: 1000).
+   * When the Flags API is slow or down, the evaluation resolves with the
+   * flag's default (`reason: 'error'`) instead of holding up the page.
+   */
+  evaluationTimeoutMs?: number;
+}
 
 // Global client instance for server-side usage
-let serverClient: FlagClient | null = null;
+let serverClient: BoundedClient | null = null;
+let serverOptions: ServerClientOptions = {};
+
+function getBounded(): BoundedClient {
+  if (!serverClient) {
+    throw new Error(
+      'Server client not initialized. Call initServerClient() first.'
+    );
+  }
+  return serverClient;
+}
 
 /**
  * Initialize the server-side Savvagent client.
  * Call this once in your root layout or at application startup.
  *
+ * The client makes one attempt per evaluation (`retryAttempts: 1`), opens
+ * no realtime connection and does not detect a language from the server's
+ * locale, unless `config` says otherwise. Each evaluation is bounded by
+ * `options.evaluationTimeoutMs`, and `onError` reports the same message at
+ * most once a minute, so an unreachable Flags API cannot stall every page.
+ *
  * @param config - Client configuration
+ * @param options - User identity and timeout options
  *
  * @example
  * ```tsx
  * // app/layout.tsx
  * import { initServerClient } from '@savvagent/nextjs/server';
  *
- * initServerClient({
- *   apiKey: process.env.SAVVAGENT_API_KEY!,
- *   applicationId: process.env.SAVVAGENT_APP_ID,
- * });
+ * initServerClient(
+ *   {
+ *     apiKey: process.env.SAVVAGENT_API_KEY!,
+ *     applicationId: process.env.SAVVAGENT_APP_ID,
+ *   },
+ *   { getUserId: async () => (await auth())?.user?.id }
+ * );
  * ```
  */
-export function initServerClient(config: FlagClientConfig): void {
+export function initServerClient(config: FlagClientConfig, options: ServerClientOptions = {}): void {
   if (!serverClient) {
-    serverClient = new FlagClient(config);
+    serverClient = createBoundedClient(FlagClient, config, options.evaluationTimeoutMs);
+    serverOptions = options;
   }
 }
 
@@ -38,17 +94,16 @@ export function initServerClient(config: FlagClientConfig): void {
  * @throws Error if client is not initialized
  */
 export function getServerClient(): FlagClient {
-  if (!serverClient) {
-    throw new Error(
-      'Server client not initialized. Call initServerClient() first.'
-    );
-  }
-  return serverClient;
+  return getBounded().client;
 }
 
 /**
  * Create a context object from Next.js request headers and cookies.
- * Automatically extracts user_id from cookies and language from headers.
+ *
+ * `user_id` comes from, in order: `overrides.user_id`, the `getUserId`
+ * option, or the `user_id` cookie when `trustUserIdCookie` is set. The
+ * cookie is not read otherwise, because the browser controls it.
+ * `anonymous_id`, `session_id` and `language` come from the request.
  *
  * @param overrides - Additional context properties
  * @returns FlagContext with request data
@@ -69,13 +124,23 @@ export async function createServerContext(
   const cookieStore = await cookies();
   const headersList = await headers();
 
+  let userId: string | undefined;
+  if (overrides?.user_id === undefined) {
+    const { getUserId } = serverOptions;
+    userId = await resolveUserId(getUserId && (() => getUserId()), serverClient?.reportError ?? console.error);
+    if (userId === undefined && serverOptions.trustUserIdCookie) {
+      userId = cookieStore.get('user_id')?.value;
+    }
+  }
+
   const context: FlagContext = {
-    user_id: cookieStore.get('user_id')?.value,
     anonymous_id: cookieStore.get('savvagent_anonymous_id')?.value,
     session_id: cookieStore.get('session_id')?.value,
     language: headersList.get('accept-language')?.split(',')[0],
     ...overrides,
   };
+  // An undefined `overrides.user_id` means "not given", not "no user".
+  context.user_id = overrides?.user_id ?? userId;
 
   return context;
 }
@@ -103,9 +168,9 @@ export async function isEnabled(
   flagKey: string,
   context?: FlagContext
 ): Promise<boolean> {
-  const client = getServerClient();
+  const bounded = getBounded();
   const serverContext = await createServerContext(context);
-  return client.isEnabled(flagKey, serverContext);
+  return (await boundedEvaluate(bounded, flagKey, serverContext)).value;
 }
 
 /**
@@ -130,10 +195,10 @@ export async function isEnabled(
  * }
  * ```
  */
-export async function evaluate(flagKey: string, context?: FlagContext) {
-  const client = getServerClient();
+export async function evaluate(flagKey: string, context?: FlagContext): Promise<FlagEvaluationResult> {
+  const bounded = getBounded();
   const serverContext = await createServerContext(context);
-  return client.evaluate(flagKey, serverContext);
+  return boundedEvaluate(bounded, flagKey, serverContext);
 }
 
 /**
@@ -162,9 +227,9 @@ export async function withFlag<T>(
   callback: () => T | Promise<T>,
   context?: FlagContext
 ): Promise<T | null> {
-  const client = getServerClient();
+  const bounded = getBounded();
   const serverContext = await createServerContext(context);
-  return client.withFlag(flagKey, callback, serverContext);
+  return boundedWithFlag(bounded, flagKey, callback, serverContext);
 }
 
 /**
@@ -231,6 +296,7 @@ export async function evaluateForRequest(
   flagKey: string,
   context?: FlagContext
 ): Promise<boolean> {
+  const bounded = getBounded();
   const cookieHeader = request.headers.get('cookie') || '';
   const cookies = Object.fromEntries(
     cookieHeader.split('; ').map((c) => {
@@ -239,16 +305,24 @@ export async function evaluateForRequest(
     })
   );
 
+  let userId: string | undefined;
+  if (context?.user_id === undefined) {
+    const { getUserId } = serverOptions;
+    userId = await resolveUserId(getUserId && (() => getUserId(request)), bounded.reportError);
+    if (userId === undefined && serverOptions.trustUserIdCookie) {
+      userId = cookies.user_id;
+    }
+  }
+
   const requestContext: FlagContext = {
-    user_id: cookies.user_id,
     anonymous_id: cookies.savvagent_anonymous_id,
     session_id: cookies.session_id,
     language: request.headers.get('accept-language')?.split(',')[0],
     ...context,
   };
+  requestContext.user_id = context?.user_id ?? userId;
 
-  const client = getServerClient();
-  return client.isEnabled(flagKey, requestContext);
+  return (await boundedEvaluate(bounded, flagKey, requestContext)).value;
 }
 
 /**
@@ -315,34 +389,28 @@ export async function evaluateMultiple(
   context?: FlagContext,
   options?: EvaluateMultipleOptions
 ): Promise<EvaluateMultipleResult> {
-  const client = getServerClient();
+  const bounded = getBounded();
   const serverContext = await createServerContext(context);
 
   const values: Record<string, boolean> = {};
   const results: Record<string, FlagEvaluationResult> = {};
   const errors: Record<string, Error | null> = {};
 
-  // Evaluate all flags in parallel
+  // Evaluate all flags in parallel. Each evaluation is bounded and never
+  // rejects; a failure or timeout is recorded in `errors` and the flag falls
+  // back to `defaultValues`, then to the configured default.
   await Promise.all(
     flagKeys.map(async (flagKey) => {
-      try {
-        const evalResult = await client.evaluate(flagKey, serverContext);
-        values[flagKey] = evalResult.value;
-        results[flagKey] = evalResult;
-        errors[flagKey] = null;
-      } catch (err) {
-        const error = err as Error;
-        values[flagKey] = options?.defaultValues?.[flagKey] ?? false;
-        results[flagKey] = {
-          key: flagKey,
-          value: values[flagKey],
-          reason: 'error',
-          metadata: {
-            timestamp: Date.now(),
-          },
-        };
+      errors[flagKey] = null;
+      let evalResult = await boundedEvaluate(bounded, flagKey, serverContext, (error) => {
         errors[flagKey] = error;
+      });
+      const defaults = options?.defaultValues;
+      if (evalResult.reason === 'error' && defaults && Object.prototype.hasOwnProperty.call(defaults, flagKey)) {
+        evalResult = { ...evalResult, value: defaults[flagKey] === true };
       }
+      values[flagKey] = evalResult.value;
+      results[flagKey] = evalResult;
     })
   );
 

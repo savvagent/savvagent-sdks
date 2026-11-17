@@ -19,11 +19,16 @@ yarn add @savvagent/nextjs
 ```tsx
 // app/layout.tsx
 import { initServerClient } from '@savvagent/nextjs/server';
+import { auth } from '@/auth'; // your auth library
 
-initServerClient({
-  apiKey: process.env.SAVVAGENT_API_KEY!,
-  applicationId: process.env.SAVVAGENT_APP_ID,
-});
+initServerClient(
+  {
+    apiKey: process.env.SAVVAGENT_API_KEY!,
+    applicationId: process.env.SAVVAGENT_APP_ID,
+  },
+  // Who the request is for, from your own auth (see "User identity" below).
+  { getUserId: async () => (await auth())?.user?.id }
+);
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -68,16 +73,16 @@ export default async function Page() {
 
 ```ts
 // middleware.ts
-import { initMiddlewareClient, createMiddleware } from '@savvagent/nextjs/middleware';
+import { initMiddlewareClient, createMiddleware, isEnabledInMiddleware } from '@savvagent/nextjs/middleware';
+import { NextResponse } from 'next/server';
 
 initMiddlewareClient({
   apiKey: process.env.SAVVAGENT_API_KEY!,
 });
 
 export default createMiddleware({
-  async onRequest(request, client) {
-    const context = { user_id: request.cookies.get('user_id')?.value };
-    const maintenance = await client.isEnabled('maintenance-mode', context);
+  async onRequest(request) {
+    const maintenance = await isEnabledInMiddleware(request, 'maintenance-mode');
 
     if (maintenance) {
       return NextResponse.rewrite(new URL('/maintenance', request.url));
@@ -92,23 +97,77 @@ export const config = {
 
 > **Next.js 16:** the `middleware.ts` file convention is deprecated in favor of `proxy.ts` (export a function named `proxy`, or a default export). The helpers in `@savvagent/nextjs/middleware` take a `NextRequest` and return a `NextResponse`, so they work unchanged from either file. `proxy.ts` runs on the Node.js runtime; the Edge runtime is not available there.
 
+## User identity
+
+> **The `user_id` cookie is not read by default.** The browser sets cookies, so
+> any visitor can set `user_id` to another user's ID and receive that user's
+> targeted flags (and, in middleware, steer flag-based redirects and rewrites).
+
+Supply the authenticated user from your own auth instead. The server and
+middleware helpers resolve `user_id` in this order:
+
+1. `user_id` in the context you pass to the helper.
+2. The `getUserId` option of `initServerClient` / `initMiddlewareClient`.
+   For Server Components it takes no arguments and can call `cookies()`,
+   `headers()` or your auth library; `evaluateForRequest` passes it the
+   `Request`, and the middleware helpers pass it the `NextRequest`. If it
+   throws or rejects, the error goes to `onError` and the flag is evaluated
+   without a user.
+3. The `user_id` cookie, only when `trustUserIdCookie: true` is set. Use this
+   for demos, or when nothing a flag gates is sensitive.
+
+`anonymous_id` (from the `savvagent_anonymous_id` cookie), `session_id` and
+`language` are still read from the request.
+
+## When the Flags API is down
+
+Server-side evaluations are bounded, so a slow or unreachable Flags API cannot
+stall every page:
+
+- The server and middleware clients make one attempt per evaluation
+  (`retryAttempts: 1`), open no realtime (SSE) connection and do not detect a
+  language from the server's locale, unless your config sets these.
+- Each evaluation by `isEnabled`, `evaluate`, `withFlag`, `evaluateForRequest`,
+  `evaluateMultiple`, `isEnabledInMiddleware`, `redirectIfEnabled` and
+  `rewriteIfEnabled` is bounded by `evaluationTimeoutMs` (default 1000 ms). On a
+  timeout or error it resolves with the flag's default from `config.defaults`
+  (`reason: 'error'`) and does not throw.
+- `onError` receives the same error message at most once a minute.
+
+Calls you make on the raw client (`getServerClient()`, `getMiddlewareClient()`,
+or the `client` passed to `createMiddleware`'s `onRequest`) are not bounded by
+`evaluationTimeoutMs`.
+
 ## API Reference
 
 ### Server Components
 
-#### `initServerClient(config)`
+#### `initServerClient(config, options?)`
 
-Initialize the server-side client. Call once in your root layout.
+Initialize the server-side client. Call once in your root layout. Only the
+first call takes effect.
 
 ```tsx
 import { initServerClient } from '@savvagent/nextjs/server';
 
-initServerClient({
-  apiKey: process.env.SAVVAGENT_API_KEY!,
-  applicationId: process.env.SAVVAGENT_APP_ID,
-  baseUrl: process.env.SAVVAGENT_BASE_URL,
-});
+initServerClient(
+  {
+    apiKey: process.env.SAVVAGENT_API_KEY!,
+    applicationId: process.env.SAVVAGENT_APP_ID,
+    baseUrl: process.env.SAVVAGENT_BASE_URL,
+  },
+  {
+    getUserId: async () => (await auth())?.user?.id,
+    evaluationTimeoutMs: 1000,
+  }
+);
 ```
+
+| Option | Default | |
+| --- | --- | --- |
+| `getUserId` | none | Returns the authenticated user's ID. See [User identity](#user-identity). |
+| `trustUserIdCookie` | `false` | Read `user_id` from the `user_id` cookie. Demos only. |
+| `evaluationTimeoutMs` | `1000` | Upper bound on one evaluation. See [When the Flags API is down](#when-the-flags-api-is-down). |
 
 #### `isEnabled(flagKey, context?)`
 
@@ -166,7 +225,7 @@ export default async function Page() {
 
 #### `createServerContext(overrides?)`
 
-Create a context object from Next.js request (automatically extracts cookies and headers).
+Create a context object from the Next.js request: `anonymous_id` and `session_id` from cookies, `language` from `Accept-Language`, and `user_id` as described in [User identity](#user-identity).
 
 ```tsx
 import { createServerContext, isEnabled, getServerClient } from '@savvagent/nextjs/server';
@@ -286,33 +345,38 @@ export async function submitForm(formData: FormData) {
 
 ### Middleware
 
-#### `initMiddlewareClient(config)`
+#### `initMiddlewareClient(config, options?)`
 
-Initialize the middleware client.
+Initialize the middleware client. It takes the same options as
+`initServerClient`, except that `getUserId` receives the `NextRequest`
+(for example to verify a session token).
 
 ```ts
 import { initMiddlewareClient } from '@savvagent/nextjs/middleware';
 
-initMiddlewareClient({
-  apiKey: process.env.SAVVAGENT_API_KEY!,
-});
+initMiddlewareClient(
+  { apiKey: process.env.SAVVAGENT_API_KEY! },
+  { getUserId: async (request) => (await verifySession(request.cookies.get('session')?.value))?.userId }
+);
 ```
+
+`getRequestContext(request, overrides?, { trustUserIdCookie }?)` reads the
+`user_id` cookie only when `trustUserIdCookie` is set, and does not call
+`getUserId`.
 
 #### `createMiddleware(config)`
 
-Create a middleware function with custom logic.
+Create a middleware function with custom logic. `onRequest` also receives the
+raw client as its second argument; its calls are not bounded by
+`evaluationTimeoutMs`, so prefer `isEnabledInMiddleware`.
 
 ```ts
-import { createMiddleware } from '@savvagent/nextjs/middleware';
+import { createMiddleware, isEnabledInMiddleware } from '@savvagent/nextjs/middleware';
 import { NextResponse } from 'next/server';
 
 export default createMiddleware({
-  async onRequest(request, client) {
-    const context = {
-      user_id: request.cookies.get('user_id')?.value,
-    };
-
-    const maintenance = await client.isEnabled('maintenance-mode', context);
+  async onRequest(request) {
+    const maintenance = await isEnabledInMiddleware(request, 'maintenance-mode');
     if (maintenance) {
       return NextResponse.rewrite(new URL('/maintenance', request.url));
     }
@@ -360,15 +424,15 @@ export async function middleware(request: NextRequest) {
 
 ```tsx
 // app/dashboard/page.tsx
-import { cookies } from 'next/headers';
 import { isEnabled } from '@savvagent/nextjs/server';
+import { auth } from '@/auth'; // your auth library
 
 export default async function DashboardPage() {
-  const cookieStore = await cookies();
-  const userId = cookieStore.get('user_id')?.value;
+  // Use the authenticated user, never a cookie the browser can set.
+  const session = await auth();
 
   const showNewDashboard = await isEnabled('new-dashboard', {
-    user_id: userId,
+    user_id: session?.user?.id,
   });
 
   return showNewDashboard ? <NewDashboard /> : <OldDashboard />;
@@ -410,7 +474,7 @@ export function ClientFeature() {
 
 ```ts
 // middleware.ts
-import { initMiddlewareClient, getMiddlewareClient, getRequestContext } from '@savvagent/nextjs/middleware';
+import { initMiddlewareClient, isEnabledInMiddleware } from '@savvagent/nextjs/middleware';
 import { NextRequest, NextResponse } from 'next/server';
 
 initMiddlewareClient({
@@ -418,11 +482,9 @@ initMiddlewareClient({
 });
 
 export async function middleware(request: NextRequest) {
-  const client = getMiddlewareClient();
-  const context = getRequestContext(request);
-
-  // A/B test: 50% of users see variant B
-  const variantB = await client.isEnabled('checkout-variant-b', context);
+  // A/B test: 50% of visitors see variant B, bucketed by their anonymous ID.
+  // Bounded: if the Flags API is down, visitors get the default variant.
+  const variantB = await isEnabledInMiddleware(request, 'checkout-variant-b');
 
   if (variantB && request.nextUrl.pathname === '/checkout') {
     return NextResponse.rewrite(new URL('/checkout-b', request.url));
@@ -485,7 +547,7 @@ import type {
 2. **Initialize server client in root layout** - Ensures it's ready for all server components
 3. **Use middleware for route-level flags** - Great for redirects, rewrites, and A/B tests
 4. **Separate client/server API keys** - Use `NEXT_PUBLIC_` prefix only for client-side keys
-5. **Leverage automatic context** - Server helpers auto-extract user data from cookies/headers
+5. **Supply the user from your auth** - Pass `getUserId`; the `user_id` cookie is client-controlled and ignored unless `trustUserIdCookie` is set
 6. **Track errors in new features** - Use `trackError()` to correlate errors with flag changes
 
 ## License
