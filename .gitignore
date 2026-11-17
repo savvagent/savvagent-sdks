@@ -98,6 +98,9 @@ Desktop.ini
 
 # Testing
 coverage/
+# Playwright output from the examples E2E suites (CI uploads it as an artifact)
+examples/playwright-report/
+examples/test-results/
 .nyc_output/
 *.lcov
 
