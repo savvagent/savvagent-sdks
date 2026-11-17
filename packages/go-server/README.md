@@ -1,6 +1,6 @@
 # Savvagent Flags Go Server SDK
 
-Official Go Server SDK for Savvagent Flags - AI-powered feature flags with automatic error detection.
+The Go server SDK for [Savvagent Flags](https://github.com/savvagent/flags-sdks), the feature flag product of [savvagent-services](https://github.com/savvagent/savvagent-services).
 
 ## Features
 

@@ -1,6 +1,6 @@
-# Savvagent React Example
+# Savvagent Flags React Example
 
-Example React application demonstrating how to use the Savvagent React SDK with hooks.
+An example React application that uses the hooks in [`@savvagent/react`](../../packages/react) to evaluate [Savvagent Flags](https://github.com/savvagent/flags-sdks#readme).
 
 ## Features
 
@@ -14,7 +14,7 @@ Example React application demonstrating how to use the Savvagent React SDK with 
 
 1. **Install dependencies:**
    ```bash
-   pnpm install
+   pnpm install --frozen-lockfile --ignore-scripts
    ```
 
 2. **Configure environment variables:**

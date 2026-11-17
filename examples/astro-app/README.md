@@ -1,6 +1,6 @@
-# Savvagent Astro Example
+# Savvagent Flags Astro Example
 
-Example Astro application demonstrating how to use the Savvagent Astro integration.
+An example Astro application that uses the [`@savvagent/astro`](../../packages/astro) integration to evaluate [Savvagent Flags](https://github.com/savvagent/flags-sdks#readme).
 
 ## Features
 
@@ -13,7 +13,7 @@ Example Astro application demonstrating how to use the Savvagent Astro integrati
 
 1. **Install dependencies:**
    ```bash
-   pnpm install
+   pnpm install --frozen-lockfile --ignore-scripts
    ```
 
 2. **Configure environment variables:**

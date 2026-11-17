@@ -1,6 +1,6 @@
-# Savvagent Android Example App
+# Savvagent Flags Android Example
 
-This is an example Android application demonstrating how to integrate and use the Savvagent Android SDK.
+An example Android application that uses the [Savvagent Flags Android SDK](../../packages/android-sdk) to evaluate [Savvagent Flags](https://github.com/savvagent/flags-sdks#readme).
 
 ## Features
 
@@ -26,14 +26,15 @@ This is an example Android application demonstrating how to integrate and use th
    # Open in Android Studio
    ```
 
-2. Update the SDK key in `FeatureFlagsViewModel.kt`:
+2. Update the SDK key and the API URL in `FeatureFlagsViewModel.kt`:
    ```kotlin
    val config = SavvagentConfig(
-       apiUrl = "https://flags-beta.savvagent.com",
+       apiUrl = "https://api.savvagent.com/flags", // the Flags API; this is also the default
        sdkKey = "your-sdk-key",  // Replace with your SDK key
        environment = "production"
    )
    ```
+   The file currently sets `apiUrl` to an old host, `https://flags-beta.savvagent.com`, which no longer resolves. Change it as above, or remove the argument.
 
 3. Sync Gradle files and run the app:
    - Click "Sync Now" when prompted
@@ -135,7 +136,7 @@ The app follows modern Android development best practices:
 ## Learn More
 
 - [Android SDK Documentation](../../packages/android-sdk/README.md)
-- [Savvagent Documentation](https://flags-docs.savvagent.com)
+- [Savvagent Flags SDKs](https://github.com/savvagent/flags-sdks#readme)
 - [Jetpack Compose Guide](https://developer.android.com/jetpack/compose)
 
 ## License

@@ -1,6 +1,6 @@
 # Savvagent Flags Go Server Example
 
-Example Go application demonstrating how to use the Savvagent Flags Go Server SDK with Gin framework.
+An example Go application (Gin) that uses the [Savvagent Flags Go server SDK](../../packages/go-server) to evaluate [Savvagent Flags](https://github.com/savvagent/flags-sdks#readme).
 
 ## Features
 

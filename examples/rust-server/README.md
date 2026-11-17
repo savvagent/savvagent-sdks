@@ -1,7 +1,6 @@
 # Savvagent Flags Rust Server Example
 
-Example Axum server that evaluates Savvagent Flags with the Savvagent Flags Rust Server SDK
-(`packages/rust-server`, used here as a path dependency).
+An example Axum server that uses the [Savvagent Flags Rust server SDK](../../packages/rust-server) (as a path dependency) to evaluate [Savvagent Flags](https://github.com/savvagent/flags-sdks#readme).
 
 ## What it shows
 

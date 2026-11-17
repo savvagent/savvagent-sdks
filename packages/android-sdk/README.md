@@ -1,6 +1,6 @@
 # Savvagent Android SDK
 
-The official Android SDK for [Savvagent](https://savvagent.com) - the AI-powered feature flag platform that prevents production incidents.
+The Android SDK for [Savvagent Flags](https://github.com/savvagent/flags-sdks), the feature flag product of [savvagent-services](https://github.com/savvagent/savvagent-services).
 
 ## Features
 
@@ -377,14 +377,14 @@ See the [Android example app](../../examples/android-app) for a complete impleme
 
 ## Documentation
 
-- [API Reference](https://flags-docs.savvagent.com/android-sdk)
-- [Integration Guide](https://flags-docs.savvagent.com/guides/android)
-- [Migration Guide](https://flags-docs.savvagent.com/migration/android)
+- [SDK Integration Guide](../../docs/SDK-INTEGRATION.md)
+- [SDK Developer Guide](../../docs/SDK-DEVELOPER-GUIDE.md): the REST wire contract and the cross-SDK behaviour matrix
+- [Migration Guide](../../docs/MIGRATION-GUIDE.md)
 
 ## Support
 
 - [GitHub Issues](https://github.com/savvagent/flags-sdks/issues)
-- [Documentation](https://flags-docs.savvagent.com)
+- [Documentation](https://github.com/savvagent/flags-sdks#readme)
 - [Email](mailto:support@savvagent.com)
 
 ## License

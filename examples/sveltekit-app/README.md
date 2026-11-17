@@ -1,6 +1,6 @@
-# Savvagent SvelteKit Example
+# Savvagent Flags SvelteKit Example
 
-Example SvelteKit application demonstrating how to use the Savvagent SDK with Svelte 5.
+An example SvelteKit application (Svelte 5) that uses [`@savvagent/sveltekit`](../../packages/sveltekit) to evaluate [Savvagent Flags](https://github.com/savvagent/flags-sdks#readme).
 
 ## Features
 
@@ -15,7 +15,7 @@ Example SvelteKit application demonstrating how to use the Savvagent SDK with Sv
 
 1. **Install dependencies:**
    ```bash
-   pnpm install
+   pnpm install --frozen-lockfile --ignore-scripts
    ```
 
 2. **Configure environment variables:**

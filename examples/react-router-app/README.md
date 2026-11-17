@@ -1,6 +1,6 @@
-# Savvagent React Router Example
+# Savvagent Flags React Router Example
 
-React Router 8 app in framework mode using [`@savvagent/react-router`](../../packages/react-router).
+An example React Router 8 app in framework mode that uses [`@savvagent/react-router`](../../packages/react-router) to evaluate [Savvagent Flags](https://github.com/savvagent/flags-sdks#readme).
 
 - The root middleware creates a per-request Savvagent scope (user from the server session, anonymous ID cookie).
 - The root loader evaluates the demo flags on the server, and `<SavvagentProvider flags>` hydrates them, so the page renders real flag values without a flash of defaults.
@@ -11,7 +11,7 @@ React Router 8 app in framework mode using [`@savvagent/react-router`](../../pac
 1. Install dependencies from the repository root and build the packages:
 
    ```bash
-   pnpm install
+   pnpm install --frozen-lockfile --ignore-scripts
    pnpm build
    ```
 

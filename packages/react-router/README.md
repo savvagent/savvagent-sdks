@@ -1,6 +1,6 @@
 # @savvagent/react-router
 
-React Router 8 SDK for [Savvagent](https://savvagent.com) feature flags, for apps in **framework mode**.
+React Router 8 SDK for [Savvagent Flags](https://github.com/savvagent/flags-sdks), the feature flag product of [savvagent-services](https://github.com/savvagent/savvagent-services), for apps in **framework mode**.
 
 - Evaluate flags on the server in **loaders**, **actions** and **route middleware**, with a context built from each request.
 - Hydrate the server's results into the React provider, so server rendering and the first client render show real flag values, not a flash of defaults.
@@ -21,6 +21,8 @@ npm install @savvagent/react-router
 # or
 pnpm add @savvagent/react-router
 ```
+
+> **Not published yet.** `@savvagent/react-router` has no copy on npm, so the commands above fail until the next release is published. Until then, build it from source at a pinned commit and install the packed tarballs of `@savvagent/react-router`, `@savvagent/react` and `@savvagent/sdk` together, as [Installation](https://github.com/savvagent/flags-sdks#installation) in the repository README shows.
 
 ## Setup
 
