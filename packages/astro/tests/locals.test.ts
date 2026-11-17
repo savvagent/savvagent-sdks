@@ -12,6 +12,9 @@ const mockWithFlag = vi.fn();
 const mockTrackError = vi.fn();
 const mockClose = vi.fn();
 
+/** A client `evaluate` double that resolves every flag to `value`. */
+const flagResult = (value: boolean) => async (key: string) => ({ key, value, reason: 'evaluated' });
+
 vi.mock('@savvagent/sdk', () => {
   class MockFlagClient {
     isEnabled = mockIsEnabled;
@@ -32,6 +35,8 @@ import savvagent, {
   toImportPath,
   newAnonymousId,
   getRequestContext,
+  evaluateForRequest,
+  createFlagMiddleware,
   ANONYMOUS_ID_COOKIE,
   type SavvagentLocals,
 } from '../src/index';
@@ -75,19 +80,19 @@ describe('createSavvagentLocals', () => {
   const client = new FlagClient({ apiKey: 'sdk_test' });
 
   it('ignores the user_id cookie by default, since the browser controls it (#23)', async () => {
-    mockIsEnabled.mockResolvedValue(true);
+    mockEvaluate.mockImplementation(flagResult(true));
     const locals = createSavvagentLocals(
       client,
       makeRequest({ cookie: 'user_id=u-1; session_id=s-1', 'accept-language': 'fr-FR,en' })
     );
 
     await locals.isEnabled('new-feature');
-    expect(mockIsEnabled).toHaveBeenCalledWith('new-feature', { session_id: 's-1', language: 'fr-FR' });
+    expect(mockEvaluate).toHaveBeenCalledWith('new-feature', { session_id: 's-1', language: 'fr-FR' });
     expect(locals.context).not.toHaveProperty('user_id');
   });
 
   it('evaluates flags with context derived from the request, user_id cookie included when trusted', async () => {
-    mockIsEnabled.mockResolvedValue(true);
+    mockEvaluate.mockImplementation(flagResult(true));
     const locals = createSavvagentLocals(
       client,
       makeRequest({ cookie: 'user_id=u-1; session_id=s-1', 'accept-language': 'fr-FR,en' }),
@@ -95,7 +100,7 @@ describe('createSavvagentLocals', () => {
     );
 
     await expect(locals.isEnabled('new-feature')).resolves.toBe(true);
-    expect(mockIsEnabled).toHaveBeenCalledWith('new-feature', {
+    expect(mockEvaluate).toHaveBeenCalledWith('new-feature', {
       user_id: 'u-1',
       session_id: 's-1',
       language: 'fr-FR',
@@ -103,7 +108,7 @@ describe('createSavvagentLocals', () => {
   });
 
   it('lets per-call context override and extend the request context', async () => {
-    mockIsEnabled.mockResolvedValue(false);
+    mockEvaluate.mockImplementation(flagResult(false));
     const locals = createSavvagentLocals(client, makeRequest({ cookie: 'user_id=u-1' }), {
       trustUserIdCookie: true,
     });
@@ -113,19 +118,19 @@ describe('createSavvagentLocals', () => {
       attributes: { plan: 'pro' },
     });
 
-    expect(mockIsEnabled).toHaveBeenCalledWith('beta-feature', {
+    expect(mockEvaluate).toHaveBeenCalledWith('beta-feature', {
       user_id: 'u-2',
       attributes: { plan: 'pro' },
     });
   });
 
   it('does not pass undefined request fields that would mask client defaults', async () => {
-    mockIsEnabled.mockResolvedValue(false);
+    mockEvaluate.mockImplementation(flagResult(false));
     const locals = createSavvagentLocals(client, makeRequest());
 
     await locals.isEnabled('new-feature');
 
-    const passed = mockIsEnabled.mock.calls[0][1] as Record<string, unknown>;
+    const passed = mockEvaluate.mock.calls[0][1] as Record<string, unknown>;
     expect(Object.values(passed)).not.toContain(undefined);
     expect(passed).not.toHaveProperty('anonymous_id');
   });
@@ -133,7 +138,6 @@ describe('createSavvagentLocals', () => {
   it('exposes evaluate, withFlag, trackError, the client and the request context', async () => {
     const result = { key: 'f', value: true, reason: 'default' };
     mockEvaluate.mockResolvedValue(result);
-    mockIsEnabled.mockResolvedValue(true);
     const locals = createSavvagentLocals(client, makeRequest({ cookie: 'user_id=u-9' }), {
       trustUserIdCookie: true,
     });
@@ -141,10 +145,11 @@ describe('createSavvagentLocals', () => {
     await expect(locals.evaluate('f')).resolves.toBe(result);
     expect(mockEvaluate).toHaveBeenCalledWith('f', { user_id: 'u-9' });
 
-    // withFlag evaluates through the bounded isEnabled, then runs the callback.
+    // withFlag evaluates through the bounded evaluate, then runs the callback.
     const cb = vi.fn(() => 'ran');
     await expect(locals.withFlag('f', cb)).resolves.toBe('ran');
-    expect(mockIsEnabled).toHaveBeenCalledWith('f', { user_id: 'u-9' });
+    expect(mockEvaluate).toHaveBeenCalledTimes(2);
+    expect(mockEvaluate).toHaveBeenLastCalledWith('f', { user_id: 'u-9' });
     expect(cb).toHaveBeenCalledTimes(1);
 
     const err = new Error('boom');
@@ -158,9 +163,9 @@ describe('createSavvagentLocals', () => {
 
 describe('withFlag errors', () => {
   it('tracks a throwing callback exactly once and re-throws it', async () => {
-    mockIsEnabled.mockReset();
+    mockEvaluate.mockReset();
     mockTrackError.mockReset();
-    mockIsEnabled.mockResolvedValue(true);
+    mockEvaluate.mockImplementation(flagResult(true));
     const client = new FlagClient({ apiKey: 'sdk_test' });
     const locals = createSavvagentLocals(client, makeRequest({ cookie: 'session_id=s-1' }));
     const boom = new Error('boom');
@@ -179,9 +184,9 @@ describe('withFlag errors', () => {
   });
 
   it('does not run or track the callback when the flag is off', async () => {
-    mockIsEnabled.mockReset();
+    mockEvaluate.mockReset();
     mockTrackError.mockReset();
-    mockIsEnabled.mockResolvedValue(false);
+    mockEvaluate.mockImplementation(flagResult(false));
     const client = new FlagClient({ apiKey: 'sdk_test' });
     const callback = vi.fn();
 
@@ -193,7 +198,7 @@ describe('withFlag errors', () => {
 
 describe('createSavvagentMiddleware', () => {
   it('sets context.locals.savvagent and calls next, ignoring the user_id cookie by default', async () => {
-    mockIsEnabled.mockResolvedValue(true);
+    mockEvaluate.mockImplementation(flagResult(true));
     const onRequest = createSavvagentMiddleware({ apiKey: 'sdk_mw' });
     const context = makeContext(makeRequest({ cookie: 'user_id=u-5' }));
     const response = new Response('ok');
@@ -205,27 +210,27 @@ describe('createSavvagentMiddleware', () => {
     const locals = context.locals.savvagent as SavvagentLocals;
     expect(locals).toBeDefined();
     await expect(locals.isEnabled('new-feature')).resolves.toBe(true);
-    expect(mockIsEnabled).toHaveBeenLastCalledWith('new-feature', {
+    expect(mockEvaluate).toHaveBeenLastCalledWith('new-feature', {
       anonymous_id: expect.any(String),
     });
     expect(locals.client).toBe(getSavvagent());
   });
 
   it('reads the user_id cookie when trustUserIdCookie is set', async () => {
-    mockIsEnabled.mockResolvedValue(true);
+    mockEvaluate.mockImplementation(flagResult(true));
     const onRequest = createSavvagentMiddleware({ apiKey: 'sdk_mw' }, { trustUserIdCookie: true });
     const context = makeContext(makeRequest({ cookie: 'user_id=u-5' }));
     await onRequest(context as never, async () => new Response('ok'));
 
     await (context.locals.savvagent as SavvagentLocals).isEnabled('new-feature');
-    expect(mockIsEnabled).toHaveBeenLastCalledWith('new-feature', {
+    expect(mockEvaluate).toHaveBeenLastCalledWith('new-feature', {
       user_id: 'u-5',
       anonymous_id: expect.any(String),
     });
   });
 
   it('prefers getUserId over the trusted cookie and passes it the request and locals', async () => {
-    mockIsEnabled.mockResolvedValue(true);
+    mockEvaluate.mockImplementation(flagResult(true));
     const getUserId = vi.fn(({ locals }: { locals: Record<string, unknown> }) => locals.sessionUser as string);
     const onRequest = createSavvagentMiddleware(
       { apiKey: 'sdk_mw' },
@@ -241,7 +246,7 @@ describe('createSavvagentMiddleware', () => {
       return new Response('ok');
     });
 
-    expect(mockIsEnabled).toHaveBeenLastCalledWith('b', {
+    expect(mockEvaluate).toHaveBeenLastCalledWith('b', {
       user_id: 'u-session',
       anonymous_id: expect.any(String),
     });
@@ -252,7 +257,7 @@ describe('createSavvagentMiddleware', () => {
   });
 
   it('reports a failing getUserId through the throttled onError once across requests', async () => {
-    mockIsEnabled.mockResolvedValue(true);
+    mockEvaluate.mockImplementation(flagResult(true));
     const onError = vi.fn();
     const onRequest = createSavvagentMiddleware(
       { apiKey: 'sdk_mw', onError },
@@ -262,7 +267,7 @@ describe('createSavvagentMiddleware', () => {
       const context = makeContext(makeRequest());
       await onRequest(context as never, async () => new Response('ok'));
       await expect((context.locals.savvagent as SavvagentLocals).isEnabled('a')).resolves.toBe(true);
-      expect(mockIsEnabled.mock.calls.at(-1)?.[1]).not.toHaveProperty('user_id');
+      expect(mockEvaluate.mock.calls.at(-1)?.[1]).not.toHaveProperty('user_id');
     }
     expect(onError).toHaveBeenCalledTimes(1);
     // The message is fixed (no attacker-influenced text in logs or throttle
@@ -272,8 +277,8 @@ describe('createSavvagentMiddleware', () => {
   });
 
   it('gives two requests through one middleware their own getUserId users', async () => {
-    mockIsEnabled.mockReset();
-    mockIsEnabled.mockResolvedValue(true);
+    mockEvaluate.mockReset();
+    mockEvaluate.mockImplementation(flagResult(true));
     const onRequest = createSavvagentMiddleware(
       { apiKey: 'sdk_mw' },
       { getUserId: ({ request }) => request.headers.get('x-test-user') ?? undefined }
@@ -290,7 +295,7 @@ describe('createSavvagentMiddleware', () => {
       (bob.locals.savvagent as SavvagentLocals).isEnabled('f'),
     ]);
 
-    const users = mockIsEnabled.mock.calls.map(([, context]) => context.user_id).sort();
+    const users = mockEvaluate.mock.calls.map(([, context]) => context.user_id).sort();
     expect(users).toEqual(['alice', 'bob']);
     expect((alice.locals.savvagent as SavvagentLocals).context.user_id).toBe('alice');
     expect((bob.locals.savvagent as SavvagentLocals).context.user_id).toBe('bob');
@@ -300,12 +305,12 @@ describe('createSavvagentMiddleware', () => {
   });
 
   it('falls back to no user_id when getUserId returns nothing and the cookie is not trusted', async () => {
-    mockIsEnabled.mockResolvedValue(true);
+    mockEvaluate.mockImplementation(flagResult(true));
     const onRequest = createSavvagentMiddleware({ apiKey: 'sdk_mw' }, { getUserId: () => undefined });
     const context = makeContext(makeRequest({ cookie: 'user_id=u-cookie' }));
     await onRequest(context as never, async () => new Response('ok'));
     await (context.locals.savvagent as SavvagentLocals).isEnabled('a');
-    expect(mockIsEnabled.mock.calls.at(-1)?.[1]).not.toHaveProperty('user_id');
+    expect(mockEvaluate.mock.calls.at(-1)?.[1]).not.toHaveProperty('user_id');
   });
 
   it('sets locals before next() runs, so pages can read them', async () => {
@@ -329,6 +334,59 @@ describe('createSavvagentMiddleware', () => {
     expect((a.locals.savvagent as SavvagentLocals).client).toBe(
       (b.locals.savvagent as SavvagentLocals).client
     );
+  });
+});
+
+describe('request helpers reuse Astro.locals.savvagent (#26)', () => {
+  const evaluated = (key: string) => Promise.resolve({ key, value: false, reason: 'evaluated' });
+
+  it('createFlagMiddleware evaluates a first-time visitor with the assigned anonymous ID and the integration user', async () => {
+    mockEvaluate.mockReset();
+    mockEvaluate.mockImplementation(evaluated);
+    const getUserId = vi.fn(() => 'u-integration');
+    const onRequest = createSavvagentMiddleware({ apiKey: 'sdk_mw' }, { getUserId });
+    const context = makeContext(makeRequest());
+    const next = vi.fn().mockResolvedValue(new Response('ok'));
+
+    // The user's middleware runs after Savvagent's, inside next().
+    await onRequest(context as never, () => createFlagMiddleware({ gate: { redirect: '/gated' } })(context, next));
+
+    const locals = context.locals.savvagent as SavvagentLocals;
+    expect(locals.context.anonymous_id).toMatch(/^anon_/);
+    expect(mockEvaluate).toHaveBeenCalledWith('gate', {
+      anonymous_id: locals.context.anonymous_id,
+      user_id: 'u-integration',
+    });
+    expect(next).toHaveBeenCalledTimes(1);
+    // One scope per request: getUserId is resolved once, for the page too.
+    await locals.isEnabled('page-flag');
+    expect(getUserId).toHaveBeenCalledTimes(1);
+  });
+
+  it('evaluateForRequest evaluates through the locals it is given', async () => {
+    mockEvaluate.mockReset();
+    mockEvaluate.mockImplementation(evaluated);
+    const getUserId = vi.fn(() => 'u-integration');
+    const onRequest = createSavvagentMiddleware({ apiKey: 'sdk_mw' }, { getUserId });
+    const context = makeContext(makeRequest());
+    await onRequest(context as never, async () => new Response('ok'));
+    const locals = context.locals.savvagent as SavvagentLocals;
+
+    await evaluateForRequest(context.request, 'f', { attributes: { plan: 'pro' } }, {
+      locals: context.locals as unknown as App.Locals,
+    });
+    await evaluateForRequest(context.request, 'g', undefined, { locals: context.locals as unknown as App.Locals });
+
+    expect(mockEvaluate).toHaveBeenCalledWith('f', {
+      anonymous_id: locals.context.anonymous_id,
+      user_id: 'u-integration',
+      attributes: { plan: 'pro' },
+    });
+    expect(mockEvaluate).toHaveBeenCalledWith('g', {
+      anonymous_id: locals.context.anonymous_id,
+      user_id: 'u-integration',
+    });
+    expect(getUserId).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -519,7 +577,7 @@ describe('toServerConfig', () => {
 
 describe('anonymous ID and prerendering', () => {
   it('gives a visitor without the cookie a fresh anonymous ID and sets the cookie', async () => {
-    mockIsEnabled.mockResolvedValue(true);
+    mockEvaluate.mockImplementation(flagResult(true));
     const onRequest = createSavvagentMiddleware({ apiKey: 'sdk_mw' });
     const a = makeContext(makeRequest());
     const b = makeContext(makeRequest());
@@ -539,7 +597,7 @@ describe('anonymous ID and prerendering', () => {
     );
 
     await (a.locals.savvagent as SavvagentLocals).isEnabled('f');
-    expect(mockIsEnabled).toHaveBeenLastCalledWith('f', { anonymous_id: idA });
+    expect(mockEvaluate).toHaveBeenLastCalledWith('f', { anonymous_id: idA });
   });
 
   it('keeps the anonymous ID from an existing cookie', async () => {

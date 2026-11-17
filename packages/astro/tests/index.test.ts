@@ -16,6 +16,9 @@ const mockEvaluate = vi.fn();
 const mockWithFlag = vi.fn();
 const mockTrackError = vi.fn();
 
+/** A client `evaluate` double that resolves every flag to `value`. */
+const flagResult = (value: boolean) => async (key: string) => ({ key, value, reason: 'evaluated' });
+
 // Mock the FlagClient
 vi.mock('@savvagent/sdk', () => {
   class MockFlagClient {
@@ -421,8 +424,8 @@ describe('@savvagent/astro', () => {
 
   describe('evaluateForRequest', () => {
     it('should extract context from request and evaluate flag', async () => {
-      mockIsEnabled.mockClear();
-      mockIsEnabled.mockResolvedValue(true);
+      mockEvaluate.mockClear();
+      mockEvaluate.mockImplementation(flagResult(true));
 
       const request = new Request('https://example.com', {
         headers: {
@@ -434,7 +437,7 @@ describe('@savvagent/astro', () => {
       const result = await evaluateForRequest(request, 'test-flag');
 
       // The user_id cookie is ignored by default (#23).
-      expect(mockIsEnabled).toHaveBeenCalledWith('test-flag', {
+      expect(mockEvaluate).toHaveBeenCalledWith('test-flag', {
         anonymous_id: 'anon456',
         language: 'en-US',
       });
@@ -442,20 +445,20 @@ describe('@savvagent/astro', () => {
     });
 
     it('should read the user_id cookie only with trustUserIdCookie', async () => {
-      mockIsEnabled.mockClear();
-      mockIsEnabled.mockResolvedValue(true);
+      mockEvaluate.mockClear();
+      mockEvaluate.mockImplementation(flagResult(true));
       const request = new Request('https://example.com', {
         headers: { 'cookie': 'user_id=user123' },
       });
 
       await evaluateForRequest(request, 'test-flag', undefined, { trustUserIdCookie: true });
 
-      expect(mockIsEnabled).toHaveBeenCalledWith('test-flag', { user_id: 'user123' });
+      expect(mockEvaluate).toHaveBeenCalledWith('test-flag', { user_id: 'user123' });
     });
 
     it('should take the user from getUserId over a trusted cookie', async () => {
-      mockIsEnabled.mockClear();
-      mockIsEnabled.mockResolvedValue(true);
+      mockEvaluate.mockClear();
+      mockEvaluate.mockImplementation(flagResult(true));
       const request = new Request('https://example.com', {
         headers: { 'cookie': 'user_id=forged' },
       });
@@ -465,14 +468,14 @@ describe('@savvagent/astro', () => {
         getUserId: () => 'u-session',
       });
 
-      expect(mockIsEnabled).toHaveBeenCalledWith('test-flag', { user_id: 'u-session' });
+      expect(mockEvaluate).toHaveBeenCalledWith('test-flag', { user_id: 'u-session' });
     });
 
     it('should fall back to the default when the evaluation exceeds evaluationTimeoutMs', async () => {
       vi.useFakeTimers();
       try {
-        mockIsEnabled.mockClear();
-        mockIsEnabled.mockReturnValue(new Promise(() => {}));
+        mockEvaluate.mockClear();
+        mockEvaluate.mockReturnValue(new Promise(() => {}));
 
         const result = evaluateForRequest(new Request('https://example.com'), 'test-flag', undefined, {
           evaluationTimeoutMs: 500,
@@ -487,8 +490,8 @@ describe('@savvagent/astro', () => {
     });
 
     it('should merge additional context with request context', async () => {
-      mockIsEnabled.mockClear();
-      mockIsEnabled.mockResolvedValue(false);
+      mockEvaluate.mockClear();
+      mockEvaluate.mockImplementation(flagResult(false));
 
       const request = new Request('https://example.com', {
         headers: {
@@ -499,7 +502,7 @@ describe('@savvagent/astro', () => {
       const additionalContext = { session_id: 'custom-session' };
       await evaluateForRequest(request, 'test-flag', additionalContext);
 
-      expect(mockIsEnabled).toHaveBeenCalledWith('test-flag', {
+      expect(mockEvaluate).toHaveBeenCalledWith('test-flag', {
         session_id: 'custom-session',
       });
     });
@@ -519,8 +522,8 @@ describe('@savvagent/astro', () => {
     });
 
     it('should redirect when flag is enabled and redirect is configured', async () => {
-      mockIsEnabled.mockClear();
-      mockIsEnabled.mockResolvedValue(true);
+      mockEvaluate.mockClear();
+      mockEvaluate.mockImplementation(flagResult(true));
 
       const config: FlagMiddlewareConfig = {
         'maintenance-mode': {
@@ -544,8 +547,8 @@ describe('@savvagent/astro', () => {
     });
 
     it('should rewrite URL when flag is enabled and rewrite is configured', async () => {
-      mockIsEnabled.mockClear();
-      mockIsEnabled.mockResolvedValue(true);
+      mockEvaluate.mockClear();
+      mockEvaluate.mockImplementation(flagResult(true));
 
       const config: FlagMiddlewareConfig = {
         'beta-access': {
@@ -567,8 +570,8 @@ describe('@savvagent/astro', () => {
     });
 
     it('should call custom handler when flag is enabled and handler is configured', async () => {
-      mockIsEnabled.mockClear();
-      mockIsEnabled.mockResolvedValue(true);
+      mockEvaluate.mockClear();
+      mockEvaluate.mockImplementation(flagResult(true));
 
       const mockHandler = vi.fn().mockResolvedValue(new Response('Custom response'));
       const config: FlagMiddlewareConfig = {
@@ -593,8 +596,8 @@ describe('@savvagent/astro', () => {
     });
 
     it('should continue to next when handler returns void', async () => {
-      mockIsEnabled.mockClear();
-      mockIsEnabled.mockResolvedValue(true);
+      mockEvaluate.mockClear();
+      mockEvaluate.mockImplementation(flagResult(true));
 
       const mockHandler = vi.fn().mockResolvedValue(undefined);
       const config: FlagMiddlewareConfig = {
@@ -618,8 +621,8 @@ describe('@savvagent/astro', () => {
     });
 
     it('should call next when flag is disabled', async () => {
-      mockIsEnabled.mockClear();
-      mockIsEnabled.mockResolvedValue(false);
+      mockEvaluate.mockClear();
+      mockEvaluate.mockImplementation(flagResult(false));
 
       const config: FlagMiddlewareConfig = {
         'maintenance-mode': {
@@ -641,10 +644,10 @@ describe('@savvagent/astro', () => {
     });
 
     it('should handle multiple flags in order', async () => {
-      mockIsEnabled.mockClear();
-      mockIsEnabled
-        .mockResolvedValueOnce(false) // maintenance-mode disabled
-        .mockResolvedValueOnce(true);  // beta-access enabled
+      mockEvaluate.mockClear();
+      mockEvaluate
+        .mockImplementationOnce(flagResult(false)) // maintenance-mode disabled
+        .mockImplementationOnce(flagResult(true));  // beta-access enabled
 
       const config: FlagMiddlewareConfig = {
         'maintenance-mode': {
@@ -669,8 +672,8 @@ describe('@savvagent/astro', () => {
     });
 
     it('should extract request context for flag evaluation', async () => {
-      mockIsEnabled.mockClear();
-      mockIsEnabled.mockResolvedValue(false);
+      mockEvaluate.mockClear();
+      mockEvaluate.mockImplementation(flagResult(false));
 
       const config: FlagMiddlewareConfig = {
         'user-feature': {
@@ -693,7 +696,7 @@ describe('@savvagent/astro', () => {
       await middleware(mockContext, mockNext);
 
       // The user_id cookie is ignored by default (#23).
-      expect(mockIsEnabled).toHaveBeenCalledWith('user-feature', {
+      expect(mockEvaluate).toHaveBeenCalledWith('user-feature', {
         session_id: 'sess456',
         language: 'es-ES',
       });
@@ -701,8 +704,8 @@ describe('@savvagent/astro', () => {
 
     describe('user identity', () => {
       // An admin-only redirect: on only for user "admin".
-      const adminOnly = (_flagKey: string, context: { user_id?: string }) =>
-        Promise.resolve(context.user_id === 'admin');
+      const adminOnly = (flagKey: string, context: { user_id?: string }) =>
+        Promise.resolve({ key: flagKey, value: context.user_id === 'admin', reason: 'evaluated' });
       const forgedRequest = () => ({
         request: new Request('https://example.com/test', { headers: { cookie: 'user_id=admin' } }),
         url: new URL('https://example.com/test'),
@@ -711,20 +714,20 @@ describe('@savvagent/astro', () => {
       const config: FlagMiddlewareConfig = { 'admin-area': { redirect: '/admin' } };
 
       it('cannot be steered by a forged user_id cookie by default', async () => {
-        mockIsEnabled.mockReset();
-        mockIsEnabled.mockImplementation(adminOnly);
+        mockEvaluate.mockReset();
+        mockEvaluate.mockImplementation(adminOnly);
         const next = vi.fn().mockResolvedValue(new Response('OK'));
 
         const response = await createFlagMiddleware(config)(forgedRequest(), next);
 
         expect(next).toHaveBeenCalled();
         expect(response.headers.get('location')).toBeNull();
-        expect(mockIsEnabled.mock.calls[0][1]).not.toHaveProperty('user_id');
+        expect(mockEvaluate.mock.calls[0][1]).not.toHaveProperty('user_id');
       });
 
       it('reads the user_id cookie when trustUserIdCookie is set', async () => {
-        mockIsEnabled.mockReset();
-        mockIsEnabled.mockImplementation(adminOnly);
+        mockEvaluate.mockReset();
+        mockEvaluate.mockImplementation(adminOnly);
         const next = vi.fn();
 
         const response = await createFlagMiddleware(config, { trustUserIdCookie: true })(
@@ -737,8 +740,8 @@ describe('@savvagent/astro', () => {
       });
 
       it('takes the user from getUserId, with the request locals', async () => {
-        mockIsEnabled.mockReset();
-        mockIsEnabled.mockImplementation(adminOnly);
+        mockEvaluate.mockReset();
+        mockEvaluate.mockImplementation(adminOnly);
         const context = forgedRequest();
         context.locals.user = { id: 'admin' };
         const getUserId = vi.fn(({ locals }: { locals: any }) => locals.user?.id);
@@ -753,8 +756,8 @@ describe('@savvagent/astro', () => {
       });
 
       it('accepts an explicit context, static or derived from the Astro context', async () => {
-        mockIsEnabled.mockReset();
-        mockIsEnabled.mockImplementation(adminOnly);
+        mockEvaluate.mockReset();
+        mockEvaluate.mockImplementation(adminOnly);
 
         const staticResponse = await createFlagMiddleware(config, { context: { user_id: 'admin' } })(
           forgedRequest(),
@@ -769,14 +772,14 @@ describe('@savvagent/astro', () => {
           context: ({ locals }) => ({ user_id: locals.user.id }),
         })(derived, next);
         expect(next).toHaveBeenCalled();
-        expect(mockIsEnabled.mock.calls.at(-1)?.[1]).toEqual({ user_id: 'someone-else' });
+        expect(mockEvaluate.mock.calls.at(-1)?.[1]).toEqual({ user_id: 'someone-else' });
       });
 
       it('falls back to the default when an evaluation exceeds evaluationTimeoutMs', async () => {
         vi.useFakeTimers();
         try {
-          mockIsEnabled.mockReset();
-          mockIsEnabled.mockReturnValue(new Promise(() => {}));
+          mockEvaluate.mockReset();
+          mockEvaluate.mockReturnValue(new Promise(() => {}));
           const next = vi.fn().mockResolvedValue(new Response('OK'));
 
           const pending = createFlagMiddleware(config, { evaluationTimeoutMs: 300 })(forgedRequest(), next);
@@ -792,7 +795,7 @@ describe('@savvagent/astro', () => {
     });
 
     it('should handle middleware with empty config', async () => {
-      mockIsEnabled.mockClear();
+      mockEvaluate.mockClear();
 
       const config: FlagMiddlewareConfig = {};
       const middleware = createFlagMiddleware(config);
@@ -805,7 +808,7 @@ describe('@savvagent/astro', () => {
 
       const response = await middleware(mockContext, mockNext);
 
-      expect(mockIsEnabled).not.toHaveBeenCalled();
+      expect(mockEvaluate).not.toHaveBeenCalled();
       expect(mockNext).toHaveBeenCalled();
       expect(await response.text()).toBe('OK');
     });
@@ -827,8 +830,8 @@ describe('@savvagent/astro', () => {
     });
 
     it('should handle errors in middleware custom handlers', async () => {
-      mockIsEnabled.mockClear();
-      mockIsEnabled.mockResolvedValue(true);
+      mockEvaluate.mockClear();
+      mockEvaluate.mockImplementation(flagResult(true));
 
       const config: FlagMiddlewareConfig = {
         'error-feature': {

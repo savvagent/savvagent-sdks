@@ -10,7 +10,7 @@ const constructedConfigs: unknown[] = [];
 
 vi.mock('@savvagent/sdk', () => {
   class MockFlagClient {
-    isEnabled = vi.fn().mockResolvedValue(true);
+    evaluate = vi.fn(async (key: string) => ({ key, value: true, reason: 'evaluated' }));
     constructor(config: unknown) {
       constructedConfigs.push(config);
     }
