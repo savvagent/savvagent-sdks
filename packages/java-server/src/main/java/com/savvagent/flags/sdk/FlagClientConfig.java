@@ -1,6 +1,7 @@
 package com.savvagent.flags.sdk;
 
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -33,7 +34,16 @@ public class FlagClientConfig {
         this.enableRealtime = builder.enableRealtime;
         this.cacheTtl = builder.cacheTtl;
         this.enableTelemetry = builder.enableTelemetry;
-        this.defaults = builder.defaults;
+        if (builder.derivedDefaults.isEmpty()) {
+            this.defaults = builder.defaults;
+        } else {
+            // Derived defaults (defaultFrom, defaultFromEnv) win over the base map, whatever
+            // order the builder methods were called in. The caller's map is never modified.
+            Map<String, Boolean> merged = builder.defaults == null
+                    ? new HashMap<>() : new HashMap<>(builder.defaults);
+            merged.putAll(builder.derivedDefaults);
+            this.defaults = merged;
+        }
         this.onError = builder.onError;
         this.timeout = builder.timeout;
     }
@@ -79,6 +89,9 @@ public class FlagClientConfig {
         private long cacheTtl = 60000L;
         private boolean enableTelemetry = true;
         private Map<String, Boolean> defaults = new HashMap<>();
+        // Results of defaultFrom / defaultFromEnv, kept apart so build() can lay them over the
+        // base map from defaults(Map) regardless of call order.
+        private final Map<String, Boolean> derivedDefaults = new LinkedHashMap<>();
         private Consumer<Exception> onError = e -> System.err.println("[Savvagent Flags] " + e.getMessage());
         private int timeout = 5000;
 
@@ -139,10 +152,14 @@ public class FlagClientConfig {
         }
 
         /**
-         * Sets the values lookups return when a flag cannot be evaluated (default: none, so
-         * {@code false}). It replaces every default set before it, including those from
-         * {@link #defaultFromEnv(String, String)} and {@link #defaultFrom(String, Supplier)}, so
-         * call it first.
+         * Sets the base values lookups return when a flag cannot be evaluated (default: none, so
+         * {@code false}). Calling it again replaces the earlier base map.
+         *
+         * <p>Defaults set with {@link #defaultFromEnv(String, String)} and
+         * {@link #defaultFrom(String, Supplier)} are kept separately and applied over this map
+         * in {@link #build()}, so the result does not depend on the order of the calls. If both
+         * name the same flag, the derived value wins; between two derived calls for the same
+         * flag, the later call wins.
          *
          * @param defaults flag key to default value
          * @return this builder
@@ -154,7 +171,8 @@ public class FlagClientConfig {
 
         /**
          * Sets one flag's default from {@code value}, which is called once, now. An empty (or
-         * null) result leaves any earlier default, or the built-in {@code false}, in place. It is
+         * null) result leaves the base default from {@link #defaults(Map)}, or the built-in
+         * {@code false}, in place (or an earlier derived default for the same flag). It is
          * for a default that comes from somewhere other than a constant; the result is fixed
          * when this method is called, not re-read per lookup.
          *
@@ -164,8 +182,9 @@ public class FlagClientConfig {
          *     .build();
          * }</pre>
          *
-         * <p>The map given to {@link #defaults(Map)} is never modified: the default is written to
-         * a copy.
+         * <p>The default is applied over {@link #defaults(Map)} when the configuration is built,
+         * whichever was called first. The map given to {@code defaults} is never modified: the
+         * merge is written to a copy.
          *
          * <p>A null {@code value} throws {@link NullPointerException}. A supplier that throws is
          * not caught: the exception propagates out of this method, while the configuration is
@@ -179,9 +198,7 @@ public class FlagClientConfig {
         public Builder defaultFrom(String flagKey, Supplier<Optional<Boolean>> value) {
             Optional<Boolean> result = value.get();
             if (result != null && result.isPresent()) {
-                Map<String, Boolean> copy = defaults == null ? new HashMap<>() : new HashMap<>(defaults);
-                copy.put(flagKey, result.get());
-                this.defaults = copy;
+                derivedDefaults.put(flagKey, result.get());
             }
             return this;
         }
@@ -195,8 +212,8 @@ public class FlagClientConfig {
          * {@code true}, {@code yes}, {@code on} and {@code 0}, {@code false}, {@code no},
          * {@code off}. An unset variable is ignored silently (in production it is the normal
          * case); one that is empty or says anything else is ignored with an SLF4J warning that
-         * names the variable but never its value. Either way any earlier default, or the
-         * built-in {@code false}, stays in place.
+         * names the variable but never its value. Either way the base default from
+         * {@link #defaults(Map)}, or the built-in {@code false}, stays in place.
          *
          * <pre>{@code
          * FlagClientConfig.builder(System.getenv("SAVVAGENT_FLAGS_API_KEY"))

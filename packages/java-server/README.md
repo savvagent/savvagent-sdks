@@ -124,8 +124,11 @@ FlagClientConfig config = FlagClientConfig.builder(System.getenv("SAVVAGENT_FLAG
 ```
 
 An unset variable is ignored silently. A variable that is empty or not a boolean is ignored with an
-SLF4J warning naming the variable (never its value). In both cases any earlier default, or `false`,
-stays in place. `defaults(Map)` replaces every default set before it, so call it first; the map you
+SLF4J warning naming the variable (never its value). In both cases the base default from
+`defaults(Map)`, or `false`, stays in place. Defaults from `defaultFromEnv` and `defaultFrom` are
+applied over `defaults(Map)` when you call `build()`, so the order of the builder calls does not
+matter. If two of them name the same flag, the later call wins; a derived default beats the same
+flag in `defaults(Map)`. Calling `defaults(Map)` twice still replaces the earlier map. The map you
 pass is never modified.
 
 ### Real-time updates
