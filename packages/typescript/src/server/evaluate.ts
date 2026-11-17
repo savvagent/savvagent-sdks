@@ -3,6 +3,7 @@
  */
 
 import type { FlagClientConfig, FlagContext, FlagEvaluationResult } from '../types';
+import { defaultFor } from '../flags';
 
 /** Default bound on one server-side evaluation (and on `getUserId`), in milliseconds. */
 export const DEFAULT_EVALUATION_TIMEOUT_MS = 1000;
@@ -109,19 +110,18 @@ export async function withTimeout<T>(work: Promise<T>, ms: number, onTimeout: ()
 }
 
 /**
- * A flag's configured default: `defaults[flagKey] === true`, read as an own
- * property only, so a key like `__proto__` never reads `Object.prototype`.
+ * The result returned when a flag cannot be evaluated: its default, with
+ * `reason: 'error'`. With `{ timestamp: true }` it also carries
+ * `metadata.timestamp` (the time of the failure, in epoch milliseconds).
  */
-export function defaultFor(defaults: Record<string, boolean> | undefined, flagKey: string): boolean {
-  return !!defaults && Object.prototype.hasOwnProperty.call(defaults, flagKey) && defaults[flagKey] === true;
-}
-
-/** The result returned when a flag cannot be evaluated: its default, with `reason: 'error'`. */
 export function fallbackResult(
   flagKey: string,
-  defaults: Record<string, boolean> | undefined
+  defaults: Record<string, boolean> | undefined,
+  options?: { timestamp?: boolean }
 ): FlagEvaluationResult {
-  return { key: flagKey, value: defaultFor(defaults, flagKey), reason: 'error' };
+  const result: FlagEvaluationResult = { key: flagKey, value: defaultFor(defaults, flagKey), reason: 'error' };
+  if (options?.timestamp) result.metadata = { timestamp: Date.now() };
+  return result;
 }
 
 /** Options for {@link evaluateBounded}. */

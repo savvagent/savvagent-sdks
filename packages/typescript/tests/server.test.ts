@@ -19,12 +19,14 @@ import {
   mergeContext,
   newAnonymousId,
   parseCookies,
-  parseLanguage,
   resolveUserId,
   serializeAnonymousIdCookie,
   throttleErrors,
   toServerConfig,
 } from '../src/server';
+import { parseLanguage } from '../src/server/context';
+import * as sdkRoot from '../src/index';
+import * as sdkServer from '../src/server';
 import type { FlagClientConfig, FlagContext, FlagEvaluationResult } from '../src/types';
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -606,5 +608,18 @@ describe('createRequestScope', () => {
     const context: FlagContext = { anonymous_id: 'anon_1' };
     await createRequestScope({ client: fakeClient(), context, getUserId: () => 'u' }).evaluate('f');
     expect(context).toEqual({ anonymous_id: 'anon_1' });
+  });
+});
+
+describe('defaultFor and isValidFlagKey are defined once (#57)', () => {
+  it('the root and ./server entry points export the same functions', () => {
+    expect(sdkServer.defaultFor).toBe(sdkRoot.defaultFor);
+  });
+
+  it('fallbackResult adds metadata.timestamp only when asked', () => {
+    expect(sdkServer.fallbackResult('f', { f: true })).toEqual({ key: 'f', value: true, reason: 'error' });
+    const withTimestamp = sdkServer.fallbackResult('f', undefined, { timestamp: true });
+    expect(withTimestamp).toMatchObject({ key: 'f', value: false, reason: 'error' });
+    expect(typeof withTimestamp.metadata?.timestamp).toBe('number');
   });
 });

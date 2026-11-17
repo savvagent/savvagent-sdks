@@ -458,11 +458,12 @@ What it guarantees:
   and a throwing handler is logged instead of escaping a timer callback.
 
 Exports: the cookie names and `ANONYMOUS_ID_MAX_AGE`; `parseCookies`,
-`parseLanguage`, `newAnonymousId`, `assignAnonymousId`,
+`newAnonymousId`, `assignAnonymousId`,
 `anonymousIdCookieOptions`, `serializeAnonymousIdCookie`, `isSecureUrl`;
-`buildRequestContext`, `compactContext`, `mergeContext`, `resolveUserId`;
+`buildRequestContext`, `mergeContext`, `resolveUserId`;
 `toServerConfig`, `createServerClient`, `throttleErrors`, `guardReporter`,
-`defaultReportError`, `withTimeout`, `defaultFor`, `fallbackResult`,
+`defaultReportError`, `withTimeout`, `defaultFor`, `fallbackResult`
+(with an optional `{ timestamp: true }` for `metadata.timestamp`),
 `evaluateBounded`, `createRequestScope`; `DEFAULT_EVALUATION_TIMEOUT_MS` and
 `ERROR_REPORT_INTERVAL_MS`.
 

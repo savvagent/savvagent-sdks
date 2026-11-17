@@ -30,6 +30,8 @@ export {
 } from './cookies';
 export type { AnonymousIdCookieOptions } from './cookies';
 
+export { defaultFor } from '../flags';
+
 export {
   DEFAULT_EVALUATION_TIMEOUT_MS,
   ERROR_REPORT_INTERVAL_MS,
@@ -38,7 +40,6 @@ export {
   guardReporter,
   throttleErrors,
   withTimeout,
-  defaultFor,
   fallbackResult,
   evaluateBounded,
   createServerClient,
@@ -46,8 +47,6 @@ export {
 export type { EvaluatingClient, BoundedEvaluationOptions, ServerClient } from './evaluate';
 
 export {
-  parseLanguage,
-  compactContext,
   mergeContext,
   buildRequestContext,
   assignAnonymousId,
