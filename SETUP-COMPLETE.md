@@ -34,9 +34,8 @@ All packages have been configured with:
 ### ✅ Development Workflow
 
 **pnpm Workspace Setup:**
-- `pnpm-workspace.yaml` configured
+- `pnpm-workspace.yaml` configured, including the pnpm settings
 - Root `package.json` with common scripts
-- `.npmrc` with pnpm-specific settings
 
 **Changesets for Versioning:**
 - `.changeset/config.json` configured

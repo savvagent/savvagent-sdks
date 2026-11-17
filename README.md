@@ -221,7 +221,7 @@ This is a pnpm workspace monorepo with independent package versioning.
 ### Prerequisites
 
 - Node.js 22.23.4+
-- pnpm 9+
+- pnpm 10 (pinned with `packageManager`; run `corepack enable` or let pnpm switch itself)
 
 ### Setup
 

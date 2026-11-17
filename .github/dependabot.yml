@@ -1,0 +1,20 @@
+version: 2
+updates:
+  # One pnpm workspace: Dependabot reads the root pnpm-lock.yaml and updates
+  # every package and example in it.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # Security fixes for transitive and dev dependencies, in one PR.
+      security:
+        applies-to: security-updates
+        patterns: ['*']
+      # Routine minor and patch bumps, in one PR. Majors arrive one per PR
+      # so each can be reviewed.
+      minor-and-patch:
+        applies-to: version-updates
+        update-types: [minor, patch]
+        patterns: ['*']
