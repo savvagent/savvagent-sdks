@@ -15,7 +15,7 @@ Official Rust Server SDK for Savvagent Flags - AI-powered feature flags with aut
 
 ## Requirements
 
-- Rust 1.70 or higher
+- Rust stable (the crate declares no minimum `rust-version`; CI builds on stable)
 
 ## Installation
 

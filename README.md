@@ -8,13 +8,14 @@ Official SDKs, MCP servers, and example applications for [Savvagent](https://sav
 
 - **[@savvagent/sdk](./packages/typescript)** - TypeScript/JavaScript SDK for feature flags
   - Works with React, Next.js, SvelteKit, Node.js, and more
-  - Real-time flag updates via WebSocket
+  - Real-time flag updates via Server-Sent Events (SSE)
   - Built-in caching and telemetry
   - Type-safe API
 
 ### Framework SDKs
 
 - **[@savvagent/react](./packages/react)** - React hooks for feature flags
+- **[@savvagent/angular](./packages/angular)** - Angular module and injectable service (RxJS observables) for feature flags
 - **[@savvagent/vue](./packages/vue)** - Vue 3 composables for feature flags
 - **[@savvagent/solid](./packages/solid)** - SolidJS primitives for feature flags
 - **[@savvagent/svelte](./packages/svelte)** - Svelte stores for feature flags
@@ -28,8 +29,8 @@ Official SDKs, MCP servers, and example applications for [Savvagent](https://sav
 - **[SavvagentSDK (iOS)](./packages/ios-sdk)** - iOS SDK
   - Native Swift with async/await
   - SwiftUI and UIKit support
-  - Real-time updates via WebSocket
-  - Works on iOS, macOS, tvOS, and watchOS
+  - Real-time updates via Server-Sent Events (SSE)
+  - iOS 15+, macOS 12+, tvOS 15+ and watchOS 8+
 
 - **[savvagent-android-sdk](./packages/android-sdk)** - Android SDK
   - Native Kotlin with Coroutines
@@ -112,8 +113,17 @@ Then add the dependency:
 
 ### MCP Servers
 
-- **[@savvagent/mcp-sdk](./packages/mcp-sdk)** - Base SDK for building MCP integrations
-- **[@savvagent/mcp-sentry](./packages/mcp-sentry)** - Sentry error tracking integration
+HTTP [Model Context Protocol](https://modelcontextprotocol.io) servers that expose a monitoring tool's data as MCP tools (for example `get_errors` and `get_service_health`). Each one is a library: you host it in your own HTTP server at `POST /mcp`, behind a Bearer token.
+
+- **[@savvagent/mcp-sdk](./packages/mcp-sdk)** - Base framework: `MCPServer`, the HTTP handler, Bearer auth and a stdio handler
+- **[@savvagent/mcp-sentry](./packages/mcp-sentry)** - Sentry error tracking
+- **[@savvagent/mcp-datadog](./packages/mcp-datadog)** - Datadog APM and monitoring
+- **[@savvagent/mcp-dynatrace](./packages/mcp-dynatrace)** - Dynatrace APM and monitoring
+- **[@savvagent/mcp-newrelic](./packages/mcp-newrelic)** - New Relic APM and monitoring
+- **[@savvagent/mcp-pagerduty](./packages/mcp-pagerduty)** - PagerDuty incident management
+- **[@savvagent/mcp-splunk](./packages/mcp-splunk)** - Splunk log analytics
+
+These are separate from Savvagent's own MCP server at `mcp.savvagent.com`, which agents use to manage flags.
 
 ## Quick Start
 
@@ -133,17 +143,17 @@ yarn add @savvagent/sdk
 ### Basic Usage
 
 ```typescript
-import { SavvagentClient } from '@savvagent/sdk';
+import { FlagClient } from '@savvagent/sdk';
 
-const client = new SavvagentClient({
-  apiUrl: 'https://api.savvagent.com/flags',
-  sdkKey: 'your-sdk-key',
+const client = new FlagClient({
+  apiKey: 'sdk_your_key', // an SDK key, which starts with sdk_
   environment: 'production',
+  // baseUrl defaults to https://api.savvagent.com/flags
 });
 
 // Check if a feature is enabled
 const isEnabled = await client.isEnabled('new-feature', {
-  userId: 'user-123',
+  user_id: 'user-123',
   attributes: {
     email: 'user@example.com',
     plan: 'pro',
@@ -169,6 +179,7 @@ Working example applications are available in the [examples](./examples) directo
 ### Client & Framework Examples
 
 - **[React App](./examples/react-app)** - React 19 with Vite and hooks
+- **[Angular App](./examples/angular-app)** - Angular with the Savvagent service
 - **[Vue App](./examples/vue-app)** - Vue 3 with Composition API
 - **[Solid App](./examples/solid-app)** - SolidJS with reactive primitives
 - **[Svelte App](./examples/svelte-app)** - Svelte 5 with stores
@@ -198,8 +209,8 @@ Use AI coding assistants (Claude Code, Cursor, GitHub Copilot) to integrate Savv
 
 | File | Description | Use Case |
 |------|-------------|----------|
-| [llms.txt](./llms.txt) | Quick reference (~4KB) | Fast lookups, links to detailed docs |
-| [llms-full.txt](./llms-full.txt) | Complete docs (~15KB) | Full context for complex integrations |
+| [llms.txt](./llms.txt) | Quick reference (~6KB) | Fast lookups, links to detailed docs |
+| [llms-full.txt](./llms-full.txt) | Complete docs (~22KB) | Full context for complex integrations |
 
 ### Quick Start with AI
 
@@ -231,7 +242,7 @@ This is a pnpm workspace monorepo with independent package versioning.
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/flags-sdks.git
+git clone https://github.com/savvagent/flags-sdks.git
 cd flags-sdks
 
 # Install dependencies
@@ -281,6 +292,7 @@ flags-sdks/
 ├── packages/
 │   ├── typescript/          # @savvagent/sdk (base TypeScript SDK)
 │   ├── react/              # @savvagent/react
+│   ├── angular/            # @savvagent/angular
 │   ├── vue/                # @savvagent/vue
 │   ├── solid/              # @savvagent/solid
 │   ├── svelte/             # @savvagent/svelte
@@ -296,11 +308,17 @@ flags-sdks/
 │   ├── go-server/          # Go server SDK
 │   ├── rust-server/        # Rust server SDK
 │   ├── mcp-sdk/            # @savvagent/mcp-sdk
-│   └── mcp-sentry/         # @savvagent/mcp-sentry
+│   ├── mcp-sentry/         # @savvagent/mcp-sentry
+│   ├── mcp-datadog/        # @savvagent/mcp-datadog
+│   ├── mcp-dynatrace/      # @savvagent/mcp-dynatrace
+│   ├── mcp-newrelic/       # @savvagent/mcp-newrelic
+│   ├── mcp-pagerduty/      # @savvagent/mcp-pagerduty
+│   └── mcp-splunk/         # @savvagent/mcp-splunk
 ├── examples/
 │   ├── ios-app/            # iOS SwiftUI example
 │   ├── android-app/        # Android Jetpack Compose example
 │   ├── react-app/          # React example
+│   ├── angular-app/        # Angular example
 │   ├── vue-app/            # Vue example
 │   ├── solid-app/          # SolidJS example
 │   ├── svelte-app/         # Svelte example
@@ -332,15 +350,17 @@ This monorepo uses [Changesets](https://github.com/changesets/changesets) for in
 
 ### Continuous Integration
 
-All pull requests run:
-- Linting
-- Type checking
-- Unit tests
-- Build verification
+Every pull request runs [`ci.yml`](./.github/workflows/ci.yml):
+- JS packages: lint, build and unit tests
+- E2E tests (Playwright) for each framework example app
+- Rust SDK and example: `cargo fmt`, `clippy` and tests
+- Python SDK: `ruff`, `mypy` and `pytest`
+- Go SDK and example: `gofmt`, `go vet` and `go test -race`
+- Java SDK and example: `mvn install`
 
 ### Automated Publishing
 
-On merge to `main`:
+On merge to `master`:
 1. Changesets creates a "Version Packages" PR
 2. Merging that PR triggers npm publish
 3. Git tags are created for each published version
@@ -358,7 +378,7 @@ We welcome contributions! Please see our contributing guidelines:
 
 ### Code Style
 
-- TypeScript for all code
+- TypeScript for the JS packages; each other SDK follows its language's standard tooling (rustfmt, ruff, gofmt)
 - ESLint + Prettier for formatting
 - Conventional commits for messages
 
@@ -396,7 +416,7 @@ MIT License - see [LICENSE](./LICENSE) for details
 
 | Package | Platform | Version | Status |
 |---------|----------|---------|--------|
-| [SavvagentSDK](./packages/ios-sdk) | iOS 13+ | v0.1.0 | Beta |
+| [SavvagentSDK](./packages/ios-sdk) | iOS 15+ | v0.1.0 | Beta |
 | [savvagent-android-sdk](./packages/android-sdk) | Android 5.0+ | v0.1.0 | Beta |
 
 ### Client & Framework SDKs
@@ -404,6 +424,7 @@ MIT License - see [LICENSE](./LICENSE) for details
 | Package | Version | Status |
 |---------|---------|--------|
 | [@savvagent/sdk](./packages/typescript) | [![npm](https://img.shields.io/npm/v/@savvagent/sdk)](https://www.npmjs.com/package/@savvagent/sdk) | Stable |
+| [@savvagent/angular](./packages/angular) | [![npm](https://img.shields.io/npm/v/@savvagent/angular)](https://www.npmjs.com/package/@savvagent/angular) | Beta |
 | [@savvagent/react](./packages/react) | [![npm](https://img.shields.io/npm/v/@savvagent/react)](https://www.npmjs.com/package/@savvagent/react) | Beta |
 | [@savvagent/vue](./packages/vue) | [![npm](https://img.shields.io/npm/v/@savvagent/vue)](https://www.npmjs.com/package/@savvagent/vue) | Beta |
 | [@savvagent/solid](./packages/solid) | [![npm](https://img.shields.io/npm/v/@savvagent/solid)](https://www.npmjs.com/package/@savvagent/solid) | Beta |
@@ -419,11 +440,11 @@ MIT License - see [LICENSE](./LICENSE) for details
 
 | Package | Language | Version | Status |
 |---------|----------|---------|--------|
-| [@savvagent/node-server](./packages/node-server) | Node.js | v0.1.0 | Beta |
+| [@savvagent/node-server](./packages/node-server) | Node.js | v1.1.0 | Beta |
 | [savvagent-flags](./packages/python-server) | Python 3.9+ | v1.1.0 | Beta |
 | [savvagent-flags-java-server-sdk](./packages/java-server) | Java 11+ | v0.1.0 | Beta |
 | [github.com/savvagent/flags-sdks/packages/go-server](./packages/go-server) | Go 1.21+ | v0.1.0 | Beta |
-| [savvagent-flags](./packages/rust-server) | Rust 1.70+ | v0.1.0 | Beta |
+| [savvagent-flags](./packages/rust-server) | Rust (stable) | v0.1.0 | Beta |
 
 ### MCP Servers
 
@@ -431,3 +452,8 @@ MIT License - see [LICENSE](./LICENSE) for details
 |---------|---------|--------|
 | [@savvagent/mcp-sdk](./packages/mcp-sdk) | [![npm](https://img.shields.io/npm/v/@savvagent/mcp-sdk)](https://www.npmjs.com/package/@savvagent/mcp-sdk) | Beta |
 | [@savvagent/mcp-sentry](./packages/mcp-sentry) | [![npm](https://img.shields.io/npm/v/@savvagent/mcp-sentry)](https://www.npmjs.com/package/@savvagent/mcp-sentry) | Beta |
+| [@savvagent/mcp-datadog](./packages/mcp-datadog) | [![npm](https://img.shields.io/npm/v/@savvagent/mcp-datadog)](https://www.npmjs.com/package/@savvagent/mcp-datadog) | Beta |
+| [@savvagent/mcp-dynatrace](./packages/mcp-dynatrace) | [![npm](https://img.shields.io/npm/v/@savvagent/mcp-dynatrace)](https://www.npmjs.com/package/@savvagent/mcp-dynatrace) | Beta |
+| [@savvagent/mcp-newrelic](./packages/mcp-newrelic) | [![npm](https://img.shields.io/npm/v/@savvagent/mcp-newrelic)](https://www.npmjs.com/package/@savvagent/mcp-newrelic) | Beta |
+| [@savvagent/mcp-pagerduty](./packages/mcp-pagerduty) | [![npm](https://img.shields.io/npm/v/@savvagent/mcp-pagerduty)](https://www.npmjs.com/package/@savvagent/mcp-pagerduty) | Beta |
+| [@savvagent/mcp-splunk](./packages/mcp-splunk) | [![npm](https://img.shields.io/npm/v/@savvagent/mcp-splunk)](https://www.npmjs.com/package/@savvagent/mcp-splunk) | Beta |
