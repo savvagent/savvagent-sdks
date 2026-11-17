@@ -140,6 +140,15 @@ the cookie: not HttpOnly (the browser SDK reads it), `Path=/`,
   own, `getAnonymousId(request)` returns the ID and
   `setAnonymousIdCookie(request, response)` sets the cookie on the response
   you return.
+  When `createMiddleware`'s `onRequest` returns its own response (for
+  example `NextResponse.rewrite(...)`), the cookie is set on that response,
+  but the page rendered for that request does not see the new ID unless you
+  forward it: build the response with the request headers carrying it, or
+  use `rewriteIfEnabled`, which does. Otherwise that first page evaluates
+  with an ID of its own, and the visitor gets the middleware's ID from the
+  next request on.
+  `Secure` is set when the request URL is https or `x-forwarded-proto` is
+  `https` (behind a TLS-terminating proxy).
 - **Server Actions and Route Handlers**: the server helpers set the cookie
   through `cookies()`.
 - **Server Components** cannot set cookies. Without the middleware, a new

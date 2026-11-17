@@ -25,10 +25,11 @@ export interface RequestScopeOptions {
   /** The request's context, usually from {@link buildRequestContext}. */
   context?: FlagContext;
   /**
-   * The authenticated user's ID, when the caller knows it. A string is used
-   * as `user_id`; `null` means "no user". Either way `getUserId` is not
-   * called and a trusted `user_id` cookie is ignored. `undefined` means
-   * "not given".
+   * The authenticated user's ID, when the caller knows it. Any value other
+   * than `undefined` is explicit: `getUserId` is not called, and a trusted
+   * `user_id` cookie in `context` is dropped. A non-empty string becomes
+   * `user_id`; `null` or `''` means "no user", so the request is evaluated
+   * without any `user_id`. `undefined` means "not given".
    */
   userId?: string | null;
   /**
@@ -56,8 +57,11 @@ export interface RequestScopeOptions {
 
 /**
  * Flag evaluation scoped to one request. Every method merges the request's
- * context with the context you pass; values you pass win (undefined, null
- * and '' do not override).
+ * context with the context you pass; values you pass win, except that
+ * undefined, null and '' are ignored in that merge. So an empty `user_id`
+ * passed to a method does not clear the request's user: to evaluate with no
+ * user, pass `userId: null` (or `''`) to {@link createRequestScope}, which
+ * skips `getUserId` and drops a trusted cookie.
  */
 export interface RequestScope {
   /** The client evaluations go to, or null (see {@link RequestScopeOptions.client}). */

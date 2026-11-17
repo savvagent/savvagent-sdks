@@ -19,7 +19,7 @@ import {
   parseCookies,
 } from '@savvagent/sdk/server';
 import { cookies, headers } from 'next/headers';
-import { cache } from 'react';
+import * as React from 'react';
 
 export { DEFAULT_EVALUATION_TIMEOUT_MS } from '@savvagent/sdk/server';
 
@@ -74,12 +74,22 @@ function fallbackFor(config: FlagClientConfig | undefined) {
 }
 
 /**
- * The anonymous ID of a visitor who has no `savvagent_anonymous_id` cookie
- * yet, one per request (React's `cache` is per request on the server). The
- * middleware from `@savvagent/nextjs/middleware` normally assigns it before
- * the page renders; this covers apps without it.
+ * React's `cache`, which memoizes per request on the server. React exports it
+ * only under the `react-server` condition (App Router); in the Pages Router or
+ * with React 18 outside Server Components it is missing. Read it from the
+ * namespace, so a missing export is `undefined` rather than an import error.
  */
-const requestAnonymousId = cache((): string => newAnonymousId());
+const reactCache = (React as { cache?: <T extends (...args: never[]) => unknown>(fn: T) => T }).cache;
+
+/**
+ * The anonymous ID of a visitor who has no `savvagent_anonymous_id` cookie
+ * yet, one per request where React's `cache` exists. Without it, each call
+ * gets a new ID (stored in the cookie where Next.js allows it). The
+ * middleware from `@savvagent/nextjs/middleware` normally assigns the ID
+ * before the page renders; this covers apps without it.
+ */
+const requestAnonymousId: () => string =
+  typeof reactCache === 'function' ? reactCache((): string => newAnonymousId()) : () => newAnonymousId();
 
 /**
  * Store a newly assigned anonymous ID in the visitor's cookie. Next.js

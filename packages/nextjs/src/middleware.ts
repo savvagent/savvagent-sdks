@@ -123,8 +123,17 @@ function newIdOf(request: NextRequest): string | undefined {
   return request.cookies.get(ANONYMOUS_ID_COOKIE)?.value ? undefined : assignedIds.get(request);
 }
 
+/**
+ * Whether the visitor reached the site over https: the request URL, or the
+ * `x-forwarded-proto` header a TLS-terminating proxy sets (as the server
+ * helpers read it).
+ */
 function isSecureRequest(request: NextRequest): boolean {
-  return request.nextUrl?.protocol === 'https:' || isSecureUrl(request.url);
+  return (
+    request.nextUrl?.protocol === 'https:' ||
+    isSecureUrl(request.url) ||
+    request.headers?.get('x-forwarded-proto')?.split(',')[0]?.trim() === 'https'
+  );
 }
 
 /**

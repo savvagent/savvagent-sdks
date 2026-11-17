@@ -183,6 +183,32 @@ describe('middleware', () => {
     expect(setCookieOf(response)).not.toMatch(/Secure/);
   });
 
+  it('sets Secure behind a TLS-terminating proxy (x-forwarded-proto: https)', async () => {
+    const { middleware } = load();
+    middleware.initMiddlewareClient({ apiKey: 'sdk_test' });
+    const request = new NextRequest('http://internal:3000/', { headers: { 'x-forwarded-proto': 'https, http' } });
+
+    const response = await middleware.createMiddleware()(request);
+
+    expect(anonymousIdIn(setCookieOf(response))).toMatch(/^anon_/);
+    expect(setCookieOf(response)).toMatch(/Secure/);
+    const id = middleware.getAnonymousId(request);
+    expect(middleware.setAnonymousIdCookie(request, new Response('ok')).headers.get('set-cookie')).toBe(
+      `savvagent_anonymous_id=${id}; Path=/; Max-Age=31536000; SameSite=Lax; Secure`
+    );
+  });
+
+  it('does not set Secure when x-forwarded-proto is http', async () => {
+    const { middleware } = load();
+    middleware.initMiddlewareClient({ apiKey: 'sdk_test' });
+
+    const response = await middleware.createMiddleware()(
+      new NextRequest('http://internal:3000/', { headers: { 'x-forwarded-proto': 'http' } })
+    );
+
+    expect(setCookieOf(response)).not.toMatch(/Secure/);
+  });
+
   it('leaves a returning visitor alone', async () => {
     const { middleware, evaluate } = load();
     middleware.initMiddlewareClient({ apiKey: 'sdk_test' });
