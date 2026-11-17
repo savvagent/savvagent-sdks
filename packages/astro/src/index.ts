@@ -778,7 +778,13 @@ export function getEnvironment(): string {
  * cookie (a user from the integration's `getUserId`, or a `user_id` passed in
  * the `context` argument, still applies). `trustUserIdCookie: true`, or
  * saying nothing, changes nothing: if the integration does not trust the
- * cookie, a helper cannot enable it. A helper's own `getUserId` and
+ * cookie, a helper cannot enable it. If `locals.savvagent` is not the scope
+ * the middleware created (for example a copy of it), narrowing cannot tell
+ * where its `user_id` came from, so the helper evaluates with a fresh scope:
+ * anonymous, because the integration's `getUserId` is not available to it
+ * (only a `getUserId` in the helper's own options, and a `user_id` in the
+ * call's `context`, apply). With no initialised client that scope returns
+ * defaults instead of throwing. A helper's own `getUserId` and
  * `evaluationTimeoutMs` are ignored when the request has `Astro.locals.savvagent`.
  */
 export interface RequestHelperOptions extends SavvagentMiddlewareOptions {
@@ -788,8 +794,9 @@ export interface RequestHelperOptions extends SavvagentMiddlewareOptions {
 
 /**
  * `locals` as seen by a helper that does not trust the `user_id` cookie: when
- * the request's user came from the cookie, calls evaluate without it. The
- * user is settled first, so one from `getUserId` is kept.
+ * the request's user came from the cookie, calls evaluate without it, and
+ * `context` omits it. The user is settled first, so one from `getUserId` is
+ * kept.
  */
 function withoutCookieUser(existing: SavvagentLocals): SavvagentLocals | undefined {
   const internals = localsInternals.get(existing);
@@ -799,7 +806,13 @@ function withoutCookieUser(existing: SavvagentLocals): SavvagentLocals | undefin
   const target = async (): Promise<SavvagentLocals> => ((await internals.cookieUser()) ? internals.withoutUser() : existing);
   return {
     client: existing.client,
-    context: existing.context,
+    // The narrowed view: no `user_id` while the user is the cookie's. Read at
+    // access time, so it reflects the settled user (a getUserId user is kept).
+    get context(): FlagContext {
+      if (!internals.cookieUserNow()) return existing.context;
+      const { user_id: _cookieUser, ...rest } = existing.context;
+      return rest;
+    },
     isEnabled: async (flagKey, context) => (await target()).isEnabled(flagKey, context),
     evaluate: async (flagKey, context) => (await target()).evaluate(flagKey, context),
     withFlag: async (flagKey, callback, context) => (await target()).withFlag(flagKey, callback, context),
@@ -813,8 +826,10 @@ function withoutCookieUser(existing: SavvagentLocals): SavvagentLocals | undefin
  * The request scope the helpers evaluate with: the request's
  * `Astro.locals.savvagent` when it exists, else a new scope with the same
  * rules (and no anonymous ID cookie of its own).
+ *
+ * @internal Exported for tests; not part of the public API.
  */
-function helperScope(request: Request, options: RequestHelperOptions): SavvagentLocals {
+export function helperScope(request: Request, options: RequestHelperOptions): SavvagentLocals {
   const existing = (options.locals as Partial<App.Locals> | undefined)?.savvagent;
   if (existing) {
     if (options.trustUserIdCookie !== false) return existing;
@@ -823,7 +838,9 @@ function helperScope(request: Request, options: RequestHelperOptions): Savvagent
     // Fail closed: narrowing was asked for, but the reused scope is unknown,
     // so evaluate with a fresh scope that does not trust the cookie.
   }
-  return createSavvagentLocals(getSavvagent(), request, {
+  // Not getSavvagent(): that throws when the client was never initialised,
+  // and a scope with no client returns defaults (reason 'error') instead.
+  return createSavvagentLocals(clientInstance ?? null, request, {
     defaults: clientDefaults,
     trustUserIdCookie: options.trustUserIdCookie,
     getUserId: options.getUserId,
