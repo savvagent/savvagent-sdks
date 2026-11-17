@@ -68,6 +68,25 @@ const client = new FlagClient({
 });
 ```
 
+A `srv_` server key is a secret. When it would be sent over a base URL that is not `https`, the client logs one warning at construction: `Savvagent Flags: the server key will be sent over http; use an https base_url`. Loopback hosts (`localhost`, `127.0.0.1`, `[::1]`) are exempt, for local development.
+
+### Defaults from an environment variable or a function
+
+For a service moving from env-var flags, `defaultsFrom` computes defaults when the client is built. `defaultFromEnv(name)` reads a variable once: `1`, `true`, `yes`, `on` and `0`, `false`, `no`, `off` (ignoring case and surrounding whitespace). An unset variable is ignored silently; any other value is ignored with a warning that names the variable but not its value. A function returning `true` or `false` replaces `defaults[key]`; `undefined` leaves `defaults[key]`, or `false`, in place. A function that throws is not caught: the error propagates out of the `FlagClient` constructor, so a broken default fails at startup.
+
+```typescript
+import { FlagClient, defaultFromEnv } from '@savvagent/node-server';
+
+const client = new FlagClient({
+  apiKey: process.env.SAVVAGENT_FLAGS_API_KEY!,
+  defaults: { 'beta-banner': false },
+  defaultsFrom: {
+    'new-checkout': defaultFromEnv('NEW_CHECKOUT'), // "when the server can't be reached, use NEW_CHECKOUT"
+    'beta-banner': () => (process.env.REGION === 'eu' ? true : undefined), // any function, called once
+  },
+});
+```
+
 ## Usage Examples
 
 ### Basic Flag Evaluation
@@ -205,6 +224,30 @@ Check if a flag is enabled (returns boolean).
 const enabled = await client.isEnabled('my-flag', { user_id: '123' });
 ```
 
+##### isEnabledCached(flagKey, context?)
+
+Read a flag synchronously, for code that cannot be `async`. It never makes a request or waits: it returns the unexpired cached value for this flag and context, else the configured default (`defaults` / `defaultsFrom`, else `false`). The cache is per context, so keep it warm by calling `isEnabled` or `evaluate` on the same context at least once per `cacheTtl`. A hit counts as an evaluation in telemetry (queued, and sent later in a batch); a miss does not.
+
+```typescript
+await client.isEnabled('new-banner', { user_id: '123' }); // warms the cache for this user
+
+function render(userId: string): string {
+  return client.isEnabledCached('new-banner', { user_id: userId }) ? 'new' : 'old';
+}
+```
+
+##### FlagClient.staticFlags(flags)
+
+A client for tests that serves fixed values and never touches the network: each listed flag evaluates to its value, any other flag to `false`, with `reason: 'static'`. No request, telemetry, stream or timer. Config and variation overrides still apply; `getAllFlags()` and `getEnterpriseFlags()` return `[]`. Not for production use.
+
+```typescript
+const client = FlagClient.staticFlags({ 'new-checkout': true, 'beta-banner': false });
+await client.isEnabled('new-checkout'); // true
+client.isEnabledCached('anything-else'); // false
+```
+
+It accepts a record, a `Map`, or an array of `[key, value]` pairs.
+
 ##### trackError(flagKey, error, context?)
 
 Track an error that occurred in flagged code.
@@ -241,6 +284,28 @@ Clean up resources (flush telemetry, close connections).
 ```typescript
 client.close();
 ```
+
+### FlagCache
+
+`FlagCache` is the client's evaluation cache, exported for code that manages its own. The cache logic is `@savvagent/sdk`'s `FlagCache` (shared, not copied); node-server's class keeps its call shape:
+
+```typescript
+import { FlagCache, contextCacheKey } from '@savvagent/node-server'; // both from @savvagent/sdk
+
+const cache = new FlagCache(60_000, 10_000); // TTL in ms, max (flag, context) entries
+const ctx = contextCacheKey({ user_id: 'user-123', environment: 'production' });
+
+const generation = cache.generation('new-checkout'); // read before the request
+cache.set('new-checkout', true, 'flag-id', { limit: 5 }, 'treatment', ctx, { version: 3 }, generation);
+
+cache.getEntry('new-checkout', ctx); // { value: true, configuration: { limit: 5 }, variation: 'treatment', ... }
+cache.get('new-checkout');           // null: without a context key, only the empty-context entry is read
+cache.invalidate('new-checkout');    // every context; invalidate() with no key clears every flag
+```
+
+- Entries are keyed by flag key and context key (`contextCacheKey` of the context as sent: yours, with `application_id` and `environment` filled in). `get(key)` and `getEntry(key)` without a context key read only the entry stored for the empty context (`''`), never a value cached for another context.
+- Reads return `null` on a miss or an expired entry; at most `maxEntries` entries are kept (least recently used evicted). A TTL of 0 or `maxEntries` of 0 stores nothing.
+- `invalidate` and `clear` advance the generation that `set` checks, so a result whose request started before the invalidation is not cached.
 
 ## Best Practices
 

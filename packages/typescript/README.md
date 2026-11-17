@@ -149,6 +149,30 @@ if (client.isRealtimeConnected()) {
 }
 ```
 
+### Using `FlagCache` directly
+
+`FlagCache` is the client's evaluation cache, exported for code that builds its own client (`@savvagent/node-server` uses it). It is keyed by flag key and context key, where the context key is `contextCacheKey(context)` of the context as sent to the server:
+
+```typescript
+import { FlagCache, contextCacheKey, DEFAULT_CACHE_MAX_ENTRIES } from '@savvagent/sdk';
+
+const cache = new FlagCache(60_000, DEFAULT_CACHE_MAX_ENTRIES); // TTL in ms, LRU cap
+const key = contextCacheKey({ user_id: 'user-123', environment: 'production' });
+
+const generation = cache.generation('new-checkout'); // read before the request
+cache.set('new-checkout', true, undefined, key, undefined, generation); // dropped if invalidated since
+
+cache.get('new-checkout', key); // true
+cache.get('new-checkout');      // null: without a context key, only the empty-context entry is read
+cache.invalidate('new-checkout'); // every context
+```
+
+- `get(key)` and `getEntry(key)` without a context key read only the entry stored for the empty context (`''`), never a value cached for another context.
+- Reads return `null` on a miss or an expired entry. A TTL of 0 or `maxEntries` of 0 stores nothing.
+- `invalidate(key)` and `clear()` advance the generation that `set` checks, so a result whose request started before the invalidation is not cached.
+
+The flag-key rule and the defaults lookup are exported too: `isValidFlagKey(key)` (1-128 characters of `[A-Za-z0-9._-]`, not `.` or `..`) and `defaultFor(defaults, key)` (`true` only for an own `true` entry).
+
 ## Configuration
 
 ```typescript

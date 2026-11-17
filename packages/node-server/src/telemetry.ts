@@ -11,6 +11,10 @@ export class TelemetryService {
   private evaluationQueue: EvaluationEvent[] = [];
   private errorQueue: ErrorEvent[] = [];
   private flushInterval: NodeJS.Timeout | null = null;
+  /** A deferred evaluation flush is pending (see trackEvaluation's deferFlush). */
+  private flushScheduled = false;
+  /** Set by close(): a deferred flush scheduled earlier then sends nothing. */
+  private closed = false;
   private readonly BATCH_SIZE = 50;
   private readonly FLUSH_INTERVAL = 5000; // 5 seconds
 
@@ -26,15 +30,34 @@ export class TelemetryService {
 
   /**
    * Track a flag evaluation
+   *
+   * @param options.deferFlush - When the batch is full, send it from a later
+   *   turn of the event loop instead of from this call, so a synchronous
+   *   caller (`FlagClient.isEnabledCached`) never starts a request itself.
    */
-  trackEvaluation(event: EvaluationEvent): void {
+  trackEvaluation(event: EvaluationEvent, options?: { deferFlush?: boolean }): void {
     if (!this.enabled) return;
 
     this.evaluationQueue.push(event);
 
     if (this.evaluationQueue.length >= this.BATCH_SIZE) {
-      this.flushEvaluations();
+      if (options?.deferFlush) {
+        this.scheduleFlush();
+      } else {
+        this.flushEvaluations();
+      }
     }
+  }
+
+  /** Flush evaluations once, from a later turn of the event loop. */
+  private scheduleFlush(): void {
+    if (this.flushScheduled || this.closed) return;
+    this.flushScheduled = true;
+    setImmediate(() => {
+      this.flushScheduled = false;
+      if (this.closed) return;
+      this.flushEvaluations();
+    });
   }
 
   /**
@@ -151,6 +174,7 @@ export class TelemetryService {
    * Clean up resources
    */
   close(): void {
+    this.closed = true;
     if (this.flushInterval) {
       clearInterval(this.flushInterval);
       this.flushInterval = null;

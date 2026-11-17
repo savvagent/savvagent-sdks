@@ -3,8 +3,8 @@
  * AI-powered feature flags with automatic error detection
  */
 
-export { FlagClient } from './client';
-export { FlagCache } from './cache';
+export { FlagClient, isValidFlagKey, defaultFor } from './client';
+export { FlagCache, contextCacheKey, DEFAULT_CACHE_MAX_ENTRIES } from './cache';
 export { TelemetryService } from './telemetry';
 export { RealtimeService } from './realtime';
 

@@ -1,190 +1,86 @@
+import {
+  FlagCache as SharedFlagCache,
+  contextCacheKey,
+  DEFAULT_CACHE_MAX_ENTRIES,
+} from '@savvagent/sdk';
 import { CacheEntry } from './types';
 
-/**
- * Deterministic cache key for an evaluation context: object keys are sorted
- * at every level, undefined values are dropped and values with `toJSON`
- * (such as Date) are serialized the way the request body serializes them,
- * so equal contexts always produce the same key and different request
- * bodies never share one.
- */
-export function contextCacheKey(context: unknown): string {
-  return JSON.stringify(normalize(context, new WeakSet())) ?? '';
-}
-
-/**
- * Mirrors JSON.stringify: `toJSON` is called at most once per value (its
- * result is not asked for `toJSON` again, so a `toJSON` returning `this`
- * cannot recurse), and a cyclic context throws a TypeError, as
- * JSON.stringify would when building the request body.
- */
-function normalize(value: unknown, seen: WeakSet<object>, applyToJSON = true): unknown {
-  if (value === null || typeof value !== 'object') return value;
-  if (applyToJSON) {
-    const toJSON = (value as { toJSON?: unknown }).toJSON;
-    if (typeof toJSON === 'function') {
-      return normalize(toJSON.call(value), seen, false);
-    }
-  }
-  if (seen.has(value)) {
-    throw new TypeError('Cannot build a cache key for a cyclic evaluation context');
-  }
-  seen.add(value);
-  let out: unknown;
-  if (Array.isArray(value)) {
-    out = value.map((item) => (item === undefined ? null : normalize(item, seen)));
-  } else {
-    // A null-prototype object keeps an own "__proto__" key as plain data.
-    const obj: Record<string, unknown> = Object.create(null);
-    for (const key of Object.keys(value as Record<string, unknown>).sort()) {
-      const item = (value as Record<string, unknown>)[key];
-      if (item !== undefined) obj[key] = normalize(item, seen);
-    }
-    out = obj;
-  }
-  // Only ancestors count as a cycle; a shared (non-cyclic) reference is fine.
-  seen.delete(value);
-  return out;
-}
-
-/** Default maximum number of cached (flag, context) entries. */
-export const DEFAULT_CACHE_MAX_ENTRIES = 10000;
+export { contextCacheKey, DEFAULT_CACHE_MAX_ENTRIES };
 
 /**
  * In-memory cache for flag values with TTL and LRU eviction.
  *
- * Entries are keyed by flag key AND evaluation context (see
- * {@link contextCacheKey}), so a result evaluated for one user is never
- * served to another. At most `maxEntries` entries are kept (least recently
- * used are evicted), so a server seeing many distinct contexts stays
- * bounded. Invalidating a flag key clears its entries for every context.
- * A TTL of 0 (or less) disables caching.
+ * The cache itself is `@savvagent/sdk`'s `FlagCache` (#27): keying, the LRU
+ * cap, expiry and the invalidation generations live there, once. This class
+ * only keeps node-server's published call shape: `set` takes the
+ * configuration and variation as their own arguments, `getEntry` returns them
+ * (and the server's version and scope) as top-level {@link CacheEntry}
+ * fields, and `invalidate()` with no key clears every flag.
+ *
+ * Public contract:
+ *
+ * - Entries are keyed by flag key and context key. The context key is
+ *   {@link contextCacheKey} of the evaluation context as sent to the server
+ *   (the caller's context with `application_id` and `environment` filled in).
+ *   It defaults to `''`, the empty-context entry: `get(key)` and
+ *   `getEntry(key)` read only a value stored with `set(key, value)` (or an
+ *   explicit `''`), never a value cached for some other context.
+ * - A read returns `null` for a missing or expired entry; a hit becomes the
+ *   most recently used entry. At most `maxEntries` entries are kept.
+ * - {@link FlagCache.invalidate} drops a flag for every context (or every
+ *   flag, without a key) and {@link FlagCache.clear} drops everything; both
+ *   advance the {@link FlagCache.generation} that {@link FlagCache.set}
+ *   checks, so a result whose request started before the invalidation is not
+ *   cached.
+ * - A TTL of 0 (or less), or `maxEntries` of 0, stores nothing.
  */
 export class FlagCache {
-  /** Entries in least-recently-used order (Map iteration order). */
-  private entries: Map<string, CacheEntry> = new Map();
-  /** Entry keys per flag key, so a flag can be invalidated exactly. */
-  private byFlag: Map<string, Set<string>> = new Map();
-  private ttl: number;
-  private maxEntries: number;
-  private lastSweep = 0;
-  /** Bumped by every full invalidation, so a write that predates it is dropped. */
-  private epoch = 0;
-  /** Per-flag invalidation counters since the last epoch bump. */
-  private generations: Map<string, number> = new Map();
+  private readonly shared: SharedFlagCache;
 
   constructor(ttl: number = 60000, maxEntries: number = DEFAULT_CACHE_MAX_ENTRIES) {
-    this.ttl = ttl;
-    // Infinity means "no cap"; NaN (e.g. Number(undefinedEnvVar)) falls back
-    // to the default rather than silently disabling the cap.
-    this.maxEntries =
-      maxEntries === Infinity
-        ? Infinity
-        : Number.isFinite(maxEntries)
-          ? Math.max(0, Math.floor(maxEntries))
-          : DEFAULT_CACHE_MAX_ENTRIES;
+    this.shared = new SharedFlagCache(ttl, maxEntries);
+  }
+
+  /** Number of cached (flag, context) entries. */
+  get size(): number {
+    return this.shared.size;
+  }
+
+  /**
+   * Get a cached flag value for a flag and context key, or `null` on a miss.
+   * Without `contextKey` this reads only the empty-context entry.
+   */
+  get(key: string, contextKey: string = ''): boolean | null {
+    return this.shared.get(key, contextKey);
+  }
+
+  /**
+   * Get a complete cached entry (value, configuration, variation and the
+   * server's metadata) for a flag and context key, or `null` on a miss.
+   * Without `contextKey` this reads only the empty-context entry.
+   */
+  getEntry(key: string, contextKey: string = ''): CacheEntry | null {
+    const entry = this.shared.getEntry(key, contextKey);
+    if (!entry) return null;
+    const metadata = entry.metadata ?? {};
+    return {
+      value: entry.value,
+      configuration: metadata.configuration,
+      variation: metadata.variation ?? undefined,
+      expiresAt: entry.expiresAt,
+      flagId: entry.flagId,
+      version: metadata.version,
+      scope: metadata.scope ?? undefined,
+    };
   }
 
   /**
    * The flag's invalidation generation. Read it before sending an evaluate
    * request and pass it to {@link FlagCache.set}, which drops the write if
-   * the flag was invalidated (or the cache cleared) in the meantime: the
-   * result was computed from state that is now known to be stale (#166).
+   * the flag was invalidated (or the cache cleared) in the meantime.
    */
   generation(key: string): string {
-    return `${this.epoch}.${this.generations.get(key) ?? 0}`;
-  }
-
-  private bump(key?: string): void {
-    if (key) {
-      this.generations.set(key, (this.generations.get(key) ?? 0) + 1);
-    } else {
-      // The epoch makes every earlier generation unequal, so the per-flag
-      // counters can restart.
-      this.epoch++;
-      this.generations.clear();
-    }
-  }
-
-  /** Number of cached (flag, context) entries. */
-  get size(): number {
-    return this.entries.size;
-  }
-
-  private static entryKey(key: string, contextKey: string): string {
-    return `${key}\0${contextKey}`;
-  }
-
-  private remove(key: string, entryKey: string): void {
-    this.entries.delete(entryKey);
-    const keys = this.byFlag.get(key);
-    if (keys) {
-      keys.delete(entryKey);
-      if (keys.size === 0) this.byFlag.delete(key);
-    }
-  }
-
-  /**
-   * Get a cached entry for a flag and context key. A hit becomes the most
-   * recently used entry.
-   */
-  getEntry(key: string, contextKey: string = ''): CacheEntry | null {
-    const entryKey = FlagCache.entryKey(key, contextKey);
-    const entry = this.entries.get(entryKey);
-    if (!entry) return null;
-
-    if (Date.now() > entry.expiresAt) {
-      this.remove(key, entryKey);
-      return null;
-    }
-
-    // Refresh LRU position.
-    this.entries.delete(entryKey);
-    this.entries.set(entryKey, entry);
-    return entry;
-  }
-
-  /**
-   * Get a cached flag value for a flag and context key.
-   */
-  get(key: string, contextKey: string = ''): boolean | null {
-    const entry = this.getEntry(key, contextKey);
-    return entry ? entry.value : null;
-  }
-
-  private store(key: string, contextKey: string, entry: CacheEntry): void {
-    if (this.ttl <= 0 || this.maxEntries === 0) return;
-    const entryKey = FlagCache.entryKey(key, contextKey);
-    this.entries.delete(entryKey);
-    this.entries.set(entryKey, entry);
-    let keys = this.byFlag.get(key);
-    if (!keys) {
-      keys = new Set();
-      this.byFlag.set(key, keys);
-    }
-    keys.add(entryKey);
-
-    // Sweeping is O(size), so do it at most once per TTL: with a full cache
-    // and nothing expired, sweeping on every write would scan the whole map
-    // each time. All entries share one TTL, so evicting the least recently
-    // used entry below is close to evicting the next one to expire anyway.
-    if (this.entries.size > this.maxEntries && Date.now() - this.lastSweep >= this.ttl) {
-      this.sweepExpired();
-    }
-    // Evict least recently used entries until within the cap.
-    while (this.entries.size > this.maxEntries) {
-      const oldest = this.entries.keys().next().value as string;
-      this.remove(oldest.slice(0, oldest.lastIndexOf('\0')), oldest);
-    }
-  }
-
-  private sweepExpired(): void {
-    const now = Date.now();
-    this.lastSweep = now;
-    for (const [entryKey, entry] of this.entries) {
-      if (now > entry.expiresAt) {
-        this.remove(entryKey.slice(0, entryKey.lastIndexOf('\0')), entryKey);
-      }
-    }
+    return this.shared.generation(key);
   }
 
   /**
@@ -205,46 +101,38 @@ export class FlagCache {
     metadata?: { version?: number; scope?: string },
     generation?: string
   ): void {
-    if (generation !== undefined && generation !== this.generation(key)) return;
-    this.store(key, contextKey, {
+    this.shared.set(
+      key,
       value,
-      configuration,
-      variation,
-      expiresAt: Date.now() + this.ttl,
       flagId,
-      version: metadata?.version,
-      scope: metadata?.scope,
-    });
+      contextKey,
+      { configuration, variation, version: metadata?.version, scope: metadata?.scope },
+      generation
+    );
   }
 
   /**
-   * Invalidate a specific flag (for every context) or all flags
+   * Invalidate a specific flag (for every context) or, without a key, all flags.
    */
   invalidate(key?: string): void {
     if (!key) {
-      this.clear();
+      this.shared.clear();
       return;
     }
-    this.bump(key);
-    // Keep the per-flag counters bounded like the entries: past the cap,
-    // move to a new epoch. That drops every in-flight write (a spurious
-    // miss, never a stale hit), and resets the map.
-    if (this.generations.size > this.maxEntries) {
-      this.epoch++;
-      this.generations.clear();
-    }
-    const keys = this.byFlag.get(key);
-    if (!keys) return;
-    for (const entryKey of keys) this.entries.delete(entryKey);
-    this.byFlag.delete(key);
+    this.shared.invalidate(key);
   }
 
   /**
-   * Clear all cached values
+   * Clear all cached values.
    */
   clear(): void {
-    this.bump();
-    this.entries.clear();
-    this.byFlag.clear();
+    this.shared.clear();
+  }
+
+  /**
+   * Get all cached flag keys (each flag listed once, whatever its contexts).
+   */
+  keys(): string[] {
+    return this.shared.keys();
   }
 }
