@@ -1,7 +1,10 @@
+import { isValidFlagKey, defaultFor } from '@savvagent/sdk';
 import { FlagCache, contextCacheKey, DEFAULT_CACHE_MAX_ENTRIES } from './cache';
+import { resolveDefaults } from './defaults';
 import { TelemetryService } from './telemetry';
 import { RealtimeService } from './realtime';
 import {
+  CacheEntry,
   FlagClientConfig,
   FlagContext,
   FlagEvaluationResult,
@@ -12,16 +15,27 @@ import {
   FlagListResponse,
 } from './types';
 
+/** Hosts a key may be sent to over plain HTTP without a warning (as in the Rust SDK). */
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+
 /**
- * Whether `key` can be a flag key. Mirrors the server's rule: 1-128 characters
- * from `[A-Za-z0-9._-]`, and not `.` or `..`. The key is a URL path segment,
- * and `.` and `..` cannot be carried in one (clients normalize them away), so
- * no flag can have those keys. Checking before the request keeps an invalid
- * key, and the API key sent with it, from steering the request to another
- * endpoint (#118).
+ * Warn once when a server key would cross the network in clear text: a
+ * `srv_` key with a base URL that is not `https` and not a loopback host
+ * (#44). The wording matches the Rust SDK.
  */
-function isValidFlagKey(key: unknown): key is string {
-  return typeof key === 'string' && key !== '.' && key !== '..' && /^[A-Za-z0-9._-]{1,128}$/.test(key);
+function warnIfServerKeyInClear(apiKey: string, baseUrl: string): void {
+  if (!apiKey.startsWith('srv_')) return;
+  let url: URL;
+  try {
+    url = new URL(baseUrl);
+  } catch {
+    // An unparseable base URL fails its requests; there is nothing to warn about yet.
+    return;
+  }
+  const scheme = url.protocol.replace(/:$/, '');
+  if (scheme !== 'https' && !LOOPBACK_HOSTS.has(url.hostname)) {
+    console.warn(`Savvagent Flags: the server key will be sent over ${scheme}; use an https base_url`);
+  }
 }
 
 /**
@@ -39,6 +53,8 @@ export class FlagClient {
   private realtime: RealtimeService | null = null;
   private configOverrides: Map<string, ConfigOverrideEntry> = new Map();
   private variationOverrides: Map<string, VariationOverrideEntry> = new Map();
+  /** Set by {@link FlagClient.staticFlags}: the values served instead of any lookup. */
+  private fixed: Map<string, boolean> | null = null;
 
   constructor(config: FlagClientConfig) {
     // Apply defaults
@@ -51,7 +67,9 @@ export class FlagClient {
       cacheTtl: config.cacheTtl ?? 60000,
       cacheMaxEntries: config.cacheMaxEntries ?? DEFAULT_CACHE_MAX_ENTRIES,
       enableTelemetry: config.enableTelemetry ?? true,
-      defaults: config.defaults || {},
+      // Computed once, here: a `defaultsFrom` function is not re-run per lookup.
+      defaults: resolveDefaults(config.defaults || {}, config.defaultsFrom || {}),
+      defaultsFrom: config.defaultsFrom || {},
       onError: config.onError || ((error) => console.error('[Savvagent]', error)),
       timeout: config.timeout || 5000,
     };
@@ -61,6 +79,8 @@ export class FlagClient {
     if (!this.config.apiKey || (!this.config.apiKey.startsWith('sdk_') && !this.config.apiKey.startsWith('srv_'))) {
       throw new Error('Invalid API key. API keys must start with "sdk_" (SDK key) or "srv_" (Server key)');
     }
+
+    warnIfServerKeyInClear(this.config.apiKey, this.config.baseUrl);
 
     // Initialize services
     this.cache = new FlagCache(this.config.cacheTtl, this.config.cacheMaxEntries);
@@ -91,12 +111,48 @@ export class FlagClient {
   }
 
   /**
-   * The configured default for a flag. An own-property lookup, so a key such
-   * as `__proto__` or `toString` never reads `Object.prototype`.
+   * A client that serves fixed flag values and never touches the network, for
+   * tests.
+   *
+   * Each flag in `flags` evaluates to its value, any other flag to `false`;
+   * `evaluate` reports `reason: 'static'`. No request is made, nothing is
+   * reported, no stream is opened and no timer is started. Config and
+   * variation overrides still apply, which lets a test exercise code that
+   * reads them. `getAllFlags` and `getEnterpriseFlags` return `[]`. It is not
+   * for production use: it ignores the server entirely.
+   *
+   * @example
+   * ```ts
+   * const client = FlagClient.staticFlags({ 'new-checkout': true });
+   * await client.isEnabled('new-checkout'); // true
+   * client.isEnabledCached('anything-else'); // false
+   * ```
+   */
+  static staticFlags(
+    flags: Readonly<Record<string, boolean>> | Iterable<readonly [string, boolean]>
+  ): FlagClient {
+    const client = new FlagClient({
+      apiKey: 'sdk_static',
+      enableRealtime: false,
+      enableTelemetry: false,
+    });
+    const entries: Iterable<readonly [string, boolean]> =
+      Symbol.iterator in Object(flags)
+        ? (flags as Iterable<readonly [string, boolean]>)
+        : Object.entries(flags as Record<string, boolean>);
+    const fixed = new Map<string, boolean>();
+    for (const [key, value] of entries) fixed.set(key, value === true);
+    client.fixed = fixed;
+    return client;
+  }
+
+  /**
+   * The configured default for a flag (`defaults` after `defaultsFrom`). An
+   * own-property lookup, so a key such as `__proto__` or `toString` never
+   * reads `Object.prototype`.
    */
   private defaultFor(key: string): boolean {
-    const defaults = this.config.defaults;
-    return Object.prototype.hasOwnProperty.call(defaults, key) && defaults[key] === true;
+    return defaultFor(this.config.defaults, key);
   }
 
   /**
@@ -145,6 +201,18 @@ export class FlagClient {
         value: typeof key === 'string' && this.defaultFor(key),
         reason: 'error',
         metadata: { description: error.message },
+      };
+    }
+
+    if (this.fixed) {
+      const configOverride = this.configOverrides.get(flagKey);
+      const variationOverride = this.variationOverrides.get(flagKey);
+      return {
+        key: flagKey,
+        value: this.fixed.get(flagKey) === true,
+        configuration: configOverride?.config,
+        variation: variationOverride?.variation,
+        reason: 'static',
       };
     }
 
@@ -352,6 +420,62 @@ export class FlagClient {
   async isEnabled(flagKey: string, context?: FlagContext): Promise<boolean> {
     const result = await this.evaluate(flagKey, context);
     return result.value;
+  }
+
+  /**
+   * Read a flag without waiting, for code that cannot be `async`.
+   *
+   * It makes no request and does not wait: it returns the unexpired cached
+   * value for this flag and context (the same context passed to an earlier
+   * `evaluate` or `isEnabled`, since the cache is per context), and otherwise
+   * the flag's configured default (`defaults` / `defaultsFrom`, else `false`).
+   * A flag that has never been looked up, one whose entry has outlived
+   * `cacheTtl`, and one invalidated by a realtime update are all misses, so
+   * something must keep the cache warm: call `evaluate` or `isEnabled` on the
+   * same context at least once per TTL. A hit is counted as an evaluation in
+   * telemetry, as a cached `evaluate` is (queued; the batch is sent later,
+   * never from this call); a miss is not. On a client from
+   * {@link FlagClient.staticFlags} it returns the fixed value. Config and
+   * variation overrides never change the answer.
+   *
+   * @example
+   * ```ts
+   * const client = new FlagClient({ apiKey, defaults: { 'new-banner': true } });
+   * client.isEnabledCached('new-banner'); // true: nothing cached yet, so the default
+   * await client.isEnabled('new-banner', { user_id: 'u1' }); // warms the cache for u1
+   * client.isEnabledCached('new-banner', { user_id: 'u1' }); // the cached value
+   * ```
+   */
+  isEnabledCached(flagKey: string, context?: FlagContext): boolean {
+    // As `evaluate` does, a key no flag can have gets its default.
+    if (!isValidFlagKey(flagKey)) {
+      const key: unknown = flagKey;
+      return typeof key === 'string' && this.defaultFor(key);
+    }
+    if (this.fixed) {
+      return this.fixed.get(flagKey) === true;
+    }
+    let entry: CacheEntry | null = null;
+    try {
+      entry = this.cache.getEntry(flagKey, contextCacheKey(this.buildEvalContext(context)));
+    } catch {
+      // A context that cannot be keyed (e.g. cyclic) is a miss, never a throw.
+    }
+    if (entry === null) {
+      return this.defaultFor(flagKey);
+    }
+    this.lastValues.set(flagKey, entry.value);
+    this.telemetry.trackEvaluation(
+      {
+        flagKey,
+        result: entry.value,
+        context,
+        durationMs: 0,
+        timestamp: new Date().toISOString(),
+      },
+      { deferFlush: true }
+    );
+    return entry.value;
   }
 
   /**
@@ -647,6 +771,7 @@ export class FlagClient {
    * ```
    */
   async getAllFlags(environment: string = 'development'): Promise<FlagDefinition[]> {
+    if (this.fixed) return [];
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), this.config.timeout);
@@ -699,6 +824,7 @@ export class FlagClient {
    * ```
    */
   async getEnterpriseFlags(environment: string = 'development'): Promise<FlagDefinition[]> {
+    if (this.fixed) return [];
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), this.config.timeout);

@@ -30,6 +30,23 @@ export interface FlagClientConfig {
   enableTelemetry?: boolean;
   /** Default flag values when evaluation fails */
   defaults?: Record<string, boolean>;
+  /**
+   * Defaults computed when the client is built, for a default that is not a
+   * constant: an environment variable (see `defaultFromEnv`) or any function.
+   * Each function is called once, in the constructor, not per lookup. A
+   * `true` or `false` result replaces `defaults[key]`; anything else
+   * (`undefined` included) leaves `defaults[key]`, or the built-in `false`,
+   * in place.
+   *
+   * @example
+   * ```ts
+   * defaultsFrom: {
+   *   'new-checkout': defaultFromEnv('NEW_CHECKOUT'),
+   *   'beta-banner': () => process.env.REGION === 'eu',
+   * }
+   * ```
+   */
+  defaultsFrom?: Record<string, () => boolean | undefined>;
   /** Custom error handler */
   onError?: (error: Error) => void;
   /** Request timeout in milliseconds (default: 5000) */
@@ -76,7 +93,8 @@ export interface FlagEvaluationResult {
   /** Variation identifier for multi-variant flags (Phase 2) */
   variation?: string;
   /** Reason for the value (cached, evaluated, default) */
-  reason: 'cached' | 'evaluated' | 'default' | 'error';
+  /** `static` is the fixed value of a client from `FlagClient.staticFlags` */
+  reason: 'cached' | 'evaluated' | 'default' | 'error' | 'static';
   /** Metadata about the flag */
   metadata?: {
     flagId?: string;
