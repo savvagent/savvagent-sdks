@@ -167,9 +167,14 @@ public class FlagClientConfig {
          * <p>The map given to {@link #defaults(Map)} is never modified: the default is written to
          * a copy.
          *
+         * <p>A null {@code value} throws {@link NullPointerException}. A supplier that throws is
+         * not caught: the exception propagates out of this method, while the configuration is
+         * being built, so a broken default fails at startup rather than silently.
+         *
          * @param flagKey the flag
          * @param value   gives the default, or an empty Optional to leave it unset
          * @return this builder
+         * @throws NullPointerException if {@code value} is null
          */
         public Builder defaultFrom(String flagKey, Supplier<Optional<Boolean>> value) {
             Optional<Boolean> result = value.get();
