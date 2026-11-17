@@ -178,6 +178,21 @@ class SavvagentClientNetworkTest {
     }
 
     @Test
+    fun testInvalidFlagKeyMessageHasNoLineSeparatorsOrBidiControls() = runTest {
+        val result = client.evaluate("a\u2028b\u2029c\u202Ed\u200Be", UserContext(userId = "user-123"))
+
+        val message = result.exceptionOrNull()!!.message!!
+        assertTrue(message.contains("a?b?c?d?e"))
+        assertTrue(
+            message.none {
+                val type = Character.getType(it).toByte()
+                type == Character.LINE_SEPARATOR || type == Character.PARAGRAPH_SEPARATOR || type == Character.FORMAT
+            }
+        )
+        assertEquals(0, mockWebServer.requestCount)
+    }
+
+    @Test
     fun testValidFlagKeysAreSent() = runTest {
         val longest = "a".repeat(128)
         val validKeys = listOf("test-flag", "My_Flag.v2", "a", "...", longest)

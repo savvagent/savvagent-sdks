@@ -41,6 +41,7 @@ import savvagent, {
   type SavvagentLocals,
 } from '../src/index';
 import { FlagClient } from '@savvagent/sdk';
+import { withoutCookieUser } from '../src/helper-scope';
 import { fileURLToPath } from 'node:url';
 
 function makeRequest(headers: Record<string, string> = {}): Request {
@@ -457,6 +458,105 @@ describe('a helper can narrow the user_id cookie trust, never widen it (#57)', (
     });
     expect(mockEvaluate).toHaveBeenCalledWith('g', { anonymous_id: 'anon_1', user_id: 'explicit' });
   });
+
+  const narrowedScope = (base: SavvagentLocals) => withoutCookieUser(base) as SavvagentLocals;
+
+  const narrowedOptions = (context: { locals: unknown }) => ({
+    locals: context.locals as unknown as App.Locals,
+    trustUserIdCookie: false as const,
+  });
+
+  it('trackError, narrowed, before the user is settled: reported without the cookie user_id', async () => {
+    const context = await locals({ trustUserIdCookie: true });
+    mockTrackError.mockReset();
+    const narrowed = narrowedScope((context.locals as unknown as { savvagent: SavvagentLocals }).savvagent);
+    const err = new Error('boom');
+    narrowed.trackError('f', err);
+    expect(mockTrackError).toHaveBeenCalledWith('f', err, { anonymous_id: 'anon_1' });
+  });
+
+  it('trackError, narrowed, after the user is settled: cookie user dropped, getUserId user kept', async () => {
+    const cookieCtx = await locals({ trustUserIdCookie: true });
+    const cookieScope = narrowedScope((cookieCtx.locals as unknown as { savvagent: SavvagentLocals }).savvagent);
+    await cookieScope.isEnabled('f');
+    mockTrackError.mockReset();
+    const err = new Error('boom');
+    cookieScope.trackError('f', err);
+    expect(mockTrackError).toHaveBeenCalledWith('f', err, { anonymous_id: 'anon_1' });
+
+    const userCtx = await locals({ trustUserIdCookie: true, getUserId: () => 'u-integration' });
+    const userScope = narrowedScope((userCtx.locals as unknown as { savvagent: SavvagentLocals }).savvagent);
+    await userScope.isEnabled('f');
+    mockTrackError.mockReset();
+    userScope.trackError('f', err);
+    expect(mockTrackError).toHaveBeenCalledWith('f', err, { anonymous_id: 'anon_1', user_id: 'u-integration' });
+  });
+
+  it('withFlag, narrowed: evaluated without the cookie user_id and the callback runs', async () => {
+    const context = await locals({ trustUserIdCookie: true });
+    const scope = narrowedScope((context.locals as unknown as { savvagent: SavvagentLocals }).savvagent);
+    mockEvaluate.mockReset();
+    mockEvaluate.mockImplementation(flagResult(true));
+    const callback = vi.fn(() => 'ran');
+    await expect(scope.withFlag('f', callback)).resolves.toBe('ran');
+    expect(mockEvaluate).toHaveBeenCalledWith('f', { anonymous_id: 'anon_1' });
+  });
+
+  it('narrowed context omits the cookie user_id, before and after settling', async () => {
+    const context = await locals({ trustUserIdCookie: true });
+    const base = (context.locals as unknown as { savvagent: SavvagentLocals }).savvagent;
+    expect(base.context.user_id).toBe('cookie-user');
+    const scope = narrowedScope(base);
+    expect(scope.context.user_id).toBeUndefined();
+    expect(scope.context.anonymous_id).toBe('anon_1');
+    await scope.isEnabled('f');
+    expect(scope.context.user_id).toBeUndefined();
+    // The integration's own scope is untouched.
+    expect(base.context.user_id).toBe('cookie-user');
+
+    const userCtx = await locals({ trustUserIdCookie: true, getUserId: () => 'u-integration' });
+    const userScope = narrowedScope((userCtx.locals as unknown as { savvagent: SavvagentLocals }).savvagent);
+    await userScope.isEnabled('f');
+    expect(userScope.context.user_id).toBe('u-integration');
+  });
+
+  it('createFlagMiddleware with trustUserIdCookie: false on reused locals evaluates without the cookie user_id', async () => {
+    const context = await locals({ trustUserIdCookie: true });
+    const middleware = createFlagMiddleware({ f: {} }, { trustUserIdCookie: false });
+    await middleware(context as never, async () => new Response('ok'));
+    expect(mockEvaluate).toHaveBeenCalledWith('f', { anonymous_id: 'anon_1' });
+    expect(mockEvaluate).not.toHaveBeenCalledWith('f', expect.objectContaining({ user_id: 'cookie-user' }));
+
+    mockEvaluate.mockClear();
+    await createFlagMiddleware({ f: {} }, {})(context as never, async () => new Response('ok'));
+    expect(mockEvaluate).toHaveBeenCalledWith('f', { anonymous_id: 'anon_1', user_id: 'cookie-user' });
+  });
+
+  it('narrowing with a getUserId that throws: no user_id at all', async () => {
+    const context = await locals({
+      trustUserIdCookie: true,
+      getUserId: () => {
+        throw new Error('auth down');
+      },
+    });
+    await evaluateForRequest(context.request, 'f', undefined, narrowedOptions(context));
+    expect(mockEvaluate).toHaveBeenCalledWith('f', { anonymous_id: 'anon_1' });
+    const scope = narrowedScope((context.locals as unknown as { savvagent: SavvagentLocals }).savvagent);
+    expect(scope.context.user_id).toBeUndefined();
+  });
+
+  it('narrowing with a getUserId that times out: no user_id at all', async () => {
+    mockEvaluate.mockReset();
+    mockEvaluate.mockImplementation(evaluated);
+    const onRequest = createSavvagentMiddleware(
+      { apiKey: 'sdk_mw' },
+      { trustUserIdCookie: true, evaluationTimeoutMs: 20, getUserId: () => new Promise(() => {}) } as never
+    );
+    const context = makeContext(cookieRequest());
+    await onRequest(context as never, async () => new Response('ok'));
+    await evaluateForRequest(context.request, 'f', undefined, narrowedOptions(context));
+    expect(mockEvaluate).toHaveBeenCalledWith('f', { anonymous_id: 'anon_1' });
+  });
 });
 
 describe('integration wiring', () => {
@@ -715,6 +815,20 @@ describe('createSavvagentLocals without a client', () => {
     await expect(locals.withFlag('off', () => 'x')).resolves.toBeNull();
     expect(() => locals.trackError('on', new Error('e'))).not.toThrow();
     expect(locals.client).toBeNull();
+  });
+});
+
+describe('helperScope fallback without an initialised client', () => {
+  it('returns defaults instead of throwing for an unrecognised scope', async () => {
+    vi.resetModules();
+    const { evaluateForRequest: evaluateFresh } = await import('../src/index');
+    const request = makeRequest({ cookie: 'user_id=cookie-user' });
+    await expect(
+      evaluateFresh(request, 'f', undefined, {
+        locals: { savvagent: { client: null } } as unknown as App.Locals,
+        trustUserIdCookie: false,
+      })
+    ).resolves.toBe(false);
   });
 });
 

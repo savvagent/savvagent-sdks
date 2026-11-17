@@ -197,11 +197,19 @@ class SavvagentClient(
     }
 
     /**
-     * Replaces control characters (CR, LF, tab and every other ISO control) with `?` so an
-     * untrusted flag key cannot forge log lines (CWE-117).
+     * Replaces control characters (CR, LF, tab and every other ISO control), Unicode line and
+     * paragraph separators (U+2028, U+2029) and format characters (bidi overrides such as
+     * U+202E) with `?` so an untrusted flag key cannot forge log lines (CWE-117) or reorder
+     * how the message is displayed.
      */
     private fun sanitizeForMessage(text: String): String =
-        text.map { if (Character.isISOControl(it)) '?' else it }.joinToString("")
+        text.map { if (isUnsafeForMessage(it)) '?' else it }.joinToString("")
+
+    private fun isUnsafeForMessage(c: Char): Boolean =
+        Character.isISOControl(c) || when (Character.getType(c).toByte()) {
+            Character.LINE_SEPARATOR, Character.PARAGRAPH_SEPARATOR, Character.FORMAT -> true
+            else -> false
+        }
 
     /**
      * Evaluate a feature flag and get full details (Phase 1 & 2)
