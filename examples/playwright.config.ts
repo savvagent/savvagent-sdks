@@ -34,12 +34,18 @@ function getWebServerConfig() {
     };
     if (!config.serverFlags) return [app];
     // The app's server evaluates flags against the mock Flags API (see SERVER_FLAGS_ENV).
+    // The mock starts only in a single-project run (PLAYWRIGHT_PROJECT set, as the
+    // test:e2e:<app> scripts do), so e2e/specs/server-evaluation.spec.ts needs one.
     const mockFlagsApi = {
       command: 'node e2e/mock-flags-api.mjs',
       url: `${MOCK_FLAGS_API_URL}/health`,
       timeout: 10000,
       reuseExistingServer: !process.env.CI,
-      env: { MOCK_FLAGS_API_PORT: String(MOCK_FLAGS_API_PORT) },
+      env: {
+        MOCK_FLAGS_API_PORT: String(MOCK_FLAGS_API_PORT),
+        // The mock accepts only the key the app's server client is given.
+        MOCK_FLAGS_API_KEY: SERVER_FLAGS_ENV.SAVVAGENT_FLAGS_API_KEY,
+      },
     };
     return [mockFlagsApi, app];
   }

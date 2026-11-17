@@ -19,9 +19,12 @@ async function anonymousIdCookies(response: Response): Promise<string[]> {
     .filter((cookie) => ANONYMOUS_COOKIE.test(cookie.trim()));
 }
 
-/** The text of a data-testid element in raw server HTML. */
+/**
+ * The text of a data-testid element in raw server HTML. Comments (React and
+ * Svelte hydration markers) are stripped first, so they cannot split the text.
+ */
 function testIdText(html: string, testId: string): string | undefined {
-  const match = new RegExp(`data-testid="${testId}"[^>]*>([^<]*)<`).exec(html);
+  const match = new RegExp(`data-testid="${testId}"[^>]*>([^<]*)<`).exec(html.replace(/<!--[\s\S]*?-->/g, ''));
   return match?.[1].trim();
 }
 

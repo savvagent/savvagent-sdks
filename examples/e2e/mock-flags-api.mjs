@@ -9,15 +9,19 @@
 // (`enabled`, `key`, ...). `server-demo` is enabled and every other flag is
 // disabled. `configuration.received` echoes the identifiers the SDK sent, so
 // a page can render the context the server evaluated with and a test can
-// assert on it. A request without a bearer key or a `context` object is
-// refused, as the real API would.
+// assert on it. A request without exactly `Bearer $MOCK_FLAGS_API_KEY`
+// (401), without `Content-Type: application/json` (415) or without a
+// `context` object (400) is refused, so a broken env path fails the tests.
 //
 // Started by examples/playwright.config.ts; run it alone with
-// `node e2e/mock-flags-api.mjs` (port: MOCK_FLAGS_API_PORT, default 5190).
+// `MOCK_FLAGS_API_KEY=<key> node e2e/mock-flags-api.mjs` (port:
+// MOCK_FLAGS_API_PORT, default 5190).
 
 import { createServer } from 'node:http';
 
 const port = Number(process.env.MOCK_FLAGS_API_PORT || 5190);
+// The only key accepted; the config passes the one the apps' server clients get.
+const API_KEY = process.env.MOCK_FLAGS_API_KEY;
 const ENABLED_FLAGS = new Set(['server-demo']);
 const EVALUATE_PATH = /^\/api\/flags\/([A-Za-z0-9._-]{1,128})\/evaluate$/;
 const MAX_BODY_BYTES = 64 * 1024;
@@ -65,8 +69,12 @@ const server = createServer(async (req, res) => {
     return;
   }
 
-  if (!/^Bearer \S+$/.test(req.headers.authorization ?? '')) {
-    send(res, 401, { error: 'missing bearer key' });
+  if (!API_KEY || req.headers.authorization !== `Bearer ${API_KEY}`) {
+    send(res, 401, { error: 'missing or wrong bearer key' });
+    return;
+  }
+  if ((req.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase() !== 'application/json') {
+    send(res, 415, { error: 'Content-Type must be application/json' });
     return;
   }
 
