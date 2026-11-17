@@ -107,6 +107,17 @@
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.6.1</version>
+                <configuration>
+                    <environmentVariables>
+                        <!-- Read by DefaultsTest through the public defaultFromEnv. -->
+                        <SAVVAGENT_FLAGS_JAVA_TEST_DEFAULT>Yes</SAVVAGENT_FLAGS_JAVA_TEST_DEFAULT>
+                    </environmentVariables>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-source-plugin</artifactId>
                 <version>3.3.0</version>
                 <executions>

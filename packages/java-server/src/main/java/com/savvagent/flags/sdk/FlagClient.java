@@ -10,7 +10,11 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
@@ -48,6 +52,11 @@ public class FlagClient implements AutoCloseable {
     private final ConcurrentHashMap<String, VariationOverrideEntry> variationOverrides;
     /** The flag-change stream, or null when real-time updates are off or could not start. */
     private final RealtimeStream realtime;
+    /**
+     * The fixed values of a client from {@link #staticFlags(Map)}, which never makes a request;
+     * null for every other client.
+     */
+    private final Map<String, Boolean> fixed;
 
     /**
      * Creates a client. When {@link FlagClientConfig#isEnableRealtime()} is true (the default),
@@ -66,7 +75,13 @@ public class FlagClient implements AutoCloseable {
 
     FlagClient(FlagClientConfig config, int maxContextsPerFlag,
             RealtimeStream.Options realtimeOptions) {
+        this(config, maxContextsPerFlag, realtimeOptions, null);
+    }
+
+    private FlagClient(FlagClientConfig config, int maxContextsPerFlag,
+            RealtimeStream.Options realtimeOptions, Map<String, Boolean> fixed) {
         this.config = config;
+        this.fixed = fixed;
         this.maxContextsPerFlag = maxContextsPerFlag;
         this.gson = new Gson();
         this.cache = new ConcurrentHashMap<>();
@@ -79,8 +94,13 @@ public class FlagClient implements AutoCloseable {
                 .writeTimeout(config.getTimeout(), TimeUnit.MILLISECONDS)
                 .build();
 
+        String plainHttp = plainHttpWarning(config.getApiKey(), config.getBaseUrl());
+        if (plainHttp != null) {
+            logger.warn("{}", plainHttp);
+        }
+
         RealtimeStream stream = null;
-        if (config.isEnableRealtime()) {
+        if (fixed == null && config.isEnableRealtime()) {
             try {
                 stream = RealtimeStream.start(config, httpClient, this::invalidateCache,
                         realtimeOptions);
@@ -93,6 +113,75 @@ public class FlagClient implements AutoCloseable {
         this.realtime = stream;
 
         logger.info("Savvagent Flags FlagClient initialized");
+    }
+
+    /**
+     * A client that serves fixed flag values and never touches the network, for tests.
+     *
+     * <p>Each flag in {@code flags} evaluates to its value and any other flag (or a null value) to
+     * {@code false}; {@link #evaluate} reports reason {@code "static"}. The map is copied. No
+     * request is made by any method and no stream is opened. Config and variation overrides
+     * still apply, which lets a test exercise code that reads them. It is not for production use:
+     * it ignores the server entirely.
+     *
+     * <pre>{@code
+     * try (FlagClient flags = FlagClient.staticFlags(Map.of("new-checkout", true))) {
+     *     flags.isEnabled("new-checkout");  // true
+     *     flags.isEnabled("anything-else"); // false
+     * }
+     * }</pre>
+     *
+     * @param flags flag key to value; null is the same as an empty map
+     * @return a client that never makes a request
+     */
+    public static FlagClient staticFlags(Map<String, Boolean> flags) {
+        return staticFlags(flags, "https://api.savvagent.com/flags");
+    }
+
+    /** {@link #staticFlags(Map)} with the base URL given, so a test can prove it is never used. */
+    static FlagClient staticFlags(Map<String, Boolean> flags, String baseUrl) {
+        Map<String, Boolean> copy = new HashMap<>();
+        if (flags != null) {
+            flags.forEach((key, value) -> copy.put(key, Boolean.TRUE.equals(value)));
+        }
+        FlagClientConfig config = FlagClientConfig.builder("sdk_static")
+                .baseUrl(baseUrl)
+                .enableRealtime(false)
+                .build();
+        return new FlagClient(config, MAX_CONTEXTS_PER_FLAG, RealtimeStream.Options.defaults(),
+                Collections.unmodifiableMap(copy));
+    }
+
+    /**
+     * The warning to log when a server key would cross the network in clear text, else null. A
+     * server key ({@code srv_}) is a secret; a client key ({@code sdk_}) is public and gets no
+     * warning. There is none for an {@code https} base URL, for the loopback hosts
+     * {@code localhost}, {@code 127.0.0.1} and {@code [::1]}, or for a base URL that is not an
+     * absolute URL, since no request can be sent to it. The wording is the Rust SDK's.
+     */
+    static String plainHttpWarning(String apiKey, String baseUrl) {
+        if (apiKey == null || !apiKey.startsWith("srv_") || baseUrl == null) {
+            return null;
+        }
+        URI uri;
+        try {
+            uri = new URI(baseUrl);
+        } catch (URISyntaxException e) {
+            return null;
+        }
+        if (uri.getScheme() == null) {
+            return null;
+        }
+        String scheme = uri.getScheme().toLowerCase(Locale.ROOT);
+        if (scheme.equals("https")) {
+            return null;
+        }
+        String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
+        if (host.equals("localhost") || host.equals("127.0.0.1") || host.equals("[::1]")) {
+            return null;
+        }
+        return "Savvagent Flags: the server key will be sent over " + scheme
+                + "; use an https base_url";
     }
 
     /**
@@ -112,6 +201,15 @@ public class FlagClient implements AutoCloseable {
             return new FlagEvaluationResult(flagKey, defaultFor(flagKey), "error", null);
         }
 
+        // A static client (staticFlags) answers from its fixed values, without a request.
+        if (fixed != null) {
+            Object configuration = applyConfigOverride(flagKey, null);
+            VariationOverrideEntry variationOverride = variationOverrides.get(flagKey);
+            String variation = variationOverride == null ? null : variationOverride.variation;
+            return new FlagEvaluationResult(flagKey, fixed.getOrDefault(flagKey, false),
+                    configuration, variation, "static", null);
+        }
+
         try {
             // Prepare context
             if (context == null) {
@@ -123,13 +221,8 @@ public class FlagClient implements AutoCloseable {
 
             // The cache is keyed by flag and context: the answer depends on the context. The
             // request body carries this same tree. A context that cannot be keyed is not cached.
-            JsonElement contextJson = gson.toJsonTree(context);
-            String ctxKey;
-            try {
-                ctxKey = canonicalJson(contextJson);
-            } catch (RuntimeException e) {
-                ctxKey = null;
-            }
+            JsonElement contextJson = contextTree(context);
+            String ctxKey = contextKey(contextJson);
 
             // Check cache first
             CacheEntry cachedEntry = ctxKey == null ? null : getCachedEntry(flagKey, ctxKey);
@@ -138,14 +231,7 @@ public class FlagClient implements AutoCloseable {
                 String variation = cachedEntry.variation;
 
                 // Apply overrides
-                ConfigOverrideEntry configOverride = configOverrides.get(flagKey);
-                if (configOverride != null) {
-                    if (configOverride.merge && configuration != null) {
-                        configuration = mergeConfigurations(configuration, configOverride.config);
-                    } else {
-                        configuration = configOverride.config;
-                    }
-                }
+                configuration = applyConfigOverride(flagKey, configuration);
 
                 VariationOverrideEntry variationOverride = variationOverrides.get(flagKey);
                 if (variationOverride != null) {
@@ -218,14 +304,7 @@ public class FlagClient implements AutoCloseable {
                 }
 
                 // Apply overrides to evaluated result
-                ConfigOverrideEntry configOverride = configOverrides.get(flagKey);
-                if (configOverride != null) {
-                    if (configOverride.merge && configuration != null) {
-                        configuration = mergeConfigurations(configuration, configOverride.config);
-                    } else {
-                        configuration = configOverride.config;
-                    }
-                }
+                configuration = applyConfigOverride(flagKey, configuration);
 
                 VariationOverrideEntry variationOverride = variationOverrides.get(flagKey);
                 if (variationOverride != null) {
@@ -342,6 +421,53 @@ public class FlagClient implements AutoCloseable {
     }
 
     /**
+     * Reads a flag without doing any I/O, for code that must not block on a request.
+     *
+     * <p>It returns the unexpired cached value for this flag and context, and otherwise the
+     * flag's configured default ({@link FlagClientConfig.Builder#defaults(Map)} and the like,
+     * else {@code false}). The cache is per context, so pass the same context an earlier
+     * {@link #evaluate} or {@link #isEnabled} used; the configured application id is filled in for
+     * the lookup as {@code evaluate} does, but the context passed is not modified. A flag that has
+     * never been looked up, one whose entry has outlived the cache TTL and one invalidated by the
+     * stream are all misses, so something must keep the cache warm: call {@code evaluate} or
+     * {@code isEnabled} on the same context at least once per TTL.
+     *
+     * <p>On a client from {@link #staticFlags(Map)} it returns the fixed value. Overrides never
+     * change the answer (they do not change a flag's value in {@code evaluate} either), and
+     * {@code onError} is never called: an invalid flag key gets its default.
+     *
+     * @param flagKey the flag
+     * @param context the evaluation context, or null for an empty one
+     * @return the cached value, else the default
+     */
+    public boolean isEnabledCached(String flagKey, FlagContext context) {
+        // As evaluate does, a key no flag can have gets its default.
+        if (!isValidFlagKey(flagKey)) {
+            return defaultFor(flagKey);
+        }
+        if (fixed != null) {
+            return fixed.getOrDefault(flagKey, false);
+        }
+        try {
+            String ctxKey = contextKey(preparedContextTree(context));
+            CacheEntry entry = ctxKey == null ? null : getCachedEntry(flagKey, ctxKey);
+            return entry != null ? entry.value : defaultFor(flagKey);
+        } catch (RuntimeException e) {
+            return defaultFor(flagKey);
+        }
+    }
+
+    /**
+     * {@link #isEnabledCached(String, FlagContext)} with no context.
+     *
+     * @param flagKey the flag
+     * @return the cached value, else the default
+     */
+    public boolean isEnabledCached(String flagKey) {
+        return isEnabledCached(flagKey, null);
+    }
+
+    /**
      * Get dynamic configuration for a flag (Phase 1)
      * Returns configuration if flag is enabled, otherwise returns null
      */
@@ -420,6 +546,50 @@ public class FlagClient implements AutoCloseable {
     int cachedContextCount(String flagKey) {
         ConcurrentHashMap<String, CacheEntry> contexts = cache.get(flagKey);
         return contexts == null ? 0 : contexts.size();
+    }
+
+    /** The JSON tree of {@code context} as it is sent in the request body. */
+    private JsonElement contextTree(FlagContext context) {
+        return gson.toJsonTree(context);
+    }
+
+    /**
+     * The JSON tree {@link #evaluate} would send for {@code context}, built without modifying it:
+     * an empty context for null, with the configured application id when it has none.
+     */
+    private JsonElement preparedContextTree(FlagContext context) {
+        JsonElement tree = contextTree(context == null ? new FlagContext() : context);
+        String applicationId = config.getApplicationId();
+        if ((context == null || context.getApplicationId() == null)
+                && applicationId != null && !applicationId.isEmpty()) {
+            tree.getAsJsonObject().addProperty("applicationId", applicationId);
+        }
+        return tree;
+    }
+
+    /**
+     * The cache key of a context's JSON tree, or null when it cannot be keyed (such a context is
+     * not cached). {@link #evaluate}, which stores entries, and {@link #isEnabledCached}, which
+     * reads them, both use it, so the two keys cannot drift apart.
+     */
+    private static String contextKey(JsonElement contextTree) {
+        try {
+            return canonicalJson(contextTree);
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** {@code configuration} with the flag's config override, if any, applied. */
+    private Object applyConfigOverride(String flagKey, Object configuration) {
+        ConfigOverrideEntry configOverride = configOverrides.get(flagKey);
+        if (configOverride == null) {
+            return configuration;
+        }
+        if (configOverride.merge && configuration != null) {
+            return mergeConfigurations(configuration, configOverride.config);
+        }
+        return configOverride.config;
     }
 
     /**
