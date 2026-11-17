@@ -13,7 +13,6 @@ import {
   isSecureUrl,
   mergeContext,
   parseCookies,
-  resolveUserId,
   serializeAnonymousIdCookie,
   throttleErrors,
   toServerConfig,
@@ -223,20 +222,6 @@ export function createSavvagentServer(
     const requestContext = getRequestContext(request);
     const headers = new Headers();
 
-    if (forOptions.userId !== undefined) {
-      if (forOptions.userId) requestContext.user_id = forOptions.userId;
-      else delete requestContext.user_id;
-    } else if (options.getUserId) {
-      // Bounded, and anonymous (no user_id, a trusted cookie's included) on failure.
-      const getUserId = options.getUserId;
-      const result = await resolveUserId(() => getUserId({ request, context: routerContext }), {
-        timeoutMs,
-        reportError,
-      });
-      if (result.userId) requestContext.user_id = result.userId;
-      else if (result.failed) delete requestContext.user_id;
-    }
-
     // Always evaluate with a per-visitor anonymous ID, so the shared client's
     // own process-wide ID is never used for anyone.
     const { anonymousId, isNew } = assignAnonymousId(requestContext);
@@ -245,13 +230,29 @@ export function createSavvagentServer(
       headers.append('Set-Cookie', serializeAnonymousIdCookie(anonymousId, { secure: isSecureUrl(request.url) }));
     }
 
+    // The user rules (explicit user wins, bounded getUserId, anonymous on
+    // failure) live in the shared scope. A `user_id` given in the per-request
+    // context is as explicit as `userId`.
+    const explicitUser =
+      forOptions.userId !== undefined
+        ? forOptions.userId
+        : typeof forOptions.context?.user_id === 'string' && forOptions.context.user_id !== ''
+          ? forOptions.context.user_id
+          : undefined;
+    const getUserId = options.getUserId;
     const scope = createRequestScope({
       client: getClient(),
       context: mergeContext(requestContext, forOptions.context),
+      userId: explicitUser,
+      getUserId: getUserId && (() => getUserId({ request, context: routerContext })),
       evaluationTimeoutMs: timeoutMs,
       reportError,
       defaults: config.defaults,
     });
+    // `scope.context.user_id` is public: settle the user here, where the
+    // caller already awaits, so it is final once forRequest()/the middleware
+    // resolves. The scope runs getUserId once and not at all without a client.
+    await scope.resolveContext();
     return {
       context: scope.context,
       headers,
