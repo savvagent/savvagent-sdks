@@ -14,7 +14,9 @@ def warn_if_plain_http(api_key: str, base_url: str) -> None:
     The server key is a secret: it travels in ``Authorization`` on every request
     and on the realtime stream. Matches the Rust SDK: no warning for an ``https``
     base URL, a loopback host (``localhost``, ``127.0.0.1``, ``[::1]``), an
-    ``sdk_`` key, or a base URL without a scheme.
+    ``sdk_`` key, or a base URL without a scheme. A scheme-less ``host:port``
+    URL parses with the host as the scheme (as Rust's ``Url::parse`` does), so
+    it warns "over <host>".
     """
     if not api_key.startswith("srv_"):
         return

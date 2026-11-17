@@ -285,3 +285,19 @@ class TestStaticFlagsAsync:
         async with AsyncFlagClient.static_flags({"checkout": True}) as client:
             client.set_config_override("checkout", {"limit": 3})
             assert await client.get_config("checkout") == {"limit": 3}
+
+
+async def test_nowait_telemetry_queue_is_bounded() -> None:
+    """A hot sync loop with no flush running cannot grow the queue without limit."""
+    from savvagent_flags.telemetry import AsyncTelemetryService
+
+    service = AsyncTelemetryService("https://api.savvagent.com/flags", "sdk_x", enabled=True)
+    limit = AsyncTelemetryService.MAX_NOWAIT_QUEUE
+    assert limit > AsyncTelemetryService.BATCH_SIZE
+    for i in range(limit + 500):
+        service.track_evaluation_nowait(EvaluationEvent(flag_key=f"f{i}", result=True))
+    assert len(service._evaluation_queue) == limit
+    # The oldest events are kept; the overflow is what is dropped.
+    assert service._evaluation_queue[-1].flag_key == f"f{limit - 1}"
+    service._evaluation_queue.clear()
+    await service.close()

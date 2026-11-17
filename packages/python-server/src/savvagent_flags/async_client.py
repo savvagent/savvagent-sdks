@@ -389,7 +389,7 @@ class AsyncFlagClient:
             self._cache.peek_entry(flag_key, context_key=ctx_key) if ctx_key is not None else None
         )
         if entry is None:
-            return self._config.defaults.get(flag_key, False)
+            return default_for(self._config.defaults, flag_key)
         self._last_values[flag_key] = entry.value
         self._telemetry.track_evaluation_nowait(
             EvaluationEvent(
