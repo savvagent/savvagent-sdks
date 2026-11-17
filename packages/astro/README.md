@@ -260,13 +260,15 @@ before it), `options` takes the same options as `Astro.locals.savvagent`
 built from the request alone: it assigns no anonymous ID. Either way the
 evaluation is bounded and falls back to the flag's default.
 
-> **Trust:** with `Astro.locals.savvagent`, the helper's own options cannot
-> narrow the integration's settings. A helper's `trustUserIdCookie: false` (or
-> its own `getUserId` or timeout) is ignored, so if the integration trusts the
-> `user_id` cookie, it stays trusted. To evaluate without trusting it, leave
-> `trustUserIdCookie` off in the integration, or pass the user explicitly as
-> `user_id` in `context`, which wins over the cookie. The same applies to
-> `createFlagMiddleware`.
+> **Trust:** a helper can narrow trust but never widen it. With
+> `Astro.locals.savvagent`, a helper's `trustUserIdCookie: false` makes that
+> call evaluate without a `user_id` that came from the cookie (a user from the
+> integration's `getUserId`, or a `user_id` in `context`, still applies).
+> `trustUserIdCookie: true`, or nothing, changes nothing: if the integration
+> does not trust the cookie, a helper cannot enable it (a scope built from the
+> request alone, without `Astro.locals.savvagent`, follows the helper's own
+> options as before). A helper's own `getUserId` and timeout are ignored when
+> `Astro.locals.savvagent` exists. The same applies to `createFlagMiddleware`.
 
 ```astro
 ---

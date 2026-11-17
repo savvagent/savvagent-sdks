@@ -21,6 +21,7 @@ import {
   throttleErrors,
   toServerConfig,
 } from '@savvagent/sdk/server';
+import type { RequestScope } from '@savvagent/sdk/server';
 
 // The request scope (cookies, context, user_id rules, bounded evaluation,
 // error throttling) is the one shared by every server integration (#26).
@@ -403,19 +404,26 @@ export function createSavvagentLocals(
   // handler would be an uncaught exception.
   const reportError = guardReporter(options.reportError ?? defaultReportError);
   const getUserId = options.getUserId;
+  // Set when getUserId supplied the user, so a user that is still in the
+  // context afterwards can only have come from the cookie.
+  let userFromGetter = false;
   const scope = createRequestScope({
     client,
     context,
     getUserId:
       typeof getUserId === 'function' && !options.isPrerendered
-        ? () => getUserId({ request, locals: options.locals ?? ({} as App.Locals) })
+        ? async () => {
+            const userId = await getUserId({ request, locals: options.locals ?? ({} as App.Locals) });
+            if (typeof userId === 'string' && userId !== '') userFromGetter = true;
+            return userId;
+          }
         : undefined,
     evaluationTimeoutMs: options.evaluationTimeoutMs,
     reportError,
     defaults: options.defaults,
   });
 
-  return {
+  const locals: SavvagentLocals = {
     client,
     context: scope.context,
     isEnabled: scope.isEnabled,
@@ -423,7 +431,36 @@ export function createSavvagentLocals(
     withFlag: scope.withFlag,
     trackError: scope.trackError,
   };
+  localsInternals.set(locals, {
+    // The user in the context, settled, and whether it is the cookie's.
+    cookieUser: async () => {
+      await scope.resolveContext();
+      return scope.context.user_id !== undefined && !userFromGetter;
+    },
+    cookieUserNow: () => scope.context.user_id !== undefined && !userFromGetter,
+    // The same request without any `user_id` from the context (an explicit
+    // `user_id` in a call's own context still applies).
+    withoutUser: () =>
+      createRequestScope({
+        client,
+        context: scope.context,
+        userId: null,
+        evaluationTimeoutMs: options.evaluationTimeoutMs,
+        reportError,
+        defaults: options.defaults,
+      }),
+  });
+  return locals;
 }
+
+interface LocalsInternals {
+  cookieUser(): Promise<boolean>;
+  cookieUserNow(): boolean;
+  withoutUser(): RequestScope;
+}
+
+/** Provenance of a locals scope's `user_id`, for helpers that narrow trust (see {@link helperScope}). */
+const localsInternals = new WeakMap<SavvagentLocals, LocalsInternals>();
 
 /** Windows-safe import specifier for an absolute file path. */
 export function toImportPath(filePath: string): string {
@@ -736,16 +773,38 @@ export function getEnvironment(): string {
  * `evaluationTimeoutMs` then come from the integration, and these options
  * apply only when there is no `Astro.locals.savvagent`.
  *
- * They cannot narrow the integration's settings: a helper's own
- * `trustUserIdCookie: false` (or its own `getUserId` or timeout) is ignored,
- * so if the integration trusts the `user_id` cookie, it stays trusted. To
- * evaluate without trusting it, leave `trustUserIdCookie` off in the
- * integration, or pass the user explicitly as `user_id` in the `context`
- * argument, which wins over the cookie.
+ * A helper can narrow trust but never widen it. `trustUserIdCookie: false`
+ * on a helper makes that call evaluate without a `user_id` that came from the
+ * cookie (a user from the integration's `getUserId`, or a `user_id` passed in
+ * the `context` argument, still applies). `trustUserIdCookie: true`, or
+ * saying nothing, changes nothing: if the integration does not trust the
+ * cookie, a helper cannot enable it. A helper's own `getUserId` and
+ * `evaluationTimeoutMs` are ignored when the request has `Astro.locals.savvagent`.
  */
 export interface RequestHelperOptions extends SavvagentMiddlewareOptions {
   /** `Astro.locals` of the request: its `savvagent` scope is reused, and it is passed to `getUserId`. */
   locals?: App.Locals;
+}
+
+/**
+ * `locals` as seen by a helper that does not trust the `user_id` cookie: when
+ * the request's user came from the cookie, calls evaluate without it. The
+ * user is settled first, so one from `getUserId` is kept.
+ */
+function withoutCookieUser(existing: SavvagentLocals): SavvagentLocals {
+  const internals = localsInternals.get(existing);
+  if (!internals) return existing;
+  const target = async (): Promise<SavvagentLocals> => ((await internals.cookieUser()) ? internals.withoutUser() : existing);
+  return {
+    client: existing.client,
+    context: existing.context,
+    isEnabled: async (flagKey, context) => (await target()).isEnabled(flagKey, context),
+    evaluate: async (flagKey, context) => (await target()).evaluate(flagKey, context),
+    withFlag: async (flagKey, callback, context) => (await target()).withFlag(flagKey, callback, context),
+    // Synchronous: before the user is settled, assume it is the cookie's.
+    trackError: (flagKey, error, context) =>
+      (internals.cookieUserNow() ? internals.withoutUser() : existing).trackError(flagKey, error, context),
+  };
 }
 
 /**
@@ -755,7 +814,7 @@ export interface RequestHelperOptions extends SavvagentMiddlewareOptions {
  */
 function helperScope(request: Request, options: RequestHelperOptions): SavvagentLocals {
   const existing = (options.locals as Partial<App.Locals> | undefined)?.savvagent;
-  if (existing) return existing;
+  if (existing) return options.trustUserIdCookie === false ? withoutCookieUser(existing) : existing;
   return createSavvagentLocals(getSavvagent(), request, {
     defaults: clientDefaults,
     trustUserIdCookie: options.trustUserIdCookie,

@@ -390,6 +390,65 @@ describe('request helpers reuse Astro.locals.savvagent (#26)', () => {
   });
 });
 
+describe('a helper can narrow the user_id cookie trust, never widen it (#57)', () => {
+  const evaluated = (key: string) => Promise.resolve({ key, value: false, reason: 'evaluated' });
+  const cookieRequest = () => makeRequest({ cookie: 'savvagent_anonymous_id=anon_1; user_id=cookie-user' });
+
+  async function locals(integration: { trustUserIdCookie?: boolean; getUserId?: () => unknown }) {
+    mockEvaluate.mockReset();
+    mockEvaluate.mockImplementation(evaluated);
+    const onRequest = createSavvagentMiddleware({ apiKey: 'sdk_mw' }, integration as never);
+    const context = makeContext(cookieRequest());
+    await onRequest(context as never, async () => new Response('ok'));
+    return context;
+  }
+
+  it('integration trusts the cookie and the helper passes false: evaluated without the user_id', async () => {
+    const context = await locals({ trustUserIdCookie: true });
+    await evaluateForRequest(context.request, 'f', undefined, {
+      locals: context.locals as unknown as App.Locals,
+      trustUserIdCookie: false,
+    });
+    expect(mockEvaluate).toHaveBeenCalledWith('f', { anonymous_id: 'anon_1' });
+  });
+
+  it('integration trusts the cookie and the helper says nothing: trusted', async () => {
+    const context = await locals({ trustUserIdCookie: true });
+    await evaluateForRequest(context.request, 'f', undefined, { locals: context.locals as unknown as App.Locals });
+    expect(mockEvaluate).toHaveBeenCalledWith('f', { anonymous_id: 'anon_1', user_id: 'cookie-user' });
+  });
+
+  it('integration does not trust the cookie and the helper passes true: still untrusted', async () => {
+    const context = await locals({});
+    await evaluateForRequest(context.request, 'f', undefined, {
+      locals: context.locals as unknown as App.Locals,
+      trustUserIdCookie: true,
+    });
+    expect(mockEvaluate).toHaveBeenCalledWith('f', { anonymous_id: 'anon_1' });
+  });
+
+  it('a fresh scope (no locals) follows the helper options as before', async () => {
+    mockEvaluate.mockReset();
+    mockEvaluate.mockImplementation(evaluated);
+    await evaluateForRequest(cookieRequest(), 'f', undefined, { trustUserIdCookie: true });
+    expect(mockEvaluate).toHaveBeenCalledWith('f', { anonymous_id: 'anon_1', user_id: 'cookie-user' });
+  });
+
+  it('narrowing keeps a user from getUserId and an explicit user_id in the call context', async () => {
+    const context = await locals({ trustUserIdCookie: true, getUserId: () => 'u-integration' });
+    const options = { locals: context.locals as unknown as App.Locals, trustUserIdCookie: false };
+    await evaluateForRequest(context.request, 'f', undefined, options);
+    expect(mockEvaluate).toHaveBeenCalledWith('f', { anonymous_id: 'anon_1', user_id: 'u-integration' });
+
+    const other = await locals({ trustUserIdCookie: true });
+    await evaluateForRequest(other.request, 'g', { user_id: 'explicit' }, {
+      locals: other.locals as unknown as App.Locals,
+      trustUserIdCookie: false,
+    });
+    expect(mockEvaluate).toHaveBeenCalledWith('g', { anonymous_id: 'anon_1', user_id: 'explicit' });
+  });
+});
+
 describe('integration wiring', () => {
   async function runSetup(options: Parameters<typeof savvagent>[0]) {
     const addMiddleware = vi.fn();
