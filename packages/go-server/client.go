@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -21,6 +22,10 @@ type FlagClient struct {
 	variationOverrides map[string]variationOverrideEntry
 	overrideMutex      sync.RWMutex
 
+	// static holds the fixed values of a client from NewStaticClient, which never makes a
+	// request; nil for every other client.
+	static map[string]bool
+
 	// realtime is the flag-change stream, nil when EnableRealtime is false.
 	realtime  *realtimeStream
 	closeOnce sync.Once
@@ -35,9 +40,10 @@ func NewClient(config Config) (*FlagClient, error) {
 
 // newClient is NewClient with the stream's timings given, so tests can make them small.
 func newClient(config Config, streamOpts realtimeOptions) (*FlagClient, error) {
-	// Validate API key
-	if config.APIKey == "" || !strings.HasPrefix(config.APIKey, "sdk_") {
-		return nil, fmt.Errorf("invalid API key: must start with 'sdk_'")
+	// Validate API key: the public client key or the secret server key, which the SDK guide
+	// recommends for server apps (and whose telemetry drives auto-rollback).
+	if !strings.HasPrefix(config.APIKey, "sdk_") && !strings.HasPrefix(config.APIKey, "srv_") {
+		return nil, fmt.Errorf("invalid API key: must start with 'sdk_' or 'srv_'")
 	}
 
 	// Apply defaults
@@ -45,6 +51,7 @@ func newClient(config Config, streamOpts realtimeOptions) (*FlagClient, error) {
 		config.BaseURL = "https://api.savvagent.com/flags"
 	}
 	config.BaseURL = strings.TrimRight(config.BaseURL, "/")
+	warnIfServerKeyInClear(config.APIKey, config.BaseURL)
 	if config.CacheTTL == 0 {
 		config.CacheTTL = 60 * time.Second
 	}
@@ -78,6 +85,110 @@ func newClient(config Config, streamOpts realtimeOptions) (*FlagClient, error) {
 	return client, nil
 }
 
+// warnIfServerKeyInClear logs one slog warning when a server key would cross the network in
+// clear text: the base URL is not https and its host is not loopback. A client key is public, so
+// it gets no warning; a base URL that is not an absolute URL gets none either, as in Rust, since
+// no request can be sent to it.
+func warnIfServerKeyInClear(apiKey, baseURL string) {
+	if !strings.HasPrefix(apiKey, "srv_") {
+		return
+	}
+	u, err := url.Parse(baseURL)
+	if err != nil || u.Scheme == "" || u.Scheme == "https" {
+		return
+	}
+	switch strings.ToLower(u.Hostname()) {
+	case "localhost", "127.0.0.1", "::1":
+		return
+	}
+	slog.Warn(fmt.Sprintf("Savvagent Flags: the server key will be sent over %s; use an https base_url", u.Scheme))
+}
+
+// NewStaticClient returns a client that serves fixed flag values and never touches the network,
+// for tests. Each flag in flags evaluates to its value, any other flag to false; Evaluate reports
+// Reason "static". The map is copied. No request is made and no stream is opened. Config and
+// variation overrides still apply, which lets a test exercise code that reads them. It is not
+// for production use: it ignores the server entirely.
+//
+//	client := savvagentflags.NewStaticClient(map[string]bool{"new-checkout": true})
+//	client.IsEnabled("new-checkout", nil)   // true
+//	client.IsEnabled("anything-else", nil)  // false
+func NewStaticClient(flags map[string]bool) *FlagClient {
+	client, err := newClient(Config{APIKey: "sdk_static"}, defaultRealtimeOptions())
+	if err != nil {
+		panic("savvagentflags: building a static client failed: " + err.Error())
+	}
+	client.static = make(map[string]bool, len(flags))
+	for key, value := range flags {
+		client.static[key] = value
+	}
+	return client
+}
+
+// IsEnabledCached reads a flag without doing any I/O, for code that must not block on a
+// request. It returns the unexpired cached value for this flag and context (the same context
+// passed to an earlier Evaluate or IsEnabled, since the cache is per context, with
+// ApplicationID filled in from the Config as Evaluate does), and otherwise the flag's default
+// from Config.Defaults, else false. A flag that has never been looked up, one whose entry has
+// outlived CacheTTL and one invalidated by the stream are all misses, so something must keep
+// the cache warm: call Evaluate or IsEnabled on the same context at least once per CacheTTL.
+// On a client from NewStaticClient it returns the fixed value. Overrides never change the
+// answer (they do not change a flag's value in Evaluate either), and OnError is never called.
+func (c *FlagClient) IsEnabledCached(flagKey string, ctx *Context) bool {
+	// As Evaluate does, a key no flag can have gets its default.
+	if !isValidFlagKey(flagKey) {
+		return c.config.Defaults[flagKey]
+	}
+	if c.static != nil {
+		return c.static[flagKey]
+	}
+	ctxKey, err := c.contextKey(ctx)
+	if err != nil {
+		return c.config.Defaults[flagKey]
+	}
+	if entry, found := c.cache.GetEntry(flagKey, ctxKey); found {
+		return entry.Value
+	}
+	return c.config.Defaults[flagKey]
+}
+
+// prepareContext copies ctx (never modifying the caller's value) and fills in the configured
+// ApplicationID when the context has none.
+func (c *FlagClient) prepareContext(ctx *Context) Context {
+	prepared := Context{}
+	if ctx != nil {
+		prepared = *ctx
+	}
+	if prepared.ApplicationID == "" && c.config.ApplicationID != "" {
+		prepared.ApplicationID = c.config.ApplicationID
+	}
+	return prepared
+}
+
+// contextKey is the cache key for ctx: the JSON of the prepared context (map keys sorted by
+// encoding/json), which is also the request body's context.
+func (c *FlagClient) contextKey(ctx *Context) (string, error) {
+	ctxJSON, err := json.Marshal(c.prepareContext(ctx))
+	return string(ctxJSON), err
+}
+
+// applyOverrides returns configuration and variation with the flag's overrides applied.
+func (c *FlagClient) applyOverrides(flagKey string, configuration map[string]interface{}, variation string) (map[string]interface{}, string) {
+	c.overrideMutex.RLock()
+	defer c.overrideMutex.RUnlock()
+	if configOverride, ok := c.configOverrides[flagKey]; ok {
+		if configOverride.Merge && configuration != nil {
+			configuration = c.mergeConfigurations(configuration, configOverride.Config)
+		} else {
+			configuration = configOverride.Config
+		}
+	}
+	if variationOverride, ok := c.variationOverrides[flagKey]; ok {
+		variation = variationOverride.Variation
+	}
+	return configuration, variation
+}
+
 // maxResponseBytes bounds an evaluate response body.
 const maxResponseBytes = 1 << 20
 
@@ -94,15 +205,21 @@ func (c *FlagClient) Evaluate(flagKey string, ctx *Context) (*EvaluationResult, 
 		return c.getDefaultResult(flagKey, err), err
 	}
 
+	// A static client (NewStaticClient) answers from its fixed values, without a request.
+	if c.static != nil {
+		configuration, variation := c.applyOverrides(flagKey, nil, "")
+		return &EvaluationResult{
+			Key:           flagKey,
+			Value:         c.static[flagKey],
+			Configuration: configuration,
+			Variation:     variation,
+			Reason:        "static",
+		}, nil
+	}
+
 	// Prepare the context on a copy, so the caller's value is never modified. Its JSON (map
 	// keys sorted by encoding/json) is the cache key and the request body.
-	prepared := Context{}
-	if ctx != nil {
-		prepared = *ctx
-	}
-	if prepared.ApplicationID == "" && c.config.ApplicationID != "" {
-		prepared.ApplicationID = c.config.ApplicationID
-	}
+	prepared := c.prepareContext(ctx)
 	ctxJSON, err := json.Marshal(prepared)
 	if err != nil {
 		return c.getDefaultResult(flagKey, err), err
@@ -111,22 +228,7 @@ func (c *FlagClient) Evaluate(flagKey string, ctx *Context) (*EvaluationResult, 
 
 	// Check cache first
 	if cachedEntry, found := c.cache.GetEntry(flagKey, ctxKey); found {
-		configuration := cachedEntry.Configuration
-		variation := cachedEntry.Variation
-
-		// Apply overrides
-		c.overrideMutex.RLock()
-		if configOverride, ok := c.configOverrides[flagKey]; ok {
-			if configOverride.Merge && configuration != nil {
-				configuration = c.mergeConfigurations(configuration, configOverride.Config)
-			} else {
-				configuration = configOverride.Config
-			}
-		}
-		if variationOverride, ok := c.variationOverrides[flagKey]; ok {
-			variation = variationOverride.Variation
-		}
-		c.overrideMutex.RUnlock()
+		configuration, variation := c.applyOverrides(flagKey, cachedEntry.Configuration, cachedEntry.Variation)
 
 		return &EvaluationResult{
 			Key:           flagKey,
@@ -226,21 +328,7 @@ func (c *FlagClient) Evaluate(flagKey string, ctx *Context) (*EvaluationResult, 
 	c.cache.SetAt(generation, flagKey, ctxKey, enabled, response.Configuration, response.Variation, version, scope)
 
 	// Apply overrides to evaluated result
-	finalConfiguration := response.Configuration
-	finalVariation := response.Variation
-
-	c.overrideMutex.RLock()
-	if configOverride, ok := c.configOverrides[flagKey]; ok {
-		if configOverride.Merge && finalConfiguration != nil {
-			finalConfiguration = c.mergeConfigurations(finalConfiguration, configOverride.Config)
-		} else {
-			finalConfiguration = configOverride.Config
-		}
-	}
-	if variationOverride, ok := c.variationOverrides[flagKey]; ok {
-		finalVariation = variationOverride.Variation
-	}
-	c.overrideMutex.RUnlock()
+	finalConfiguration, finalVariation := c.applyOverrides(flagKey, response.Configuration, response.Variation)
 
 	return &EvaluationResult{
 		Key:           flagKey,
