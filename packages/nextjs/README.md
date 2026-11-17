@@ -110,14 +110,50 @@ middleware helpers resolve `user_id` in this order:
 2. The `getUserId` option of `initServerClient` / `initMiddlewareClient`.
    For Server Components it takes no arguments and can call `cookies()`,
    `headers()` or your auth library; `evaluateForRequest` passes it the
-   `Request`, and the middleware helpers pass it the `NextRequest`. If it
-   throws or rejects, the error goes to `onError` and the flag is evaluated
-   without a user.
+   `Request`, and the middleware helpers pass it the `NextRequest`. It is
+   bounded by `evaluationTimeoutMs` (default 1000 ms). If it throws, rejects
+   or times out, the failure goes to `onError` (as
+   `getUserId failed; evaluating without a user_id`, with the original error
+   as `cause`, or `getUserId timed out ...`) and the flag is evaluated without
+   a user, also without a trusted `user_id` cookie. If it returns nothing,
+   the next source applies.
 3. The `user_id` cookie, only when `trustUserIdCookie: true` is set. Use this
    for demos, or when nothing a flag gates is sensitive.
 
-`anonymous_id` (from the `savvagent_anonymous_id` cookie), `session_id` and
-`language` are still read from the request.
+`session_id` and `language` are read from the request.
+
+## Anonymous visitors
+
+Every visitor is evaluated with their own `anonymous_id`, so percentage
+rollouts bucket anonymous visitors one by one instead of all together. The ID
+comes from the `savvagent_anonymous_id` cookie, the cookie the browser SDK
+reads, so a visitor gets the same flags from Server Components and from
+Client Components.
+
+A visitor without the cookie gets a new `anon_<uuid>` ID, which is stored in
+the cookie: not HttpOnly (the browser SDK reads it), `Path=/`,
+`SameSite=Lax`, one year, and `Secure` on https. Where it is stored:
+
+- **Middleware** (recommended): `createMiddleware`, `redirectIfEnabled` and
+  `rewriteIfEnabled` set the cookie on their response, and forward the new ID
+  to the page rendered for the same request. In a middleware function of your
+  own, `getAnonymousId(request)` returns the ID and
+  `setAnonymousIdCookie(request, response)` sets the cookie on the response
+  you return.
+  When `createMiddleware`'s `onRequest` returns its own response (for
+  example `NextResponse.rewrite(...)`), the cookie is set on that response,
+  but the page rendered for that request does not see the new ID unless you
+  forward it: build the response with the request headers carrying it, or
+  use `rewriteIfEnabled`, which does. Otherwise that first page evaluates
+  with an ID of its own, and the visitor gets the middleware's ID from the
+  next request on.
+  `Secure` is set when the request URL is https or `x-forwarded-proto` is
+  `https` (behind a TLS-terminating proxy).
+- **Server Actions and Route Handlers**: the server helpers set the cookie
+  through `cookies()`.
+- **Server Components** cannot set cookies. Without the middleware, a new
+  visitor keeps one ID for the whole render, and gets the cookie from the
+  middleware or a later Server Action.
 
 ## When the Flags API is down
 
@@ -131,7 +167,8 @@ stall every page:
   `evaluateMultiple`, `isEnabledInMiddleware`, `redirectIfEnabled` and
   `rewriteIfEnabled` is bounded by `evaluationTimeoutMs` (default 1000 ms). On a
   timeout or error it resolves with the flag's default from `config.defaults`
-  (`reason: 'error'`) and does not throw.
+  (`reason: 'error'`) and does not throw. `getUserId` has its own bound of the
+  same length.
 - `onError` receives the same error message at most once a minute.
 
 Calls you make on the raw client (`getServerClient()`, `getMiddlewareClient()`,
@@ -362,13 +399,22 @@ initMiddlewareClient(
 
 `getRequestContext(request, overrides?, { trustUserIdCookie }?)` reads the
 `user_id` cookie only when `trustUserIdCookie` is set, and does not call
-`getUserId`.
+`getUserId`. Its `anonymous_id` is the visitor's (see
+[Anonymous visitors](#anonymous-visitors)).
+
+`getAnonymousId(request)` returns the visitor's anonymous ID: the cookie's, or
+the new one assigned to this request. `setAnonymousIdCookie(request, response)`
+adds the cookie for a newly assigned ID to `response` and returns it (or a
+copy, when the response's headers are immutable); it does nothing for a
+returning visitor.
 
 #### `createMiddleware(config)`
 
 Create a middleware function with custom logic. `onRequest` also receives the
 raw client as its second argument; its calls are not bounded by
-`evaluationTimeoutMs`, so prefer `isEnabledInMiddleware`.
+`evaluationTimeoutMs`, so prefer `isEnabledInMiddleware`. The response
+(`onRequest`'s, or `NextResponse.next()`) sets the anonymous ID cookie for a
+new visitor.
 
 ```ts
 import { createMiddleware, isEnabledInMiddleware } from '@savvagent/nextjs/middleware';

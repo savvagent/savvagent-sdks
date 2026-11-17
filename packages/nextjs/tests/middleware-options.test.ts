@@ -67,6 +67,45 @@ describe('middleware user_id resolution', () => {
   });
 });
 
+describe('middleware getUserId is time-bounded (#26)', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('drops a trusted cookie user and evaluates when getUserId hangs', async () => {
+    const { middleware, FlagClient } = load();
+    const onError = jest.fn();
+    middleware.initMiddlewareClient(
+      { apiKey: 'sdk_test', onError },
+      { trustUserIdCookie: true, evaluationTimeoutMs: 30, getUserId: () => new Promise<string>(() => {}) }
+    );
+    const evaluate = jest.spyOn(FlagClient.prototype, 'evaluate').mockResolvedValue(ok);
+
+    await expect(middleware.isEnabledInMiddleware(request({ user_id: 'demo-user' }), 'flag')).resolves.toBe(true);
+
+    expect(evaluate.mock.calls[0][1]).not.toHaveProperty('user_id');
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('getUserId timed out') }));
+  });
+
+  it('evaluates without a user when getUserId throws, with the error as cause', async () => {
+    const { middleware, FlagClient } = load();
+    const onError = jest.fn();
+    middleware.initMiddlewareClient(
+      { apiKey: 'sdk_test', onError },
+      {
+        trustUserIdCookie: true,
+        getUserId: () => {
+          throw new Error('auth down');
+        },
+      }
+    );
+    const evaluate = jest.spyOn(FlagClient.prototype, 'evaluate').mockResolvedValue(ok);
+
+    await middleware.isEnabledInMiddleware(request({ user_id: 'demo-user' }), 'flag');
+
+    expect(evaluate.mock.calls[0][1]).not.toHaveProperty('user_id');
+    expect(onError.mock.calls[0][0].cause.message).toBe('auth down');
+  });
+});
+
 describe('middleware bounded evaluation', () => {
   const realFetch = global.fetch;
   let pending: Array<() => void> = [];
