@@ -2,3 +2,19 @@ packages:
   - 'packages/*'
   - 'examples'
   - 'examples/*'
+
+# pnpm settings. They live here, not in .npmrc, so npm does not warn about them.
+strictPeerDependencies: false
+saveExact: true
+
+# Dependencies allowed to run install scripts (pnpm 10 blocks them by default).
+# esbuild's postinstall checks that its platform binary matches the version.
+onlyBuiltDependencies:
+  - esbuild
+
+# These have install scripts but ship prebuilt binaries through optional
+# platform packages, so their scripts are not needed. Listed so pnpm doesn't warn.
+ignoredBuiltDependencies:
+  - '@parcel/watcher'
+  - lmdb
+  - msgpackr-extract
