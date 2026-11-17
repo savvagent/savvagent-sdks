@@ -150,7 +150,9 @@ the cookie: not HttpOnly (the browser SDK reads it), `Path=/`,
   with an ID of its own, and the visitor gets the middleware's ID from the
   next request on.
   `Secure` is set when the request URL is https or `x-forwarded-proto` is
-  `https` (behind a TLS-terminating proxy).
+  `https` (behind a TLS-terminating proxy). The header is trusted as sent, so
+  deploy behind a proxy that overwrites it; a forged header can only add
+  `Secure`, never remove it.
 - **Server Actions and Route Handlers**: the server helpers set the cookie
   through `cookies()`.
 - **Server Components** cannot set cookies. Without the middleware, a new
