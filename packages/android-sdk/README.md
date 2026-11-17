@@ -320,6 +320,11 @@ Run instrumentation tests:
 
 The SDK uses Kotlin's `Result` type for error handling:
 
+`evaluate` (and so `isEnabled`, `getConfig` and `getVariationDetails`) returns a failed `Result`
+holding a `SavvagentException`, without making a request, when the flag key is invalid. A valid
+key is 1-128 characters of `[A-Za-z0-9._-]`, and not `.` or `..`. `getVariation` returns its
+default value.
+
 ```kotlin
 val result = client.isEnabled("feature", context)
 

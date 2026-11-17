@@ -288,6 +288,30 @@ public class SavvagentClient {
         return components.url
     }
 
+    /// Whether `key` is a valid flag key: 1-128 characters of `[A-Za-z0-9._-]`, and not `.` or `..`.
+    /// This is the server's key rule, shared by every Savvagent SDK. The key becomes one segment of
+    /// the evaluate URL path: `.` and `..` cannot be carried in a path (they are normalized away),
+    /// and characters such as `/`, `?` and `#` would send the request, and the SDK key with it, to
+    /// another endpoint.
+    static func isValidFlagKey(_ key: String) -> Bool {
+        if key == "." || key == ".." { return false }
+        // Every allowed character is one ASCII byte, so the UTF-8 length is the character count.
+        let bytes = key.utf8
+        if bytes.isEmpty || bytes.count > 128 { return false }
+        for byte in bytes {
+            switch byte {
+            case UInt8(ascii: "a")...UInt8(ascii: "z"),
+                 UInt8(ascii: "A")...UInt8(ascii: "Z"),
+                 UInt8(ascii: "0")...UInt8(ascii: "9"),
+                 UInt8(ascii: "-"), UInt8(ascii: "_"), UInt8(ascii: "."):
+                continue
+            default:
+                return false
+            }
+        }
+        return true
+    }
+
     static func encodePathSegment(_ segment: String) -> String {
         var allowed = CharacterSet.urlPathAllowed
         allowed.remove(charactersIn: "/")
@@ -396,6 +420,11 @@ public class SavvagentClient {
     ///   - context: User context for evaluation
     /// - Returns: FlagEvaluationResult with value, configuration, and variation
     public func evaluate(flagKey: String, context: UserContext) async throws -> FlagEvaluationResult {
+        // Reject a key that is not one safe URL path segment before any request is built
+        guard SavvagentClient.isValidFlagKey(flagKey) else {
+            throw SavvagentError.invalidFlagKey(flagKey)
+        }
+
         let ctxKey = contextKey(context)
 
         let cached = cachedEntry(flagKey: flagKey, contextKey: ctxKey)
@@ -845,6 +874,9 @@ public class SavvagentClient {
 
 /// Errors that can occur in the Savvagent SDK
 public enum SavvagentError: Error {
+    /// The flag key is not 1-128 characters of `[A-Za-z0-9._-]`, or is `.` or `..`.
+    /// No request was made. The associated value is the rejected key.
+    case invalidFlagKey(String)
     case invalidURL
     case requestFailed
     case invalidResponse

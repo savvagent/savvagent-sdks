@@ -314,6 +314,7 @@ The SDK defines the following errors:
 
 ```swift
 enum SavvagentError: Error {
+    case invalidFlagKey(String) // not 1-128 of [A-Za-z0-9._-], or "." / ".."; no request is made
     case invalidURL
     case requestFailed
     case invalidResponse
@@ -329,6 +330,8 @@ do {
         flagKey: "feature",
         context: context
     )
+} catch SavvagentError.invalidFlagKey(let key) {
+    print("Invalid flag key: \(key)")
 } catch SavvagentError.requestFailed {
     print("Request failed")
 } catch SavvagentError.invalidResponse {

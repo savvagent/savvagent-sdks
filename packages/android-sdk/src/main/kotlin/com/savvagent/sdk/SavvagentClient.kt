@@ -200,6 +200,15 @@ class SavvagentClient(
      * Evaluate a feature flag and get full details (Phase 1 & 2)
      */
     suspend fun evaluate(flagKey: String, userContext: UserContext): Result<FlagEvaluationResult> {
+        // Reject a key that is not one safe URL path segment before any request is built
+        if (!isValidFlagKey(flagKey)) {
+            val error = SavvagentException(
+                "Invalid flag key \"${flagKey.take(64)}\" (length ${flagKey.length}): " +
+                    "keys are 1-128 characters of [A-Za-z0-9._-] and not \".\" or \"..\""
+            )
+            logError(error.message ?: "Invalid flag key")
+            return Result.failure(error)
+        }
         return withContext(Dispatchers.IO) {
             try {
                 // Check cache first (only valid for the same user)
@@ -876,6 +885,18 @@ class SavvagentClient(
  * Exception thrown by the Savvagent SDK
  */
 class SavvagentException(message: String, cause: Throwable? = null) : Exception(message, cause)
+
+private val FLAG_KEY_PATTERN = Regex("^[A-Za-z0-9._-]{1,128}$")
+
+/**
+ * Whether [key] is a valid flag key: 1-128 characters of `[A-Za-z0-9._-]`, and not `.` or `..`.
+ * This is the server's key rule, shared by every Savvagent SDK. The key becomes one segment of
+ * the evaluate URL path: `.` and `..` cannot be carried in a path (they are normalized away),
+ * and characters such as `/`, `?` and `#` would send the request, and the SDK key with it, to
+ * another endpoint.
+ */
+internal fun isValidFlagKey(key: String): Boolean =
+    key != "." && key != ".." && FLAG_KEY_PATTERN.matches(key)
 
 private fun JSONObject.optStringOrNull(name: String): String? {
     return if (has(name) && !isNull(name)) getString(name) else null
