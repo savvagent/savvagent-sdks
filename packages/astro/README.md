@@ -30,7 +30,7 @@ environment variables are read when the server starts (not baked in at
 ```js
 // src/savvagent.config.mjs
 export default {
-  apiKey: process.env.SAVVAGENT_SDK_KEY,
+  apiKey: process.env.SAVVAGENT_FLAGS_API_KEY,
   applicationId: process.env.SAVVAGENT_APP_ID,
   onError: (error) => console.error('[Savvagent]', error),
 };
@@ -47,7 +47,7 @@ export default defineConfig({
 ```
 
 `configModule` is resolved against the project root. You can pass the config
-inline instead, with `savvagent({ config: { apiKey: process.env.SAVVAGENT_SDK_KEY } })`,
+inline instead, with `savvagent({ config: { apiKey: process.env.SAVVAGENT_FLAGS_API_KEY } })`,
 but then it is serialized as JSON into the server bundle: values are fixed when
 the Astro config is loaded (at `astro build` for production), the `apiKey` is
 written into the built files, and function options are dropped. The
@@ -100,7 +100,7 @@ that a throw from it is logged, never thrown out of the timers that bound
 
 ```js
 // src/savvagent.config.mjs
-export default { apiKey: process.env.SAVVAGENT_SDK_KEY };
+export default { apiKey: process.env.SAVVAGENT_FLAGS_API_KEY };
 export function getUserId({ locals }) {
   return locals.user?.id;
 }

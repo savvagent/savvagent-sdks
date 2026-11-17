@@ -325,7 +325,7 @@ def get_client():
     if _client is None:
         from django.conf import settings
         _client = FlagClient(FlagClientConfig(
-            api_key=settings.SAVVAGENT_API_KEY,
+            api_key=settings.SAVVAGENT_FLAGS_API_KEY,
         ))
     return _client
 

@@ -23,7 +23,7 @@ import { auth } from '@/auth'; // your auth library
 
 initServerClient(
   {
-    apiKey: process.env.SAVVAGENT_API_KEY!,
+    apiKey: process.env.SAVVAGENT_FLAGS_API_KEY!,
     applicationId: process.env.SAVVAGENT_APP_ID,
   },
   // Who the request is for, from your own auth (see "User identity" below).
@@ -77,7 +77,7 @@ import { initMiddlewareClient, createMiddleware, isEnabledInMiddleware } from '@
 import { NextResponse } from 'next/server';
 
 initMiddlewareClient({
-  apiKey: process.env.SAVVAGENT_API_KEY!,
+  apiKey: process.env.SAVVAGENT_FLAGS_API_KEY!,
 });
 
 export default createMiddleware({
@@ -189,9 +189,9 @@ import { initServerClient } from '@savvagent/nextjs/server';
 
 initServerClient(
   {
-    apiKey: process.env.SAVVAGENT_API_KEY!,
+    apiKey: process.env.SAVVAGENT_FLAGS_API_KEY!,
     applicationId: process.env.SAVVAGENT_APP_ID,
-    baseUrl: process.env.SAVVAGENT_BASE_URL,
+    baseUrl: process.env.SAVVAGENT_FLAGS_API_URL,
   },
   {
     getUserId: async () => (await auth())?.user?.id,
@@ -309,7 +309,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <SavvagentProvider
       config={{
-        apiKey: process.env.NEXT_PUBLIC_SAVVAGENT_API_KEY!,
+        apiKey: process.env.NEXT_PUBLIC_SAVVAGENT_FLAGS_API_KEY!,
         enableRealtime: true,
       }}
     >
@@ -392,7 +392,7 @@ Initialize the middleware client. It takes the same options as
 import { initMiddlewareClient } from '@savvagent/nextjs/middleware';
 
 initMiddlewareClient(
-  { apiKey: process.env.SAVVAGENT_API_KEY! },
+  { apiKey: process.env.SAVVAGENT_FLAGS_API_KEY! },
   { getUserId: async (request) => (await verifySession(request.cookies.get('session')?.value))?.userId }
 );
 ```
@@ -524,7 +524,7 @@ import { initMiddlewareClient, isEnabledInMiddleware } from '@savvagent/nextjs/m
 import { NextRequest, NextResponse } from 'next/server';
 
 initMiddlewareClient({
-  apiKey: process.env.SAVVAGENT_API_KEY!,
+  apiKey: process.env.SAVVAGENT_FLAGS_API_KEY!,
 });
 
 export async function middleware(request: NextRequest) {
@@ -565,14 +565,14 @@ export default async function Page() {
 
 ```env
 # Server-side API key (for Server Components, Route Handlers, Middleware)
-SAVVAGENT_API_KEY=sdk_...
+SAVVAGENT_FLAGS_API_KEY=sdk_...
 
 # Client-side API key (for Client Components with real-time updates)
-NEXT_PUBLIC_SAVVAGENT_API_KEY=sdk_...
+NEXT_PUBLIC_SAVVAGENT_FLAGS_API_KEY=sdk_...
 
 # Optional
 SAVVAGENT_APP_ID=your-app-id
-SAVVAGENT_BASE_URL=https://api.savvagent.com/flags
+SAVVAGENT_FLAGS_API_URL=https://api.savvagent.com/flags
 ```
 
 ## TypeScript Support

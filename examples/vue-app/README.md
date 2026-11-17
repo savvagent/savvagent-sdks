@@ -25,8 +25,8 @@ Example Vue 3 application demonstrating how to use the Savvagent Vue SDK with co
 
    Edit `.env.local`:
    ```bash
-   VITE_SAVVAGENT_API_URL=http://localhost:8080
-   VITE_SAVVAGENT_SDK_KEY=your-sdk-key-here
+   VITE_SAVVAGENT_FLAGS_API_URL=http://localhost:8080
+   VITE_SAVVAGENT_FLAGS_API_KEY=your-sdk-key-here
    ```
 
 3. **Run the development server:**
@@ -70,8 +70,8 @@ import App from './App.vue';
 const app = createApp(App);
 
 app.use(createSavvagent({
-  apiUrl: import.meta.env.VITE_SAVVAGENT_API_URL,
-  sdkKey: import.meta.env.VITE_SAVVAGENT_SDK_KEY,
+  apiUrl: import.meta.env.VITE_SAVVAGENT_FLAGS_API_URL,
+  sdkKey: import.meta.env.VITE_SAVVAGENT_FLAGS_API_KEY,
 }));
 
 app.mount('#app');

@@ -14,7 +14,7 @@ Requirements:
 Setup:
     1. Add 'savvagent_flags_app' to INSTALLED_APPS
     2. Add SavvagentFlagsMiddleware to MIDDLEWARE
-    3. Set SAVVAGENT_API_KEY in settings
+    3. Set SAVVAGENT_FLAGS_API_KEY in settings
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ def get_savvagent_flags_client() -> FlagClient:
         from django.conf import settings
 
         config = FlagClientConfig(
-            api_key=getattr(settings, "SAVVAGENT_API_KEY", os.getenv("SAVVAGENT_API_KEY", "")),
+            api_key=getattr(settings, "SAVVAGENT_FLAGS_API_KEY", os.getenv("SAVVAGENT_FLAGS_API_KEY", "")),
             application_id=getattr(settings, "SAVVAGENT_APP_ID", None),
             enable_realtime=getattr(settings, "SAVVAGENT_ENABLE_REALTIME", True),
             enable_telemetry=getattr(settings, "SAVVAGENT_ENABLE_TELEMETRY", True),
@@ -273,7 +273,7 @@ class SavvagentFlagsAppConfig(AppConfig):
 # settings.py additions
 # =============================================================================
 #
-# SAVVAGENT_API_KEY = os.getenv("SAVVAGENT_API_KEY", "sdk_your_key_here")
+# SAVVAGENT_FLAGS_API_KEY = os.getenv("SAVVAGENT_FLAGS_API_KEY", "sdk_your_key_here")
 # SAVVAGENT_APP_ID = os.getenv("SAVVAGENT_APP_ID")
 # SAVVAGENT_ENABLE_REALTIME = True
 # SAVVAGENT_ENABLE_TELEMETRY = True

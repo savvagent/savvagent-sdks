@@ -171,7 +171,7 @@ async function serverScope(overrides?: FlagContext): Promise<RequestScope> {
  *
  * initServerClient(
  *   {
- *     apiKey: process.env.SAVVAGENT_API_KEY!,
+ *     apiKey: process.env.SAVVAGENT_FLAGS_API_KEY!,
  *     applicationId: process.env.SAVVAGENT_APP_ID,
  *   },
  *   { getUserId: async () => (await auth())?.user?.id }

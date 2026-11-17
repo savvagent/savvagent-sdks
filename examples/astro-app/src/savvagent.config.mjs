@@ -20,16 +20,16 @@ export const savvagentConfig = {
 export function browserConfig() {
   return {
     ...savvagentConfig,
-    apiKey: process.env.PUBLIC_SAVVAGENT_SDK_KEY || 'sdk_your_key_here',
-    // Never the server's SAVVAGENT_API_URL: it can be an internal address.
-    baseUrl: process.env.PUBLIC_SAVVAGENT_API_URL || 'https://api.savvagent.com/flags',
+    apiKey: process.env.PUBLIC_SAVVAGENT_FLAGS_API_KEY || 'sdk_your_key_here',
+    // Never the server's SAVVAGENT_FLAGS_API_URL: it can be an internal address.
+    baseUrl: process.env.PUBLIC_SAVVAGENT_FLAGS_API_URL || 'https://api.savvagent.com/flags',
   };
 }
 
 // The server-side client (Astro.locals.savvagent).
 export default {
   ...savvagentConfig,
-  apiKey: process.env.SAVVAGENT_SDK_KEY || 'sdk_your_key_here',
-  baseUrl: process.env.SAVVAGENT_API_URL || 'https://api.savvagent.com/flags',
+  apiKey: process.env.SAVVAGENT_FLAGS_API_KEY || 'sdk_your_key_here',
+  baseUrl: process.env.SAVVAGENT_FLAGS_API_URL || 'https://api.savvagent.com/flags',
   onError: (error) => console.error('[Astro example] Savvagent error:', error),
 };

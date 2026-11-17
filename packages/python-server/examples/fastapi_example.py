@@ -31,7 +31,7 @@ async def lifespan(app: FastAPI):
     global client
 
     config = FlagClientConfig(
-        api_key=os.getenv("SAVVAGENT_API_KEY", "sdk_your_key_here"),
+        api_key=os.getenv("SAVVAGENT_FLAGS_API_KEY", "sdk_your_key_here"),
         application_id=os.getenv("SAVVAGENT_APP_ID"),
         enable_realtime=True,
     )

@@ -289,7 +289,7 @@ export function FlagProvider({ children }: { children: React.ReactNode }) {
   const [client] = useState(
     () =>
       new FlagClient({
-        apiKey: process.env.NEXT_PUBLIC_SAVVAGENT_KEY!,
+        apiKey: process.env.NEXT_PUBLIC_SAVVAGENT_FLAGS_API_KEY!,
       })
   );
 
@@ -334,7 +334,7 @@ import { FlagClient } from '@savvagent/client-web';
 import { ref, onMounted, onUnmounted } from 'vue';
 
 const client = new FlagClient({
-  apiKey: import.meta.env.VITE_SAVVAGENT_KEY,
+  apiKey: import.meta.env.VITE_SAVVAGENT_FLAGS_API_KEY,
 });
 
 export function useFlag(flagKey: string, context?: any) {
@@ -364,7 +364,7 @@ import { FlagClient } from '@savvagent/client-web';
 import { writable } from 'svelte/store';
 
 const client = new FlagClient({
-  apiKey: import.meta.env.VITE_SAVVAGENT_KEY,
+  apiKey: import.meta.env.VITE_SAVVAGENT_FLAGS_API_KEY,
 });
 
 export function flagStore(flagKey: string, context?: any) {
@@ -408,7 +408,7 @@ import {
 } from '@savvagent/sdk/server';
 
 // Once per process: server defaults and a throttled onError.
-const server = createServerClient(FlagClient, { apiKey: process.env.SAVVAGENT_SDK_KEY! });
+const server = createServerClient(FlagClient, { apiKey: process.env.SAVVAGENT_FLAGS_API_KEY! });
 
 async function handle(request: Request): Promise<Response> {
   const context = buildRequestContext({
@@ -475,7 +475,7 @@ Create a single client instance and reuse it throughout your application:
 ```typescript
 // flags.ts
 export const flagClient = new FlagClient({
-  apiKey: process.env.SAVVAGENT_API_KEY!,
+  apiKey: process.env.SAVVAGENT_FLAGS_API_KEY!,
 });
 
 // other-file.ts

@@ -16,9 +16,9 @@ app = Flask(__name__)
 
 # Initialize Savvagent Flags client
 config = FlagClientConfig(
-    api_key=os.environ.get("SAVVAGENT_API_KEY", "sdk_your_key_here"),
+    api_key=os.environ.get("SAVVAGENT_FLAGS_API_KEY", "sdk_your_key_here"),
     application_id=os.environ.get("SAVVAGENT_APP_ID", "python-server-example"),
-    base_url=os.environ.get("SAVVAGENT_API_URL", "http://localhost:8080"),
+    base_url=os.environ.get("SAVVAGENT_FLAGS_API_URL", "http://localhost:8080"),
     enable_realtime=True,
     cache_ttl=60,
     enable_telemetry=True,

@@ -39,9 +39,9 @@ Example Python backend demonstrating how to use the Savvagent Flags SDK in a ser
 
    Edit `.env`:
    ```bash
-   SAVVAGENT_API_KEY=sdk_your_key_here
+   SAVVAGENT_FLAGS_API_KEY=sdk_your_key_here
    SAVVAGENT_APP_ID=python-server-example
-   SAVVAGENT_API_URL=http://localhost:8080
+   SAVVAGENT_FLAGS_API_URL=http://localhost:8080
    PORT=8000
    ```
 

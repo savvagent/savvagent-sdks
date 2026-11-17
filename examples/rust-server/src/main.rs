@@ -1,8 +1,8 @@
 //! Example Axum server that evaluates Savvagent Flags with the Rust server SDK.
 //!
 //! Configuration comes from the environment (see `Settings::from_env`):
-//! `SAVVAGENT_SDK_KEY` (required: the app's server key `srv_...`, or its client key `sdk_...`),
-//! `SAVVAGENT_API_URL`, `SAVVAGENT_ENVIRONMENT`, and `PORT`; `RUST_LOG` sets the log filter.
+//! `SAVVAGENT_FLAGS_API_KEY` (required: the app's server key `srv_...`, or its client key `sdk_...`),
+//! `SAVVAGENT_FLAGS_API_URL`, `SAVVAGENT_ENVIRONMENT`, and `PORT`; `RUST_LOG` sets the log filter.
 
 use axum::{
     extract::{Query, State},
@@ -16,7 +16,7 @@ use std::net::SocketAddr;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-/// The production Savvagent Flags API, used when `SAVVAGENT_API_URL` is not set.
+/// The production Savvagent Flags API, used when `SAVVAGENT_FLAGS_API_URL` is not set.
 const DEFAULT_API_URL: &str = "https://api.savvagent.com/flags";
 const DEFAULT_ENVIRONMENT: &str = "development";
 const DEFAULT_PORT: u16 = 8083;
@@ -61,8 +61,8 @@ impl Settings {
     /// rejects keys it does not accept.
     fn from_env(lookup: impl Fn(&str) -> Option<String>) -> Result<Self, String> {
         let var = |name: &str| lookup(name).filter(|v| !v.is_empty());
-        let sdk_key = var("SAVVAGENT_SDK_KEY")
-            .ok_or("SAVVAGENT_SDK_KEY is not set; use the app's server key (srv_...)")?;
+        let sdk_key = var("SAVVAGENT_FLAGS_API_KEY")
+            .ok_or("SAVVAGENT_FLAGS_API_KEY is not set; use the app's server key (srv_...)")?;
         let port = match var("PORT") {
             Some(p) => p
                 .parse()
@@ -71,7 +71,7 @@ impl Settings {
         };
         Ok(Self {
             sdk_key,
-            api_url: var("SAVVAGENT_API_URL").unwrap_or_else(|| DEFAULT_API_URL.into()),
+            api_url: var("SAVVAGENT_FLAGS_API_URL").unwrap_or_else(|| DEFAULT_API_URL.into()),
             environment: var("SAVVAGENT_ENVIRONMENT").unwrap_or_else(|| DEFAULT_ENVIRONMENT.into()),
             port,
         })
@@ -273,15 +273,15 @@ mod tests {
     #[test]
     fn sdk_key_is_required() {
         let err = Settings::from_env(lookup(&[])).unwrap_err();
-        assert!(err.contains("SAVVAGENT_SDK_KEY"), "{err}");
+        assert!(err.contains("SAVVAGENT_FLAGS_API_KEY"), "{err}");
     }
 
     #[test]
     fn an_empty_variable_counts_as_unset() {
-        assert!(Settings::from_env(lookup(&[("SAVVAGENT_SDK_KEY", "")])).is_err());
+        assert!(Settings::from_env(lookup(&[("SAVVAGENT_FLAGS_API_KEY", "")])).is_err());
         let settings = Settings::from_env(lookup(&[
-            ("SAVVAGENT_SDK_KEY", "sdk_abc"),
-            ("SAVVAGENT_API_URL", ""),
+            ("SAVVAGENT_FLAGS_API_KEY", "sdk_abc"),
+            ("SAVVAGENT_FLAGS_API_URL", ""),
             ("SAVVAGENT_ENVIRONMENT", ""),
             ("PORT", ""),
         ]))
@@ -293,7 +293,8 @@ mod tests {
 
     #[test]
     fn defaults_to_production_development_and_port_8083() {
-        let settings = Settings::from_env(lookup(&[("SAVVAGENT_SDK_KEY", "sdk_abc")])).unwrap();
+        let settings =
+            Settings::from_env(lookup(&[("SAVVAGENT_FLAGS_API_KEY", "sdk_abc")])).unwrap();
         assert_eq!(
             settings,
             Settings {
@@ -308,8 +309,8 @@ mod tests {
     #[test]
     fn every_variable_is_honoured() {
         let settings = Settings::from_env(lookup(&[
-            ("SAVVAGENT_SDK_KEY", "sdk_abc"),
-            ("SAVVAGENT_API_URL", "http://localhost:8080"),
+            ("SAVVAGENT_FLAGS_API_KEY", "sdk_abc"),
+            ("SAVVAGENT_FLAGS_API_URL", "http://localhost:8080"),
             ("SAVVAGENT_ENVIRONMENT", "staging"),
             ("PORT", "9000"),
         ]))
@@ -321,7 +322,8 @@ mod tests {
 
     #[test]
     fn debug_output_redacts_the_key() {
-        let settings = Settings::from_env(lookup(&[("SAVVAGENT_SDK_KEY", "srv_secret")])).unwrap();
+        let settings =
+            Settings::from_env(lookup(&[("SAVVAGENT_FLAGS_API_KEY", "srv_secret")])).unwrap();
         let shown = format!("{settings:?}");
         assert!(!shown.contains("srv_secret"), "{shown}");
         assert!(shown.contains("<redacted>"), "{shown}");
@@ -329,15 +331,19 @@ mod tests {
 
     #[test]
     fn a_server_key_is_accepted() {
-        let settings = Settings::from_env(lookup(&[("SAVVAGENT_SDK_KEY", "srv_abc")])).unwrap();
+        let settings =
+            Settings::from_env(lookup(&[("SAVVAGENT_FLAGS_API_KEY", "srv_abc")])).unwrap();
         assert_eq!(settings.sdk_key, "srv_abc");
         assert!(FlagClient::new(Config::new(&settings.sdk_key)).is_ok());
     }
 
     #[test]
     fn a_bad_port_is_an_error() {
-        let err = Settings::from_env(lookup(&[("SAVVAGENT_SDK_KEY", "sdk_abc"), ("PORT", "x")]))
-            .unwrap_err();
+        let err = Settings::from_env(lookup(&[
+            ("SAVVAGENT_FLAGS_API_KEY", "sdk_abc"),
+            ("PORT", "x"),
+        ]))
+        .unwrap_err();
         assert!(err.contains("PORT"), "{err}");
     }
 
