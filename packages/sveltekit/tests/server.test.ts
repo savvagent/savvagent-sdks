@@ -60,7 +60,16 @@ describe('@savvagent/sveltekit/server - Server-side functionality', () => {
       const client = initSvelteKitServer(config);
 
       expect(client).toBeDefined();
-      expect(FlagClient).toHaveBeenCalledWith(config);
+      // Server defaults (#25): one attempt, no SSE, throttled onError.
+      expect(FlagClient).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ...config,
+          retryAttempts: 1,
+          enableRealtime: false,
+          disableLanguageDetection: true,
+          onError: expect.any(Function),
+        })
+      );
       expect(FlagClient).toHaveBeenCalledTimes(1);
     });
 
@@ -91,7 +100,15 @@ describe('@savvagent/sveltekit/server - Server-side functionality', () => {
 
       initSvelteKitServer(config);
 
-      expect(FlagClient).toHaveBeenCalledWith(config);
+      expect(FlagClient).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ...config,
+          retryAttempts: 1,
+          enableRealtime: false,
+          disableLanguageDetection: true,
+          onError: expect.any(Function),
+        })
+      );
     });
   });
 
@@ -121,7 +138,7 @@ describe('@savvagent/sveltekit/server - Server-side functionality', () => {
   });
 
   describe('getEventContext', () => {
-    it('should extract user_id from cookies', async () => {
+    it('should ignore the user_id cookie unless trustUserIdCookie is set', async () => {
       const { getEventContext } = await import('../src/server');
 
       const mockEvent = {
@@ -136,10 +153,11 @@ describe('@savvagent/sveltekit/server - Server-side functionality', () => {
         },
       } as any;
 
-      const context = getEventContext(mockEvent);
+      expect(getEventContext(mockEvent).user_id).toBeUndefined();
+      expect(mockEvent.cookies.get).not.toHaveBeenCalledWith('user_id');
 
-      expect(context.user_id).toBe('user-123');
-      expect(mockEvent.cookies.get).toHaveBeenCalledWith('user_id');
+      const trusted = getEventContext(mockEvent, undefined, { trustUserIdCookie: true });
+      expect(trusted.user_id).toBe('user-123');
     });
 
     it('should extract anonymous_id from cookies', async () => {
@@ -250,7 +268,7 @@ describe('@savvagent/sveltekit/server - Server-side functionality', () => {
 
       const context = getEventContext(mockEvent, overrides);
 
-      expect(context.user_id).toBe('user-123');
+      expect(context.user_id).toBeUndefined();
       expect(context.environment).toBe('production');
       expect(context.organization_id).toBe('org-456');
     });
@@ -305,33 +323,33 @@ describe('@savvagent/sveltekit/server - Server-side functionality', () => {
   });
 
   describe('isEnabled', () => {
-    it('should call client.isEnabled with flag key', async () => {
+    it('should evaluate the flag through the client', async () => {
       const { initSvelteKitServer, isEnabled } = await import('../src/server');
 
       const config = { apiKey: 'test-key', applicationId: 'test-app' };
       initSvelteKitServer(config);
 
-      mockClientInstance.isEnabled.mockResolvedValue(true);
+      mockClientInstance.evaluate.mockResolvedValue({ key: 'test-flag', value: true, reason: 'evaluated' });
 
       const result = await isEnabled('test-flag');
 
       expect(result).toBe(true);
-      expect(mockClientInstance.isEnabled).toHaveBeenCalledWith('test-flag', undefined);
+      expect(mockClientInstance.evaluate).toHaveBeenCalledWith('test-flag', undefined);
     });
 
-    it('should pass context to client.isEnabled', async () => {
+    it('should pass context to the client', async () => {
       const { initSvelteKitServer, isEnabled } = await import('../src/server');
 
       const config = { apiKey: 'test-key', applicationId: 'test-app' };
       initSvelteKitServer(config);
 
-      mockClientInstance.isEnabled.mockResolvedValue(false);
+      mockClientInstance.evaluate.mockResolvedValue({ key: 'test-flag', value: false, reason: 'evaluated' });
 
       const context = { user_id: 'user-123', environment: 'production' };
       const result = await isEnabled('test-flag', context);
 
       expect(result).toBe(false);
-      expect(mockClientInstance.isEnabled).toHaveBeenCalledWith('test-flag', context);
+      expect(mockClientInstance.evaluate).toHaveBeenCalledWith('test-flag', context);
     });
 
     it('should throw if client not initialized', async () => {
@@ -388,66 +406,55 @@ describe('@savvagent/sveltekit/server - Server-side functionality', () => {
   });
 
   describe('withFlag', () => {
-    it('should call client.withFlag and execute callback if enabled', async () => {
+    it('should execute the callback if the flag is enabled', async () => {
       const { initSvelteKitServer, withFlag } = await import('../src/server');
+      initSvelteKitServer({ apiKey: 'test-key', applicationId: 'test-app' });
 
-      const config = { apiKey: 'test-key', applicationId: 'test-app' };
-      initSvelteKitServer(config);
-
+      mockClientInstance.evaluate.mockResolvedValue({ key: 'test-flag', value: true, reason: 'evaluated' });
       const callbackResult = { data: 'test-data' };
-      mockClientInstance.withFlag.mockResolvedValue(callbackResult);
-
       const callback = vi.fn(() => callbackResult);
+
       const result = await withFlag('test-flag', callback);
 
       expect(result).toEqual(callbackResult);
-      expect(mockClientInstance.withFlag).toHaveBeenCalledWith('test-flag', callback, undefined);
+      expect(mockClientInstance.evaluate).toHaveBeenCalledWith('test-flag', undefined);
     });
 
     it('should return null if flag is disabled', async () => {
       const { initSvelteKitServer, withFlag } = await import('../src/server');
+      initSvelteKitServer({ apiKey: 'test-key', applicationId: 'test-app' });
 
-      const config = { apiKey: 'test-key', applicationId: 'test-app' };
-      initSvelteKitServer(config);
-
-      mockClientInstance.withFlag.mockResolvedValue(null);
-
+      mockClientInstance.evaluate.mockResolvedValue({ key: 'test-flag', value: false, reason: 'evaluated' });
       const callback = vi.fn();
+
       const result = await withFlag('test-flag', callback);
 
       expect(result).toBeNull();
       expect(callback).not.toHaveBeenCalled();
     });
 
-    it('should pass context to client.withFlag', async () => {
+    it('should pass context to the evaluation', async () => {
       const { initSvelteKitServer, withFlag } = await import('../src/server');
+      initSvelteKitServer({ apiKey: 'test-key', applicationId: 'test-app' });
 
-      const config = { apiKey: 'test-key', applicationId: 'test-app' };
-      initSvelteKitServer(config);
-
-      const callbackResult = 'executed';
-      mockClientInstance.withFlag.mockResolvedValue(callbackResult);
-
-      const callback = vi.fn(() => callbackResult);
+      mockClientInstance.evaluate.mockResolvedValue({ key: 'test-flag', value: true, reason: 'evaluated' });
       const context = { user_id: 'user-789' };
-      await withFlag('test-flag', callback, context);
 
-      expect(mockClientInstance.withFlag).toHaveBeenCalledWith('test-flag', callback, context);
+      await withFlag('test-flag', vi.fn(() => 'executed'), context);
+
+      expect(mockClientInstance.evaluate).toHaveBeenCalledWith('test-flag', context);
     });
 
-    it('should handle async callbacks', async () => {
+    it('should handle async callbacks and track their errors', async () => {
       const { initSvelteKitServer, withFlag } = await import('../src/server');
+      initSvelteKitServer({ apiKey: 'test-key', applicationId: 'test-app' });
 
-      const config = { apiKey: 'test-key', applicationId: 'test-app' };
-      initSvelteKitServer(config);
+      mockClientInstance.evaluate.mockResolvedValue({ key: 'test-flag', value: true, reason: 'evaluated' });
+      await expect(withFlag('test-flag', vi.fn(async () => 'async-data'))).resolves.toBe('async-data');
 
-      const asyncData = 'async-data';
-      mockClientInstance.withFlag.mockResolvedValue(asyncData);
-
-      const asyncCallback = vi.fn(async () => asyncData);
-      const result = await withFlag('test-flag', asyncCallback);
-
-      expect(result).toBe(asyncData);
+      const failure = new Error('boom');
+      await expect(withFlag('test-flag', async () => { throw failure; })).rejects.toBe(failure);
+      expect(mockClientInstance.trackError).toHaveBeenCalledWith('test-flag', failure, undefined);
     });
   });
 
@@ -510,7 +517,7 @@ describe('@savvagent/sveltekit/server - Server-side functionality', () => {
       const config = { apiKey: 'test-key', applicationId: 'test-app' };
       initSvelteKitServer(config);
 
-      mockClientInstance.isEnabled.mockResolvedValue(true);
+      mockClientInstance.evaluate.mockResolvedValue({ key: 'test-flag', value: true, reason: 'evaluated' });
 
       const mockEvent = {
         cookies: {
@@ -532,8 +539,9 @@ describe('@savvagent/sveltekit/server - Server-side functionality', () => {
       const result = await evaluateForEvent(mockEvent, 'test-flag');
 
       expect(result).toBe(true);
-      expect(mockClientInstance.isEnabled).toHaveBeenCalledWith('test-flag', {
-        user_id: 'event-user',
+      // The user_id cookie is client-controlled and not trusted by default.
+      expect(mockClientInstance.evaluate).toHaveBeenCalledWith('test-flag', {
+        user_id: undefined,
         anonymous_id: undefined,
         session_id: undefined,
         language: 'fr-FR',
@@ -546,7 +554,7 @@ describe('@savvagent/sveltekit/server - Server-side functionality', () => {
       const config = { apiKey: 'test-key', applicationId: 'test-app' };
       initSvelteKitServer(config);
 
-      mockClientInstance.isEnabled.mockResolvedValue(false);
+      mockClientInstance.evaluate.mockResolvedValue({ key: 'test-flag', value: false, reason: 'evaluated' });
 
       const mockEvent = {
         cookies: {
@@ -570,8 +578,8 @@ describe('@savvagent/sveltekit/server - Server-side functionality', () => {
       const result = await evaluateForEvent(mockEvent, 'test-flag', additionalContext);
 
       expect(result).toBe(false);
-      expect(mockClientInstance.isEnabled).toHaveBeenCalledWith('test-flag', {
-        user_id: 'event-user',
+      expect(mockClientInstance.evaluate).toHaveBeenCalledWith('test-flag', {
+        user_id: undefined,
         anonymous_id: undefined,
         session_id: undefined,
         language: undefined,
@@ -586,7 +594,7 @@ describe('@savvagent/sveltekit/server - Server-side functionality', () => {
       const config = { apiKey: 'test-key', applicationId: 'test-app' };
       initSvelteKitServer(config);
 
-      mockClientInstance.isEnabled.mockResolvedValue(true);
+      mockClientInstance.evaluate.mockResolvedValue({ key: 'test-flag', value: true, reason: 'evaluated' });
 
       const mockEvent = {
         cookies: {
@@ -602,7 +610,7 @@ describe('@savvagent/sveltekit/server - Server-side functionality', () => {
       const result = await evaluateForEvent(mockEvent, 'test-flag');
 
       expect(result).toBe(true);
-      expect(mockClientInstance.isEnabled).toHaveBeenCalledWith('test-flag', {
+      expect(mockClientInstance.evaluate).toHaveBeenCalledWith('test-flag', {
         user_id: undefined,
         anonymous_id: undefined,
         session_id: undefined,
@@ -629,7 +637,7 @@ describe('@savvagent/sveltekit/server - Server-side functionality', () => {
       const context = getEventContext(mockEvent);
 
       expect(context).toEqual({
-        user_id: null,
+        user_id: undefined,
         anonymous_id: null,
         session_id: null,
         language: undefined,
@@ -652,7 +660,8 @@ describe('@savvagent/sveltekit/server - Server-side functionality', () => {
 
       const context = getEventContext(mockEvent);
 
-      expect(context.user_id).toBe('');
+      expect(context.user_id).toBeUndefined();
+      expect(context.session_id).toBe('');
       expect(context.language).toBeUndefined();
     });
 

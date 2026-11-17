@@ -102,11 +102,12 @@ describe('Server Module', () => {
   });
 
   describe('createServerContext', () => {
-    it('should extract context from cookies and headers', async () => {
+    it('should extract context from cookies and headers, ignoring the user_id cookie', async () => {
       const context = await createServerContext();
 
+      expect(context.user_id).toBeUndefined();
       expect(context).toEqual({
-        user_id: 'user-123',
+        user_id: undefined,
         anonymous_id: 'anon-456',
         session_id: 'session-789',
         language: 'en-US',
@@ -153,7 +154,7 @@ describe('Server Module', () => {
       const context = await createServerContext();
 
       expect(context).toEqual({
-        user_id: 'user-123',
+        user_id: undefined,
         anonymous_id: 'anon-456',
         session_id: 'session-789',
         language: undefined,
@@ -164,18 +165,20 @@ describe('Server Module', () => {
   describe('isEnabled', () => {
     beforeEach(() => {
       initServerClient({ apiKey: 'sdk_test_key', enableRealtime: false });
-      // Mock the client's isEnabled method
-      jest.spyOn(FlagClient.prototype, 'isEnabled').mockResolvedValue(true);
+      jest.spyOn(FlagClient.prototype, 'evaluate').mockResolvedValue({
+        key: 'test-flag',
+        value: true,
+        reason: 'targeting_match',
+      });
     });
 
     it('should evaluate flag with server context', async () => {
       const result = await isEnabled('test-flag');
 
       expect(result).toBe(true);
-      expect(FlagClient.prototype.isEnabled).toHaveBeenCalledWith(
+      expect(FlagClient.prototype.evaluate).toHaveBeenCalledWith(
         'test-flag',
         expect.objectContaining({
-          user_id: 'user-123',
           anonymous_id: 'anon-456',
           session_id: 'session-789',
           language: 'en-US',
@@ -188,10 +191,10 @@ describe('Server Module', () => {
       const result = await isEnabled('test-flag', customContext);
 
       expect(result).toBe(true);
-      expect(FlagClient.prototype.isEnabled).toHaveBeenCalledWith(
+      expect(FlagClient.prototype.evaluate).toHaveBeenCalledWith(
         'test-flag',
         expect.objectContaining({
-          user_id: 'user-123',
+          anonymous_id: 'anon-456',
           custom_field: 'value',
         })
       );
@@ -238,9 +241,11 @@ describe('Server Module', () => {
 
     it('should execute callback if flag is enabled', async () => {
       const mockCallback = jest.fn().mockReturnValue('callback-result');
-      jest.spyOn(FlagClient.prototype, 'withFlag').mockImplementation(
-        async (key, cb) => cb()
-      );
+      jest.spyOn(FlagClient.prototype, 'evaluate').mockResolvedValue({
+        key: 'test-flag',
+        value: true,
+        reason: 'targeting_match',
+      });
 
       const result = await withFlag('test-flag', mockCallback);
 
@@ -250,18 +255,25 @@ describe('Server Module', () => {
 
     it('should return null if flag is disabled', async () => {
       const mockCallback = jest.fn().mockReturnValue('callback-result');
-      jest.spyOn(FlagClient.prototype, 'withFlag').mockResolvedValue(null);
+      jest.spyOn(FlagClient.prototype, 'evaluate').mockResolvedValue({
+        key: 'test-flag',
+        value: false,
+        reason: 'default',
+      });
 
       const result = await withFlag('test-flag', mockCallback);
 
       expect(result).toBeNull();
+      expect(mockCallback).not.toHaveBeenCalled();
     });
 
     it('should handle async callbacks', async () => {
       const mockCallback = jest.fn().mockResolvedValue('async-result');
-      jest.spyOn(FlagClient.prototype, 'withFlag').mockImplementation(
-        async (key, cb) => cb()
-      );
+      jest.spyOn(FlagClient.prototype, 'evaluate').mockResolvedValue({
+        key: 'test-flag',
+        value: true,
+        reason: 'targeting_match',
+      });
 
       const result = await withFlag('test-flag', mockCallback);
 
@@ -284,7 +296,7 @@ describe('Server Module', () => {
         'test-flag',
         error,
         expect.objectContaining({
-          user_id: 'user-123',
+          anonymous_id: 'anon-456',
         })
       );
     });
@@ -299,7 +311,7 @@ describe('Server Module', () => {
         'test-flag',
         error,
         expect.objectContaining({
-          user_id: 'user-123',
+          anonymous_id: 'anon-456',
           error_type: 'validation',
         })
       );
@@ -309,10 +321,14 @@ describe('Server Module', () => {
   describe('evaluateForRequest', () => {
     beforeEach(() => {
       initServerClient({ apiKey: 'sdk_test_key', enableRealtime: false });
-      jest.spyOn(FlagClient.prototype, 'isEnabled').mockResolvedValue(true);
+      jest.spyOn(FlagClient.prototype, 'evaluate').mockResolvedValue({
+        key: 'test-flag',
+        value: true,
+        reason: 'targeting_match',
+      });
     });
 
-    it('should extract context from request headers and cookies', async () => {
+    it('should extract context from request headers and cookies, ignoring the user_id cookie', async () => {
       const mockRequest = new Request('https://example.com', {
         headers: {
           cookie: 'user_id=req-user; session_id=req-session; savvagent_anonymous_id=req-anon',
@@ -323,10 +339,10 @@ describe('Server Module', () => {
       const result = await evaluateForRequest(mockRequest, 'test-flag');
 
       expect(result).toBe(true);
-      expect(FlagClient.prototype.isEnabled).toHaveBeenCalledWith(
+      expect(FlagClient.prototype.evaluate).toHaveBeenCalledWith(
         'test-flag',
         expect.objectContaining({
-          user_id: 'req-user',
+          user_id: undefined,
           session_id: 'req-session',
           anonymous_id: 'req-anon',
           language: 'fr-FR',
@@ -340,7 +356,7 @@ describe('Server Module', () => {
       const result = await evaluateForRequest(mockRequest, 'test-flag');
 
       expect(result).toBe(true);
-      expect(FlagClient.prototype.isEnabled).toHaveBeenCalledWith(
+      expect(FlagClient.prototype.evaluate).toHaveBeenCalledWith(
         'test-flag',
         expect.objectContaining({
           user_id: undefined,
@@ -358,10 +374,10 @@ describe('Server Module', () => {
       const customContext = { custom_field: 'value' };
       await evaluateForRequest(mockRequest, 'test-flag', customContext);
 
-      expect(FlagClient.prototype.isEnabled).toHaveBeenCalledWith(
+      expect(FlagClient.prototype.evaluate).toHaveBeenCalledWith(
         'test-flag',
         expect.objectContaining({
-          user_id: 'req-user',
+          user_id: undefined,
           custom_field: 'value',
         })
       );
@@ -370,17 +386,16 @@ describe('Server Module', () => {
     it('should parse cookies with equals signs in values', async () => {
       const mockRequest = new Request('https://example.com', {
         headers: {
-          cookie: 'user_id=value=with=equals; session_id=normal',
+          cookie: 'session_id=value=with=equals; user_id=x',
         },
       });
 
       await evaluateForRequest(mockRequest, 'test-flag');
 
-      expect(FlagClient.prototype.isEnabled).toHaveBeenCalledWith(
+      expect(FlagClient.prototype.evaluate).toHaveBeenCalledWith(
         'test-flag',
         expect.objectContaining({
-          user_id: 'value=with=equals',
-          session_id: 'normal',
+          session_id: 'value=with=equals',
         })
       );
     });
@@ -496,7 +511,7 @@ describe('Server Module', () => {
       expect(FlagClient.prototype.evaluate).toHaveBeenCalledWith(
         'flag-1',
         expect.objectContaining({
-          user_id: 'user-123',
+          anonymous_id: 'anon-456',
           custom_field: 'value',
         })
       );
@@ -574,13 +589,15 @@ describe('Server Module', () => {
       }).not.toThrow();
     });
 
-    it('should propagate evaluation errors', async () => {
+    it('should fall back to the default instead of throwing when evaluation fails', async () => {
       initServerClient({ apiKey: 'sdk_test_key', enableRealtime: false });
-      jest.spyOn(FlagClient.prototype, 'isEnabled').mockRejectedValue(
+      jest.spyOn(FlagClient.prototype, 'evaluate').mockRejectedValue(
         new Error('Evaluation failed')
       );
+      const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
-      await expect(isEnabled('test-flag')).rejects.toThrow('Evaluation failed');
+      await expect(isEnabled('test-flag')).resolves.toBe(false);
+      consoleSpy.mockRestore();
     });
   });
 });

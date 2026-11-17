@@ -49,6 +49,7 @@ export {
 export type {
   EvaluateMultipleResult,
   EvaluateMultipleOptions,
+  ServerClientOptions,
 } from './server';
 
 // Re-export types from core SDK
