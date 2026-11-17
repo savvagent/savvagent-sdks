@@ -496,5 +496,5 @@ MIT
 ## Support
 
 - Documentation: https://flags-docs.savvagent.com
-- Issues: https://github.com/yourusername/savvagent/issues
+- Issues: https://github.com/savvagent/flags-sdks/issues
 - Email: support@savvagent.com

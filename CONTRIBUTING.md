@@ -163,7 +163,7 @@ git commit -m "feat: add new feature"
 **Examples:**
 ```bash
 git commit -m "feat(sdk): add real-time flag updates"
-git commit -m "fix(mcp-sentry): handle connection errors"
+git commit -m "fix(node-server): handle connection errors"
 git commit -m "docs: update integration guide"
 ```
 
@@ -317,18 +317,6 @@ Update documentation in `docs/` for:
 - Ensure browser compatibility
 - Cache aggressively for performance
 - Handle network errors gracefully
-
-### @savvagent/mcp-sdk
-
-- Follow MCP protocol standards
-- Support extensibility
-- Document integration patterns
-
-### @savvagent/mcp-sentry
-
-- Handle Sentry API changes
-- Provide clear error messages
-- Support all Sentry SDK versions
 
 ## Release Process
 

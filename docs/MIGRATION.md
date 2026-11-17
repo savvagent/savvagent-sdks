@@ -4,7 +4,7 @@ This guide helps you migrate from using the SDKs in the main `savvagent-flags` r
 
 ## Overview
 
-The SDKs, MCP servers, and example applications have been moved to a dedicated repository with the following benefits:
+The SDKs and example applications have been moved to a dedicated repository with the following benefits:
 
 - Independent versioning for each package
 - Simplified publishing workflow
@@ -17,8 +17,6 @@ The SDKs, MCP servers, and example applications have been moved to a dedicated r
 | Old Package Name | New Package Name |
 |-----------------|------------------|
 | `@savvagent/typescript` | `@savvagent/sdk` |
-| `@savvagent/mcp-sdk` | `@savvagent/mcp-sdk` (unchanged) |
-| `@savvagent/mcp-sentry` | `@savvagent/mcp-sentry` (unchanged) |
 
 ## For Application Developers
 
@@ -37,7 +35,7 @@ The SDKs, MCP servers, and example applications have been moved to a dedicated r
 ```json
 {
   "dependencies": {
-    "@savvagent/sdk": "^0.1.0"
+    "@savvagent/sdk": "^1.1.0"
   }
 }
 ```
@@ -51,9 +49,9 @@ The package name has changed from `@savvagent/typescript` to `@savvagent/sdk`:
 import { SavvagentClient } from '@savvagent/typescript';
 ```
 
-**After:**
+**After** (the client class is now `FlagClient`):
 ```typescript
-import { SavvagentClient } from '@savvagent/sdk';
+import { FlagClient } from '@savvagent/sdk';
 ```
 
 ### Step 3: Install dependencies
@@ -70,11 +68,10 @@ pnpm add @savvagent/sdk
 
 ### Local Development Setup
 
-1. **Clone both repositories:**
+1. **Clone the repository:**
 ```bash
 cd ~/dev
-git clone https://github.com/yourusername/savvagent-flags.git
-git clone https://github.com/yourusername/flags-sdks.git
+git clone https://github.com/savvagent/flags-sdks.git
 ```
 
 2. **Install dependencies:**
@@ -141,23 +138,12 @@ When the PR is merged, a GitHub Action will:
 - Create a "Version Packages" PR with version bumps
 - Once that PR is merged, automatically publish to npm
 
-## For MCP Server Users
-
-MCP server packages remain unchanged:
-
-```bash
-pnpm add @savvagent/mcp-sdk
-pnpm add @savvagent/mcp-sentry
-```
-
 ## Repository Structure
 
 ```
 flags-sdks/
 ├── packages/
-│   ├── typescript/       # @savvagent/sdk
-│   ├── mcp-sdk/          # @savvagent/mcp-sdk
-│   └── mcp-sentry/       # @savvagent/mcp-sentry
+│   └── typescript/       # @savvagent/sdk
 ├── examples/
 │   ├── nextjs-app/       # Next.js example
 │   ├── sveltekit-app/    # SvelteKit example
@@ -185,7 +171,7 @@ You're still importing the old package name. Update to `@savvagent/sdk`:
 import { SavvagentClient } from '@savvagent/typescript';
 
 // New
-import { SavvagentClient } from '@savvagent/sdk';
+import { FlagClient } from '@savvagent/sdk';
 ```
 
 ### "Module not found" after migration

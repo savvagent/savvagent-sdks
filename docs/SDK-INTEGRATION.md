@@ -618,7 +618,7 @@ See [SDK-DEVELOPER-GUIDE.md](./SDK-DEVELOPER-GUIDE.md) for complete API document
 ### Flags Not Updating
 
 1. Check cache TTL - cached values won't update until TTL expires
-2. Verify WebSocket connection for real-time updates
+2. Verify the Server-Sent Events (SSE) stream for real-time updates
 3. Check network connectivity to API
 
 ### High Latency
