@@ -735,6 +735,13 @@ export function getEnvironment(): string {
  * once per request. `trustUserIdCookie`, `getUserId` and
  * `evaluationTimeoutMs` then come from the integration, and these options
  * apply only when there is no `Astro.locals.savvagent`.
+ *
+ * They cannot narrow the integration's settings: a helper's own
+ * `trustUserIdCookie: false` (or its own `getUserId` or timeout) is ignored,
+ * so if the integration trusts the `user_id` cookie, it stays trusted. To
+ * evaluate without trusting it, leave `trustUserIdCookie` off in the
+ * integration, or pass the user explicitly as `user_id` in the `context`
+ * argument, which wins over the cookie.
  */
 export interface RequestHelperOptions extends SavvagentMiddlewareOptions {
   /** `Astro.locals` of the request: its `savvagent` scope is reused, and it is passed to `getUserId`. */
