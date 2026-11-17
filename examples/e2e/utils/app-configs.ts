@@ -132,8 +132,9 @@ export const MOCK_FLAGS_API_URL = `http://127.0.0.1:${MOCK_FLAGS_API_PORT}`;
  * Server-side Flags API settings for apps with `serverFlags`. Playwright
  * cannot intercept requests made by an app's server, so its server client
  * talks to the mock, which makes the server path deterministic with or
- * without a real key. The mock accepts any bearer key; this one never
- * reaches the real API. The browser SDK still uses BETA_ENV.
+ * without a real key. The mock requires exactly this bearer key (it
+ * answers 401 to any other); the key never reaches the real API.
+ * The browser SDK still uses BETA_ENV.
  */
 export const SERVER_FLAGS_ENV = {
   SAVVAGENT_FLAGS_API_URL: MOCK_FLAGS_API_URL,
