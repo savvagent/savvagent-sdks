@@ -67,10 +67,16 @@ function getBounded(): ServerClient<FlagClient> {
 
 /** A failed evaluation: the flag's default, `reason: 'error'`, with a timestamp. */
 function fallbackFor(config: FlagClientConfig | undefined) {
-  return (flagKey: string): FlagEvaluationResult => ({
-    ...fallbackResult(flagKey, config?.defaults),
-    metadata: { timestamp: Date.now() },
-  });
+  return (flagKey: string): FlagEvaluationResult => fallbackResult(flagKey, config?.defaults, { timestamp: true });
+}
+
+/**
+ * A per-call `user_id` counts as an explicit user only when it is a non-empty
+ * string, like the shared merge rule (`''`, `null` and `undefined` do not
+ * override). Passing `''` to the scope as `userId` would mean "no user".
+ */
+function explicitUserId(userId: string | null | undefined): string | undefined {
+  return typeof userId === 'string' && userId !== '' ? userId : undefined;
 }
 
 /**
@@ -146,7 +152,7 @@ async function serverScope(overrides?: FlagContext): Promise<RequestScope> {
   return createRequestScope({
     ...scopeOptions(serverClient),
     context,
-    userId: overrides?.user_id,
+    userId: explicitUserId(overrides?.user_id),
     getUserId: getUserId && (() => getUserId()),
   });
 }
@@ -392,7 +398,7 @@ export async function evaluateForRequest(
   const scope = createRequestScope({
     ...scopeOptions(bounded),
     context: requestContext,
-    userId: context?.user_id,
+    userId: explicitUserId(context?.user_id),
     getUserId: getUserId && (() => getUserId(request)),
   });
   return scope.isEnabled(flagKey, context);

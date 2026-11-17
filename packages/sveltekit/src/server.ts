@@ -70,11 +70,18 @@ function boundOf(bounded: ServerClient<FlagClient>) {
     timeoutMs: bounded.timeoutMs,
     reportError: bounded.reportError,
     // A failed evaluation: the flag's default, `reason: 'error'`, with a timestamp.
-    fallback: (flagKey: string): FlagEvaluationResult => ({
-      ...fallbackResult(flagKey, bounded.config.defaults),
-      metadata: { timestamp: Date.now() },
-    }),
+    fallback: (flagKey: string): FlagEvaluationResult =>
+      fallbackResult(flagKey, bounded.config.defaults, { timestamp: true }),
   };
+}
+
+/**
+ * A per-call `user_id` counts as an explicit user only when it is a non-empty
+ * string, like the shared merge rule (`''`, `null` and `undefined` do not
+ * override). Passing `''` to the scope as `userId` would mean "no user".
+ */
+function explicitUserId(userId: string | null | undefined): string | undefined {
+  return typeof userId === 'string' && userId !== '' ? userId : undefined;
 }
 
 /** The request scope of an event: its context, its user and bounded evaluation. */
@@ -92,7 +99,7 @@ const assignedIds = new WeakMap<object, string>();
  * SDK buckets the visitor the same way; `Path=/`, `SameSite=Lax`, one year,
  * `Secure` on https).
  */
-function assignAnonymousId(event: Pick<RequestEvent, 'cookies' | 'request'>): string {
+function assignEventAnonymousId(event: Pick<RequestEvent, 'cookies' | 'request'>): string {
   let anonymousId = assignedIds.get(event.cookies);
   if (anonymousId) return anonymousId;
   anonymousId = newAnonymousId();
@@ -202,7 +209,7 @@ export function getEventContext(
     },
     overrides
   );
-  if (!context.anonymous_id) context.anonymous_id = assignAnonymousId(event);
+  if (!context.anonymous_id) context.anonymous_id = assignEventAnonymousId(event);
   return context;
 }
 
@@ -317,7 +324,7 @@ export async function evaluateForEvent(
   const { getUserId } = serverOptions;
   return eventScope(bounded, {
     context: getEventContext(event),
-    userId: context?.user_id,
+    userId: explicitUserId(context?.user_id),
     getUserId: getUserId && (() => getUserId(event)),
   }).isEnabled(flagKey, context);
 }

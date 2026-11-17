@@ -248,10 +248,7 @@ export async function isEnabledInMiddleware(
     evaluationTimeoutMs: bounded.timeoutMs,
     reportError: bounded.reportError,
     // A failed evaluation: the flag's default, `reason: 'error'`, with a timestamp.
-    fallback: (flagKey) => ({
-      ...fallbackResult(flagKey, bounded.config.defaults),
-      metadata: { timestamp: Date.now() },
-    }),
+    fallback: (flagKey) => fallbackResult(flagKey, bounded.config.defaults, { timestamp: true }),
   });
   return scope.isEnabled(flagKey, context);
 }

@@ -63,6 +63,22 @@ describe('user_id resolution', () => {
     expect(evaluate.mock.calls[1][1]?.user_id).toBe('explicit');
   });
 
+  it("treats a per-call user_id of '', null or undefined as not given: getUserId still runs", async () => {
+    const server = await import('../src/server');
+    const { FlagClient } = await import('@savvagent/sdk');
+    const getUserId = vi.fn((e: any) => e.locals.user?.id);
+    server.initSvelteKitServer({ apiKey: 'sdk_test' }, { getUserId });
+    const evaluate = vi.spyOn(FlagClient.prototype, 'evaluate').mockResolvedValue(ok);
+    const e = event({}, { user: { id: 'session-user' } });
+
+    await server.evaluateForEvent(e, 'flag', { user_id: '' });
+    await server.evaluateForEvent(e, 'flag', { user_id: null as unknown as string });
+    await server.evaluateForEvent(e, 'flag', { user_id: undefined });
+
+    expect(getUserId).toHaveBeenCalledTimes(3);
+    for (const call of evaluate.mock.calls) expect(call[1]?.user_id).toBe('session-user');
+  });
+
   it('evaluates without a user and reports the error when getUserId rejects', async () => {
     const server = await import('../src/server');
     const { FlagClient } = await import('@savvagent/sdk');

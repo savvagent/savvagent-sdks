@@ -134,6 +134,26 @@ describe('forRequest', () => {
   });
 });
 
+describe('forRequest uses the shared scope for the user (#57)', () => {
+  it('settles getUserId once per scope, so scope.context.user_id is final, and later evaluations reuse it', async () => {
+    mockFlagsApi(() => true);
+    const getUserId = vi.fn(async () => 'from-auth');
+    const savvagent = createSavvagentServer(config, { getUserId });
+    const scope = await savvagent.forRequest(request());
+    expect(scope.context.user_id).toBe('from-auth');
+    await scope.isEnabled('a');
+    await scope.isEnabled('b');
+    expect(getUserId).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not call getUserId when an explicit userId is given', async () => {
+    const getUserId = vi.fn(async () => 'from-auth');
+    const savvagent = createSavvagentServer(config, { getUserId });
+    await savvagent.forRequest(request(), { userId: 'explicit' });
+    expect(getUserId).not.toHaveBeenCalled();
+  });
+});
+
 describe('getUserId bound and failure fallback (#26)', () => {
   const trusted = () => request('http://localhost/', { cookie: 'user_id=cookie-user; savvagent_anonymous_id=anon-1' });
 

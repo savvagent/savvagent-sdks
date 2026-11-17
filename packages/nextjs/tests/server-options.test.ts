@@ -79,6 +79,22 @@ describe('user_id resolution', () => {
     expect(getUserId).toHaveBeenLastCalledWith(request);
   });
 
+  it("treats a per-call user_id of '', null or undefined as not given: getUserId still runs", async () => {
+    const { server, FlagClient } = load();
+    const getUserId = jest.fn(async () => 'session-user');
+    server.initServerClient({ apiKey: 'sdk_test' }, { getUserId });
+    const evaluate = jest.spyOn(FlagClient.prototype, 'evaluate').mockResolvedValue(ok);
+    const request = new Request('https://x.test');
+
+    await server.isEnabled('flag', { user_id: '' });
+    await server.evaluateForRequest(request, 'flag', { user_id: '' });
+    await server.evaluateForRequest(request, 'flag', { user_id: null as unknown as string });
+    await server.evaluateForRequest(request, 'flag', { user_id: undefined });
+
+    expect(getUserId).toHaveBeenCalledTimes(4);
+    for (const call of evaluate.mock.calls) expect(call[1]?.user_id).toBe('session-user');
+  });
+
   it('evaluates without a user and reports the error when getUserId throws', async () => {
     const { server, FlagClient } = load();
     const onError = jest.fn();
