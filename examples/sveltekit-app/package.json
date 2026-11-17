@@ -14,7 +14,8 @@
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
   },
   "dependencies": {
-    "@savvagent/svelte": "workspace:*"
+    "@savvagent/svelte": "workspace:*",
+    "@savvagent/sveltekit": "workspace:*"
   },
   "devDependencies": {
     "@sveltejs/adapter-auto": "^8.0.0",

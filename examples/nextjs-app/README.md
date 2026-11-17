@@ -7,6 +7,7 @@ Example Next.js application demonstrating how to use the Savvagent SDK with Reac
 - Next.js 16 with App Router
 - TypeScript
 - Client-side feature flag evaluation
+- Server Component evaluation and middleware (`@savvagent/nextjs/server`, `@savvagent/nextjs/middleware`)
 - Real-time updates (optional)
 - Tailwind CSS styling
 
@@ -34,6 +35,27 @@ Example Next.js application demonstrating how to use the Savvagent SDK with Reac
    ```
 
 4. Open [http://localhost:3000](http://localhost:3000)
+
+## Server-side evaluation
+
+`app/components/ServerFlag.tsx` is a Server Component that evaluates
+`server-demo` with `evaluate` from `@savvagent/nextjs/server`, so the result
+is in the initial HTML. `middleware.ts` uses `createMiddleware` from
+`@savvagent/nextjs/middleware` to give a first-time visitor the
+`savvagent_anonymous_id` cookie; the page rendered for that request
+evaluates with the same ID. The `user_id` cookie is not trusted (pass
+`getUserId` to `initServerClient` to identify signed-in users).
+
+Both read server-only variables (`lib/savvagent-server-config.ts`):
+
+```bash
+SAVVAGENT_FLAGS_API_KEY=your-server-key-here
+# Optional; defaults to the SDK's Flags API
+SAVVAGENT_FLAGS_API_URL=http://localhost:8080
+```
+
+The E2E suite points `SAVVAGENT_FLAGS_API_URL` at a mock Flags API
+(`examples/e2e/mock-flags-api.mjs`); see `examples/e2e/specs/server-evaluation.spec.ts`.
 
 ## Usage
 

@@ -8,6 +8,7 @@ Example SvelteKit application demonstrating how to use the Savvagent SDK with Sv
 - TypeScript
 - Runes for reactivity
 - Client-side feature flag evaluation
+- Server-side evaluation in `+page.server.ts` (`@savvagent/sveltekit/server`)
 - Error handling
 
 ## Setup
@@ -34,6 +35,27 @@ Example SvelteKit application demonstrating how to use the Savvagent SDK with Sv
    ```
 
 4. Open [http://localhost:5173](http://localhost:5173)
+
+## Server-side evaluation
+
+`src/routes/+page.server.ts` evaluates `server-demo` in `load` with
+`getEventContext` and `evaluate` from `@savvagent/sveltekit/server`, so the
+result is in the initial HTML. A first-time visitor gets the
+`savvagent_anonymous_id` cookie on that response. The `user_id` cookie is
+not trusted (pass `getUserId` to `initSvelteKitServer` to identify
+signed-in users).
+
+`src/hooks.server.ts` initializes the server client from server-only
+variables, declared in `src/env.ts`:
+
+```bash
+SAVVAGENT_FLAGS_API_KEY=your-server-key-here
+# Optional; defaults to the SDK's Flags API
+SAVVAGENT_FLAGS_API_URL=http://localhost:8080
+```
+
+The E2E suite points `SAVVAGENT_FLAGS_API_URL` at a mock Flags API
+(`examples/e2e/mock-flags-api.mjs`); see `examples/e2e/specs/server-evaluation.spec.ts`.
 
 ## Usage
 
