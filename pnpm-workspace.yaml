@@ -18,3 +18,12 @@ ignoredBuiltDependencies:
   - '@parcel/watcher'
   - lmdb
   - msgpackr-extract
+
+# `pnpm audit` (run in CI at --audit-level high) skips these advisories.
+auditConfig:
+  ignoreGhsas:
+    # picomatch ReDoS. Every picomatch release up to 4.0.7 is affected and no
+    # fixed release exists yet (patched versions: none), so there is nothing to
+    # upgrade to. Remove this entry once a fixed picomatch ships and the
+    # lockfile resolves it; `pnpm audit` will then pass without it.
+    - GHSA-fc5q-39xc-vjpf
