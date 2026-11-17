@@ -17,7 +17,7 @@ npm install @savvagent/sveltekit
 import { initSvelteKitServer } from '@savvagent/sveltekit/server';
 
 initSvelteKitServer(
-  { apiKey: process.env.SAVVAGENT_API_KEY! },
+  { apiKey: process.env.SAVVAGENT_FLAGS_API_KEY! },
   // Who the request is for, from your own auth (set in your `handle` hook).
   { getUserId: (event) => event.locals?.user?.id }
 );
@@ -40,7 +40,7 @@ export async function load(event) {
 import { initSavvagent } from '@savvagent/sveltekit';
 
 initSavvagent({
-  apiKey: import.meta.env.VITE_SAVVAGENT_API_KEY,
+  apiKey: import.meta.env.VITE_SAVVAGENT_FLAGS_API_KEY,
 });
 </script>
 ```

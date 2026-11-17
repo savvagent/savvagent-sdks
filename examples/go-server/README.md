@@ -28,8 +28,8 @@ Example Go application demonstrating how to use the Savvagent Flags Go Server SD
 
 2. **Configure environment variables:**
    ```bash
-   export SAVVAGENT_API_URL=http://localhost:8080
-   export SAVVAGENT_SDK_KEY=your-sdk-key-here
+   export SAVVAGENT_FLAGS_API_URL=http://localhost:8080
+   export SAVVAGENT_FLAGS_API_KEY=your-sdk-key-here
    export PORT=8082
    ```
 
@@ -99,8 +99,8 @@ import (
 
 func main() {
     client, err := savvagentflags.NewClient(savvagentflags.Config{
-        APIKey:  os.Getenv("SAVVAGENT_SDK_KEY"),
-        BaseURL: os.Getenv("SAVVAGENT_API_URL"),
+        APIKey:  os.Getenv("SAVVAGENT_FLAGS_API_KEY"),
+        BaseURL: os.Getenv("SAVVAGENT_FLAGS_API_URL"),
     })
     if err != nil {
         log.Fatal(err)

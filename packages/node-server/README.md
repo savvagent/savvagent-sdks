@@ -329,7 +329,7 @@ export class FlagsService implements OnModuleDestroy {
 
   constructor() {
     this.client = new FlagClient({
-      apiKey: process.env.SAVVAGENT_API_KEY,
+      apiKey: process.env.SAVVAGENT_FLAGS_API_KEY,
       applicationId: process.env.APP_ID,
     });
   }

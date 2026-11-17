@@ -21,7 +21,7 @@ React Router 8 app in framework mode using [`@savvagent/react-router`](../../pac
    cp .env.example .env
    ```
 
-   `SAVVAGENT_SDK_KEY` and `SAVVAGENT_API_URL` are used by the server (root loader). The root loader sends `VITE_SAVVAGENT_SDK_KEY` (a public client `sdk_` key, visible to every visitor) and `VITE_SAVVAGENT_API_URL` to the browser SDK.
+   `SAVVAGENT_FLAGS_API_KEY` and `SAVVAGENT_FLAGS_API_URL` are used by the server (root loader). The root loader sends `VITE_SAVVAGENT_FLAGS_API_KEY` (a public client `sdk_` key, visible to every visitor) and `VITE_SAVVAGENT_FLAGS_API_URL` to the browser SDK.
 
 3. Run the dev server:
 

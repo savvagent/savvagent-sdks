@@ -6,8 +6,8 @@ const port = process.env.PORT || 3000;
 
 // Initialize Savvagent client
 const savvagent = new SavvagentClient({
-  apiUrl: process.env.SAVVAGENT_API_URL || 'http://localhost:8080',
-  sdkKey: process.env.SAVVAGENT_SDK_KEY || 'your-sdk-key',
+  apiUrl: process.env.SAVVAGENT_FLAGS_API_URL || 'http://localhost:8080',
+  sdkKey: process.env.SAVVAGENT_FLAGS_API_KEY || 'your-sdk-key',
   environment: 'development',
   cache: {
     enabled: true,

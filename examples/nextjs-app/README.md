@@ -25,8 +25,8 @@ Example Next.js application demonstrating how to use the Savvagent SDK with Reac
 
    Edit `.env.local`:
    ```bash
-   NEXT_PUBLIC_SAVVAGENT_API_URL=http://localhost:8080
-   NEXT_PUBLIC_SAVVAGENT_SDK_KEY=your-sdk-key-here
+   NEXT_PUBLIC_SAVVAGENT_FLAGS_API_URL=http://localhost:8080
+   NEXT_PUBLIC_SAVVAGENT_FLAGS_API_KEY=your-sdk-key-here
    ```
 
 3. **Run the development server:**
@@ -72,8 +72,8 @@ export default function MyComponent() {
 
   useEffect(() => {
     const client = new SavvagentClient({
-      apiUrl: process.env.NEXT_PUBLIC_SAVVAGENT_API_URL!,
-      sdkKey: process.env.NEXT_PUBLIC_SAVVAGENT_SDK_KEY!,
+      apiUrl: process.env.NEXT_PUBLIC_SAVVAGENT_FLAGS_API_URL!,
+      sdkKey: process.env.NEXT_PUBLIC_SAVVAGENT_FLAGS_API_KEY!,
     });
 
     client.isEnabled('new-feature', { userId: 'user-123' })

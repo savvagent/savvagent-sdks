@@ -177,7 +177,7 @@ export function getSavvagent(context: Readonly<RouterContextProvider>): Savvagen
  * import { createSavvagentServer } from '@savvagent/react-router';
  *
  * export const savvagent = createSavvagentServer(
- *   { apiKey: process.env.SAVVAGENT_SDK_KEY!, applicationId: 'my-app' },
+ *   { apiKey: process.env.SAVVAGENT_FLAGS_API_KEY!, applicationId: 'my-app' },
  *   { getUserId: async ({ request }) => (await getSession(request)).get('userId') }
  * );
  * ```

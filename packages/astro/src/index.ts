@@ -255,7 +255,7 @@ function reportConfigProblems(
  * import savvagent from '@savvagent/astro';
  *
  * export default defineConfig({
- *   // src/savvagent.config.mjs: export default { apiKey: process.env.SAVVAGENT_SDK_KEY };
+ *   // src/savvagent.config.mjs: export default { apiKey: process.env.SAVVAGENT_FLAGS_API_KEY };
  *   integrations: [savvagent({ configModule: './src/savvagent.config.mjs' })],
  * });
  * ```

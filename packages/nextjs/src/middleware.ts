@@ -72,7 +72,7 @@ function getBounded(): ServerClient<FlagClient> {
  * import { initMiddlewareClient, createMiddleware } from '@savvagent/nextjs/middleware';
  *
  * initMiddlewareClient({
- *   apiKey: process.env.SAVVAGENT_API_KEY!,
+ *   apiKey: process.env.SAVVAGENT_FLAGS_API_KEY!,
  * });
  *
  * export default createMiddleware({
@@ -295,7 +295,7 @@ export interface MiddlewareConfig {
  * import { initMiddlewareClient, createMiddleware, isEnabledInMiddleware } from '@savvagent/nextjs/middleware';
  *
  * initMiddlewareClient({
- *   apiKey: process.env.SAVVAGENT_API_KEY!,
+ *   apiKey: process.env.SAVVAGENT_FLAGS_API_KEY!,
  * });
  *
  * export default createMiddleware({

@@ -35,7 +35,7 @@ import { getSession } from './sessions.server';
 
 export const savvagent = createSavvagentServer(
   {
-    apiKey: process.env.SAVVAGENT_SDK_KEY!,
+    apiKey: process.env.SAVVAGENT_FLAGS_API_KEY!,
     applicationId: 'your-application-id',
     defaults: { 'new-checkout': false },
   },

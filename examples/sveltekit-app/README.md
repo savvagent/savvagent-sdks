@@ -25,8 +25,8 @@ Example SvelteKit application demonstrating how to use the Savvagent SDK with Sv
 
    Edit `.env`:
    ```bash
-   VITE_SAVVAGENT_API_URL=http://localhost:8080
-   VITE_SAVVAGENT_SDK_KEY=your-sdk-key-here
+   VITE_SAVVAGENT_FLAGS_API_URL=http://localhost:8080
+   VITE_SAVVAGENT_FLAGS_API_KEY=your-sdk-key-here
    ```
 
 3. **Run the development server:**
@@ -71,8 +71,8 @@ The E2E suite points `SAVVAGENT_FLAGS_API_URL` at a mock Flags API
 
   onMount(async () => {
     const client = new SavvagentClient({
-      apiUrl: import.meta.env.VITE_SAVVAGENT_API_URL,
-      sdkKey: import.meta.env.VITE_SAVVAGENT_SDK_KEY,
+      apiUrl: import.meta.env.VITE_SAVVAGENT_FLAGS_API_URL,
+      sdkKey: import.meta.env.VITE_SAVVAGENT_FLAGS_API_KEY,
     });
 
     isEnabled = await client.isEnabled('new-feature', {
@@ -105,8 +105,8 @@ The E2E suite points `SAVVAGENT_FLAGS_API_URL` at a mock Flags API
   onMount(async () => {
     try {
       const client = new SavvagentClient({
-        apiUrl: import.meta.env.VITE_SAVVAGENT_API_URL,
-        sdkKey: import.meta.env.VITE_SAVVAGENT_SDK_KEY,
+        apiUrl: import.meta.env.VITE_SAVVAGENT_FLAGS_API_URL,
+        sdkKey: import.meta.env.VITE_SAVVAGENT_FLAGS_API_KEY,
       });
 
       isEnabled = await client.isEnabled('new-feature', {

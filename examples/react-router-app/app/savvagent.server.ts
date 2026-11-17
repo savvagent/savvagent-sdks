@@ -7,8 +7,8 @@ import { APPLICATION_ID, DEMO_USER_ID, FLAG_DEFAULTS, serverContext } from './sa
 
 export const savvagent = createSavvagentServer(
   {
-    apiKey: process.env.SAVVAGENT_SDK_KEY || '',
-    baseUrl: process.env.SAVVAGENT_API_URL || 'https://api.savvagent.com/flags',
+    apiKey: process.env.SAVVAGENT_FLAGS_API_KEY || '',
+    baseUrl: process.env.SAVVAGENT_FLAGS_API_URL || 'https://api.savvagent.com/flags',
     applicationId: APPLICATION_ID,
     defaults: FLAG_DEFAULTS,
     onError: (error) => console.error('[server] Savvagent error:', error),
@@ -32,9 +32,9 @@ export const savvagent = createSavvagentServer(
  */
 export function browserConfig() {
   return {
-    apiKey: process.env.VITE_SAVVAGENT_SDK_KEY || 'sdk_your_key_here',
-    // Never fall back to the server's SAVVAGENT_API_URL: it may be an
+    apiKey: process.env.VITE_SAVVAGENT_FLAGS_API_KEY || 'sdk_your_key_here',
+    // Never fall back to the server's SAVVAGENT_FLAGS_API_URL: it may be an
     // internal address, and this value is rendered for every visitor.
-    baseUrl: process.env.VITE_SAVVAGENT_API_URL || 'https://api.savvagent.com/flags',
+    baseUrl: process.env.VITE_SAVVAGENT_FLAGS_API_URL || 'https://api.savvagent.com/flags',
   };
 }
