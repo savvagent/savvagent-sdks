@@ -354,6 +354,10 @@ Every pull request runs [`ci.yml`](./.github/workflows/ci.yml):
 - Go SDK and example: `gofmt`, `go vet` and `go test -race`
 - Java SDK and example: `mvn install`
 
+Changes to the Android or iOS SDK also run [`mobile.yml`](./.github/workflows/mobile.yml):
+- Android SDK: Gradle wrapper validation and `./gradlew test`
+- iOS SDK: `swift test` on macOS
+
 ### Automated Publishing
 
 On merge to `master`:

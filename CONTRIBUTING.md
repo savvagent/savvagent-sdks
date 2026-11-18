@@ -112,6 +112,17 @@ Each SDK's example (in `examples/<language>-server`) is built in CI too. The Jav
 needs the SDK installed first (`mvn install` above), and the Go example uses a `replace`
 directive to build against the local SDK.
 
+The Android and iOS SDKs are checked by `.github/workflows/mobile.yml`, which runs when
+either package changes:
+
+```bash
+# Android (JDK 17 and the Android SDK)
+(cd packages/android-sdk && ./gradlew test)
+
+# iOS (macOS with Xcode)
+(cd packages/ios-sdk && swift test)
+```
+
 ### 4. Add a Changeset
 
 For any changes that affect published packages, add a changeset:

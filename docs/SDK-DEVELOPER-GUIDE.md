@@ -647,7 +647,7 @@ This matrix records how each SDK in this repository behaves where the SDKs could
 
 ### Mobile SDKs
 
-The Android and iOS SDKs have their own cache, polling and realtime designs, so only these rows apply to them. The iOS tests run under `swift test` on macOS; they are not run by this repository's CI.
+The Android and iOS SDKs have their own cache, polling and realtime designs, so only these rows apply to them. The iOS tests run under `swift test` on macOS, and the Android tests under `./gradlew test`; the [`mobile.yml`](../.github/workflows/mobile.yml) workflow runs both.
 
 | Behaviour | Android | iOS |
 |---|---|---|

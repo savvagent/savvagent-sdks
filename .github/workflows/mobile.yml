@@ -1,0 +1,97 @@
+name: Mobile
+
+# The Android and iOS SDKs build with their own toolchains (Gradle, SwiftPM),
+# so they run here rather than in ci.yml, and only when they change.
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'packages/android-sdk/**'
+      - 'packages/ios-sdk/**'
+      - '.github/workflows/mobile.yml'
+  pull_request:
+    branches: [master]
+    paths:
+      - 'packages/android-sdk/**'
+      - 'packages/ios-sdk/**'
+      - '.github/workflows/mobile.yml'
+  # Run on merge-queue entries too, so the queue tests the merged result.
+  # merge_group can't be path-filtered, so every queue entry runs this workflow.
+  merge_group:
+
+permissions:
+  contents: read
+
+# A new push to a pull request cancels that pull request's older runs. Pushes to
+# master and merge-queue runs each get a group of their own (the run id), so they
+# are never cancelled or replaced while queued.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  android:
+    name: Android SDK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Checks gradle-wrapper.jar against Gradle's published checksums before
+      # anything runs it. The wrapper's distributionSha256Sum covers the
+      # distribution it downloads.
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+
+      # AGP 8.2 needs JDK 17, and build.gradle.kts targets Java 17.
+      - name: Setup Java
+        uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+          cache-dependency-path: |
+            packages/android-sdk/*.gradle.kts
+            packages/android-sdk/gradle/wrapper/gradle-wrapper.properties
+
+      # The runner image provides the Android SDK (ANDROID_HOME), including the
+      # android-34 platform and build-tools 34.0.0 that compileSdk 34 needs.
+      - name: Test
+        working-directory: packages/android-sdk
+        run: ./gradlew --no-daemon test
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android-test-reports
+          path: |
+            packages/android-sdk/build/reports/tests/
+            packages/android-sdk/build/test-results/
+          retention-days: 7
+
+  ios:
+    name: iOS SDK
+    # macos-26 is the current arm64 image (what macos-latest points to), with
+    # Xcode 26 as its default. Package.swift needs swift-tools-version 5.9 and
+    # macOS 12, which that toolchain supports. The label is pinned, not
+    # macos-latest, so an image migration can't change the toolchain unannounced.
+    runs-on: macos-26
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      # The tests are plain XCTest against Foundation, with networking stubbed by
+      # a URLProtocol, so they run on the macOS host without a simulator.
+      - name: Test
+        working-directory: packages/ios-sdk
+        run: swift test
