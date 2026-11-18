@@ -1,6 +1,6 @@
-# Savvagent Svelte Example
+# Savvagent Flags Svelte Example
 
-Example Svelte application demonstrating how to use the Savvagent Svelte SDK with stores.
+An example Svelte application that uses the stores in [`@savvagent/svelte`](../../packages/svelte) to evaluate [Savvagent Flags](https://github.com/savvagent/flags-sdks#readme).
 
 ## Features
 
@@ -15,7 +15,7 @@ Example Svelte application demonstrating how to use the Savvagent Svelte SDK wit
 
 1. **Install dependencies:**
    ```bash
-   pnpm install
+   pnpm install --frozen-lockfile --ignore-scripts
    ```
 
 2. **Configure environment variables:**

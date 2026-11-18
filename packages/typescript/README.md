@@ -1,6 +1,6 @@
-# @savvagent/typescript
+# @savvagent/sdk
 
-Official TypeScript/JavaScript SDK for Savvagent - AI-powered feature flags with automatic error detection.
+The TypeScript/JavaScript SDK for [Savvagent Flags](https://github.com/savvagent/flags-sdks), the feature flag product of [savvagent-services](https://github.com/savvagent/savvagent-services). The `@savvagent/sdk/server` subpath is the server scope the Next.js, SvelteKit, Astro and React Router SDKs build on.
 
 ## Features
 
@@ -14,17 +14,19 @@ Official TypeScript/JavaScript SDK for Savvagent - AI-powered feature flags with
 ## Installation
 
 ```bash
-npm install @savvagent/typescript
+npm install @savvagent/sdk
 # or
-yarn add @savvagent/typescript
+yarn add @savvagent/sdk
 # or
-pnpm add @savvagent/typescript
+pnpm add @savvagent/sdk
 ```
+
+> **The copy on npm is older.** Installing by name gets 1.1.0 (published 2025-12-30), which predates the current source, until the next release is published. To use the current source now, see [Installation](https://github.com/savvagent/flags-sdks#installation) in the repository README.
 
 ## Quick Start
 
 ```typescript
-import { FlagClient } from '@savvagent/typescript';
+import { FlagClient } from '@savvagent/sdk';
 
 // Initialize the client
 const client = new FlagClient({
@@ -600,6 +602,6 @@ MIT
 
 ## Support
 
-- Documentation: https://flags-docs.savvagent.com
+- Documentation: https://github.com/savvagent/flags-sdks#readme
 - Issues: https://github.com/savvagent/flags-sdks/issues
 - Email: support@savvagent.com

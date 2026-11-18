@@ -1,15 +1,17 @@
-# AI-Assisted Development with Savvagent
+# AI-Assisted Development with Savvagent Flags
 
-This guide explains how to use AI coding assistants (Claude Code, Cursor, GitHub Copilot, etc.) to integrate Savvagent feature flags into your projects.
+This guide explains how to use AI coding assistants (Claude Code, Cursor, GitHub Copilot, etc.) to integrate Savvagent Flags, the feature flag product of [savvagent-services](https://github.com/savvagent/savvagent-services), into your projects.
 
 ## Overview
 
-Savvagent provides AI-friendly documentation files that help coding assistants understand our SDKs and generate accurate integration code:
+The most reliable route for an agent is the unified Savvagent MCP server at `https://mcp.savvagent.com/mcp`. Call `whoami`, then `sdk_guide` with the project's language: it returns install, initialization and usage steps filled in for your app, with installs pinned to a reviewed commit of this repository.
+
+This repository also has AI-friendly documentation files:
 
 | File | Purpose | Size |
 |------|---------|------|
-| `llms.txt` | Quick reference with links to detailed docs | ~4KB |
-| `llms-full.txt` | Complete documentation in one file | ~15KB |
+| `llms.txt` | The production `llms.txt` of the Flags server: where an agent should start (the MCP server, its tools, the SDKs). Rendered from savvagent-services; do not edit it by hand | ~7KB |
+| `llms-full.txt` | Complete documentation in one file | ~24KB |
 
 ## Using with AI Coding Assistants
 
@@ -26,19 +28,13 @@ Or for quick lookups:
 
 ```
 How do I use Savvagent's useFlag hook?
-Check https://raw.githubusercontent.com/savvagent/flags-sdks/master/llms.txt
+Check https://raw.githubusercontent.com/savvagent/flags-sdks/master/llms-full.txt
 ```
 
-**Pro tip**: Add Savvagent docs to your project's context by creating a `.claude/settings.json`:
+**Pro tip**: Add the docs URL to your project's `CLAUDE.md`, so Claude Code reads it when it works on flags:
 
-```json
-{
-  "context": {
-    "urls": [
-      "https://raw.githubusercontent.com/savvagent/flags-sdks/master/llms-full.txt"
-    ]
-  }
-}
+```markdown
+Feature flags use Savvagent Flags. Reference: https://raw.githubusercontent.com/savvagent/flags-sdks/master/llms-full.txt
 ```
 
 ### Cursor
@@ -158,7 +154,7 @@ function App() {
   return (
     <SavvagentProvider
       config={{
-        apiKey: process.env.NEXT_PUBLIC_SAVVAGENT_KEY!,  // SDK keys use 'sdk_' prefix
+        apiKey: process.env.NEXT_PUBLIC_SAVVAGENT_FLAGS_API_KEY!,  // SDK keys use 'sdk_' prefix
         enableRealtime: true,  // SSE for real-time flag updates
       }}
     >
@@ -217,7 +213,7 @@ After AI generates Savvagent integration code, verify:
 
 When Savvagent releases new SDK versions:
 
-1. We update `llms.txt` and `llms-full.txt` in this repository
+1. We update `llms-full.txt` in this repository by hand, and re-render `llms.txt` from savvagent-services (`flags_mcp::llms_txt("https://api.savvagent.com/flags", Some("https://mcp.savvagent.com/mcp"))`), never editing it by hand
 2. AI assistants fetching from GitHub URLs get latest docs automatically
 3. Local copies should be refreshed periodically
 

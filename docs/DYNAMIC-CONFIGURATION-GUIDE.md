@@ -152,7 +152,7 @@ import { FlagClient } from '@savvagent/node-server';
 
 // Create a single SDK instance at application startup
 const client = new FlagClient({
-  apiKey: process.env.SAVVAGENT_API_KEY,  // SDK key (sdk_) or Server key (srv_)
+  apiKey: process.env.SAVVAGENT_FLAGS_API_KEY,  // SDK key (sdk_) or Server key (srv_)
   applicationId: 'my-app'
 });
 
@@ -224,7 +224,7 @@ import (
 
 func main() {
 	client, _ := savvagentflags.NewClient(savvagentflags.Config{
-		APIKey:        os.Getenv("SAVVAGENT_API_KEY"),
+		APIKey:        os.Getenv("SAVVAGENT_FLAGS_API_KEY"),
 		ApplicationID: "my-app",
 	})
 	defer client.Close()
@@ -284,7 +284,7 @@ use std::env;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let config = Config::new(env::var("SAVVAGENT_API_KEY")?)
+    let config = Config::new(env::var("SAVVAGENT_FLAGS_API_KEY")?)
         .with_application_id("my-app");
 
     let client = FlagClient::new(config)?;
@@ -332,7 +332,7 @@ import com.google.gson.JsonObject;
 
 public class Example {
     public static void main(String[] args) {
-        FlagClientConfig config = FlagClientConfig.builder(System.getenv("SAVVAGENT_API_KEY"))
+        FlagClientConfig config = FlagClientConfig.builder(System.getenv("SAVVAGENT_FLAGS_API_KEY"))
             .applicationId("my-app")
             .build();
 
@@ -403,7 +403,7 @@ class MainActivity : AppCompatActivity() {
 
         client = SavvagentClient(
             config = SavvagentConfig(
-                sdkKey = BuildConfig.SAVVAGENT_API_KEY,
+                sdkKey = BuildConfig.SAVVAGENT_FLAGS_API_KEY,
                 apiUrl = "https://api.savvagent.com/flags"
             ),
             context = this
@@ -466,7 +466,7 @@ class ViewController: UIViewController {
 
     init() {
         let config = SavvagentConfig(
-            sdkKey: Bundle.main.infoDictionary?["SAVVAGENT_API_KEY"] as! String,
+            sdkKey: Bundle.main.infoDictionary?["SAVVAGENT_FLAGS_API_KEY"] as! String,
             apiUrl: "https://api.savvagent.com/flags"
         )
         client = SavvagentClient(config: config)
@@ -974,7 +974,7 @@ See [MIGRATION-GUIDE.md](./MIGRATION-GUIDE.md) for detailed migration instructio
 
 ## Support
 
-- 📚 [Full API Reference](./SDK-REFERENCE.md)
+- 📚 [Full API Reference](../packages/typescript/README.md)
 - 💬 [GitHub Discussions](https://github.com/savvagent/flags-sdks/discussions)
 - 🐛 [Report Issues](https://github.com/savvagent/flags-sdks/issues)
 - 📧 Email: support@savvagent.com

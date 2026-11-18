@@ -1,24 +1,17 @@
 # Migration Guide
 
-This guide helps you migrate from using the SDKs in the main `savvagent-flags` repository to the new `flags-sdks` repository.
+This guide is for code that still uses the SDKs from their old homes: the `sdks/` folder of the archived `savvagent-flags` repository, or this repository before it was renamed. The Flags SDKs for [savvagent-services](https://github.com/savvagent/savvagent-services) now live in [savvagent/flags-sdks](https://github.com/savvagent/flags-sdks). GitHub redirects the old repository URL, but update your links and clones.
 
-## Overview
+For the v1 to v2 API changes (dynamic configuration and multi-variant flags), see [MIGRATION-GUIDE.md](./MIGRATION-GUIDE.md).
 
-The SDKs and example applications have been moved to a dedicated repository with the following benefits:
+## Package name changes
 
-- Independent versioning for each package
-- Simplified publishing workflow
-- Better documentation focused on SDK usage
-- Clearer separation between platform and client code
-- Easier community contributions
-
-## Package Name Changes
-
-| Old Package Name | New Package Name |
+| Old package name | New package name |
 |-----------------|------------------|
 | `@savvagent/typescript` | `@savvagent/sdk` |
+| `@savvagent/remix` | `@savvagent/react-router` ([migration](../packages/react-router/README.md#migrating-from-savvagentremix)) |
 
-## For Application Developers
+## For application developers
 
 ### Step 1: Update package.json
 
@@ -31,7 +24,7 @@ The SDKs and example applications have been moved to a dedicated repository with
 }
 ```
 
-**After (published packages):**
+**After:**
 ```json
 {
   "dependencies": {
@@ -40,170 +33,61 @@ The SDKs and example applications have been moved to a dedicated repository with
 }
 ```
 
+The copies on npm today (1.1.0) predate the fixes in this repository; the next release publishes them. To use the current source before then, build this repository at a pinned commit and depend on it with `file:` (see [Local development](#local-development)).
+
 ### Step 2: Update imports
 
-The package name has changed from `@savvagent/typescript` to `@savvagent/sdk`:
+The client class is now `FlagClient`:
 
 **Before:**
 ```typescript
 import { SavvagentClient } from '@savvagent/typescript';
 ```
 
-**After** (the client class is now `FlagClient`):
+**After:**
 ```typescript
 import { FlagClient } from '@savvagent/sdk';
 ```
 
-### Step 3: Install dependencies
+### Step 3: Point at the Flags API
+
+Every SDK defaults to `https://api.savvagent.com/flags`. If your code sets `baseUrl` to an older host, remove it or change it to that URL.
+
+## Local development
 
 ```bash
-# Remove old package
-pnpm remove @savvagent/typescript
-
-# Install new package
-pnpm add @savvagent/sdk
-```
-
-## For SDK Contributors
-
-### Local Development Setup
-
-1. **Clone the repository:**
-```bash
-cd ~/dev
-git clone https://github.com/savvagent/flags-sdks.git
-```
-
-2. **Install dependencies:**
-```bash
+git clone https://github.com/savvagent/flags-sdks
 cd flags-sdks
-pnpm install
-```
-
-3. **Build packages:**
-```bash
+pnpm install --frozen-lockfile --ignore-scripts
 pnpm build
 ```
 
-### Using Local SDK in Platform Development
+Then depend on the built package from your app:
 
-To test SDK changes with the platform, use pnpm's `file:` protocol:
-
-**In savvagent-flags/frontend/package.json:**
 ```json
 {
   "dependencies": {
-    "@savvagent/sdk": "file:../../flags-sdks/packages/typescript"
+    "@savvagent/sdk": "file:../flags-sdks/packages/typescript"
   }
 }
 ```
-
-Then run:
-```bash
-cd savvagent-flags/frontend
-pnpm install
-```
-
-Changes to the SDK will be reflected immediately without needing to rebuild (when using source files).
-
-### Making Changes
-
-1. **Create a branch:**
-```bash
-git checkout -b feature/my-feature
-```
-
-2. **Make your changes to the SDK**
-
-3. **Add a changeset:**
-```bash
-pnpm changeset
-```
-
-Follow the prompts to:
-- Select which package changed
-- Choose semver bump type (major/minor/patch)
-- Write a changelog entry
-
-4. **Commit and push:**
-```bash
-git add .
-git commit -m "feat: add new feature"
-git push origin feature/my-feature
-```
-
-5. **Create a Pull Request**
-
-When the PR is merged, a GitHub Action will:
-- Create a "Version Packages" PR with version bumps
-- Once that PR is merged, automatically publish to npm
-
-## Repository Structure
-
-```
-flags-sdks/
-├── packages/
-│   └── typescript/       # @savvagent/sdk
-├── examples/
-│   ├── nextjs-app/       # Next.js example
-│   ├── sveltekit-app/    # SvelteKit example
-│   └── node-backend/     # Node.js backend example
-└── docs/
-    ├── MIGRATION.md      # This file
-    └── SDK-INTEGRATION.md
-```
-
-## Breaking Changes
-
-### Version 0.1.0 → 0.2.0
-
-- Package renamed from `@savvagent/typescript` to `@savvagent/sdk`
-- No API changes; only import path changed
 
 ## Troubleshooting
 
 ### "Cannot find module '@savvagent/typescript'"
 
-You're still importing the old package name. Update to `@savvagent/sdk`:
-
-```typescript
-// Old
-import { SavvagentClient } from '@savvagent/typescript';
-
-// New
-import { FlagClient } from '@savvagent/sdk';
-```
+You're still importing the old package name. Import `FlagClient` from `@savvagent/sdk` instead.
 
 ### "Module not found" after migration
 
-Clear your dependency cache and reinstall:
+Remove `node_modules` and reinstall. Keep your lockfile unless you mean to re-resolve every dependency.
 
-```bash
-rm -rf node_modules pnpm-lock.yaml
-pnpm install
-```
+## Related documentation
 
-### Local development not working
-
-Ensure you're using the `file:` protocol with the correct relative path:
-
-```json
-{
-  "dependencies": {
-    "@savvagent/sdk": "file:../../flags-sdks/packages/typescript"
-  }
-}
-```
-
-Then run `pnpm install` to create the symlink.
-
-## Related Documentation
-
-- [SDK-DEVELOPER-GUIDE.md](./SDK-DEVELOPER-GUIDE.md) - Official API specification
+- [SDK-DEVELOPER-GUIDE.md](./SDK-DEVELOPER-GUIDE.md) - the REST wire contract and the cross-SDK behaviour matrix
 - [SDK-INTEGRATION.md](./SDK-INTEGRATION.md) - SDK integration guide
 
 ## Support
 
 - GitHub Issues: https://github.com/savvagent/flags-sdks/issues
-- Documentation: https://github.com/savvagent/flags-sdks/tree/master/docs
 - Examples: https://github.com/savvagent/flags-sdks/tree/master/examples

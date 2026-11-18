@@ -1,6 +1,6 @@
 # Savvagent Flags Java Server Example
 
-Example Spring Boot application demonstrating how to use the Savvagent Flags Java Server SDK.
+An example Spring Boot application that uses the [Savvagent Flags Java server SDK](../../packages/java-server) to evaluate [Savvagent Flags](https://github.com/savvagent/flags-sdks#readme).
 
 ## Features
 

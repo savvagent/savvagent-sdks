@@ -1,6 +1,6 @@
 # Savvagent Flags Rust Server SDK
 
-Official Rust Server SDK for Savvagent Flags - AI-powered feature flags with automatic error detection.
+The Rust server SDK for [Savvagent Flags](https://github.com/savvagent/flags-sdks), the feature flag product of [savvagent-services](https://github.com/savvagent/savvagent-services).
 
 ## Features
 

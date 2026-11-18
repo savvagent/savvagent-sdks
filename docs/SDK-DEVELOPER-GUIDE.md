@@ -1,6 +1,6 @@
 # Savvagent SDK Developer Guide
 
-This guide is for developers building SDKs that integrate with the Savvagent feature flag platform. It covers the API endpoints, authentication, real-time updates, and best practices.
+This guide is for developers building SDKs for Savvagent Flags, the feature flag product of [savvagent-services](https://github.com/savvagent/savvagent-services), whose Flags API is at `https://api.savvagent.com/flags`. It covers the API endpoints, authentication, real-time updates, and best practices.
 
 > **Note:** For official SDKs and examples, see the [flags-sdks repository](https://github.com/savvagent/flags-sdks).
 
@@ -711,6 +711,5 @@ The env- and function-derived defaults, the cache-only read, the static test cli
 
 ## Related Documentation
 
-- [ADMIN-UI-DOGFOODING.md](./ADMIN-UI-DOGFOODING.md) - How the admin UI uses Savvagent flags internally
-- [PRD.md](./PRD.md) - Product requirements and feature overview
-- External: [flags-sdks](https://github.com/savvagent/flags-sdks) - Official SDK implementations
+- [SDK-INTEGRATION.md](./SDK-INTEGRATION.md) - Integrating the SDKs into an application
+- [savvagent-services](https://github.com/savvagent/savvagent-services) - The Flags API these SDKs talk to

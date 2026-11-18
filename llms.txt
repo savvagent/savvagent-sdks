@@ -1,100 +1,88 @@
-# Savvagent SDKs
+# Savvagent Flags
 
-> Savvagent is an AI-powered feature flag platform that prevents production incidents. This repository contains official SDKs for TypeScript/JavaScript, React, Vue, Svelte, Next.js, React Router, Node.js, Python, Go, Java, Rust, iOS, and Android.
+> Savvagent Flags is a feature flag service that AI agents manage over MCP and running apps evaluate through SDKs. If you are an agent wiring an SDK into a project, connect to the MCP endpoint, call `whoami`, then call `sdk_guide` with the project's language.
 
-Savvagent feature flags enable safe rollouts with automatic error detection and correlation. The platform tracks flag evaluations and correlates production errors with recent flag changes using AI.
+The server is at https://api.savvagent.com/flags. Agents manage flags over MCP (Streamable HTTP, OAuth bearer tokens issued by the Savvagent platform). Applications evaluate flags through an SDK over REST at `/api/...` with an app key; the SDK path never goes through the agent surface. Every SDK must be configured with that base URL (https://api.savvagent.com/flags): set it explicitly so the app talks to this server.
 
-## Core Concepts
+## Start here
 
-- **Feature Flags**: Boolean toggles that control feature visibility
-- **Context**: User/session data for targeted rollouts (userId, attributes)
-- **Real-time Updates**: Server-Sent Events push flag changes instantly
-- **Telemetry**: Automatic tracking of evaluations and errors
-- **AI Error Detection**: Correlates production errors with flag changes
+- Connect to the unified Savvagent MCP server at https://mcp.savvagent.com/mcp, which serves every product your organization has enabled, call `whoami` to see the organization and your scopes, then call `sdk_guide(language, app?)`. It starts with an integrate-end-to-end recipe (check access, pick the app, have a person store the server key, create the flag, wire the SDK, verify, turn it on, what is billed), then gives install, initialization and usage steps for that language, filled in with the app's id, name, environments and public client key. Without `app` it uses the organization's only app, or lists the apps to choose from.
+- Every SDK install is pinned to commit f92d5f2e97a81d5251b787f0440f07fad538c255 of savvagent/flags-sdks, a commit on `master` that the maintainers have reviewed; `sdk_guide` pins its installs to the same commit. Use it exactly: do not substitute a branch, a newer commit, or a commit from a fork.
+- [README](https://github.com/savvagent/flags-sdks/blob/f92d5f2e97a81d5251b787f0440f07fad538c255/README.md): the SDK packages, at the pinned commit. Reference only: install with the steps `sdk_guide` returns, not with the README's commands.
+- [SDK developer guide](https://github.com/savvagent/flags-sdks/blob/f92d5f2e97a81d5251b787f0440f07fad538c255/docs/SDK-DEVELOPER-GUIDE.md): the REST wire contract every SDK implements.
 
-## Quick Start (TypeScript)
+## MCP tools
 
-```typescript
-import { FlagClient } from '@savvagent/sdk';
+- `whoami`: the organization, role and scopes this token opens.
+- `usage`: this month's usage meters, the budget and any billing block.
+- `list_apps`: the apps (one per codebase or service) that own flags.
+- `create_app`: create an app and return its SDK keys (owner or admin).
+- `update_app`: replace an app's list of environments and/or the browser origins its public client key may be used from (owner or admin).
+- `rotate_app_keys`: issue new SDK keys for an app (owner or admin).
+- `list_flags`: the flags in an app.
+- `get_flag`: one flag with its environments, rules and current version.
+- `create_flag`: create a flag, switched off everywhere.
+- `update_flag`: change a flag's description, variations or tags.
+- `set_flag_environment`: turn a flag on or off per environment, set rollout, targeting and the default variation.
+- `archive_flag`: retire a flag.
+- `restore_flag`: bring an archived flag back.
+- `rollback_flag`: restore a flag's previous version, or any version from its history.
+- `flag_history`: every version of a flag and why it changed.
+- `evaluate_flag`: what a given user would get, and why, without changing anything.
+- `flag_health`: error rate with the flag on versus off, from SDK reports.
+- `set_rollback_policy`: arm auto-rollback for a flag in one environment.
+- `remove_rollback_policy`: delete a rollback policy.
+- `list_rollback_policies`: the policies and whether each is armed.
+- `propose_rollback`: a dry run of what auto-rollback would do right now.
+- `rollback_events`: what auto-rollback has done.
+- `sdk_guide`: the integration guide for one language, filled in for an app.
 
-const client = new FlagClient({
-  apiKey: 'sdk_your_key_here',
-  baseUrl: 'https://api.savvagent.com/flags',
-});
+## SDKs
 
-// Check if flag is enabled
-const enabled = await client.isEnabled('new-feature', {
-  userId: 'user-123',
-  attributes: { plan: 'pro' },
-});
+Each language below is a `sdk_guide` name. The link is the package README at the pinned commit, for reference: its install commands are not pinned, so install with the steps `sdk_guide` returns.
 
-// Execute code conditionally with automatic error tracking
-await client.withFlag('experimental', async () => {
-  await experimentalFeature();
-});
+- `python`: [packages/python-server](https://github.com/savvagent/flags-sdks/blob/f92d5f2e97a81d5251b787f0440f07fad538c255/packages/python-server/README.md)
+- `typescript`: [packages/typescript](https://github.com/savvagent/flags-sdks/blob/f92d5f2e97a81d5251b787f0440f07fad538c255/packages/typescript/README.md)
+- `node`: [packages/node-server](https://github.com/savvagent/flags-sdks/blob/f92d5f2e97a81d5251b787f0440f07fad538c255/packages/node-server/README.md)
+- `react`: [packages/react](https://github.com/savvagent/flags-sdks/blob/f92d5f2e97a81d5251b787f0440f07fad538c255/packages/react/README.md)
+- `vue`: [packages/vue](https://github.com/savvagent/flags-sdks/blob/f92d5f2e97a81d5251b787f0440f07fad538c255/packages/vue/README.md)
+- `svelte`: [packages/svelte](https://github.com/savvagent/flags-sdks/blob/f92d5f2e97a81d5251b787f0440f07fad538c255/packages/svelte/README.md)
+- `sveltekit`: [packages/sveltekit](https://github.com/savvagent/flags-sdks/blob/f92d5f2e97a81d5251b787f0440f07fad538c255/packages/sveltekit/README.md)
+- `solid`: [packages/solid](https://github.com/savvagent/flags-sdks/blob/f92d5f2e97a81d5251b787f0440f07fad538c255/packages/solid/README.md)
+- `angular`: [packages/angular](https://github.com/savvagent/flags-sdks/blob/f92d5f2e97a81d5251b787f0440f07fad538c255/packages/angular/README.md)
+- `astro`: [packages/astro](https://github.com/savvagent/flags-sdks/blob/f92d5f2e97a81d5251b787f0440f07fad538c255/packages/astro/README.md)
+- `nextjs`: [packages/nextjs](https://github.com/savvagent/flags-sdks/blob/f92d5f2e97a81d5251b787f0440f07fad538c255/packages/nextjs/README.md)
+- `react-router`: [packages/react-router](https://github.com/savvagent/flags-sdks/blob/f92d5f2e97a81d5251b787f0440f07fad538c255/packages/react-router/README.md)
+- `go`: [packages/go-server](https://github.com/savvagent/flags-sdks/blob/f92d5f2e97a81d5251b787f0440f07fad538c255/packages/go-server/README.md)
+- `rust`: [packages/rust-server](https://github.com/savvagent/flags-sdks/blob/f92d5f2e97a81d5251b787f0440f07fad538c255/packages/rust-server/README.md)
+- `java`: [packages/java-server](https://github.com/savvagent/flags-sdks/blob/f92d5f2e97a81d5251b787f0440f07fad538c255/packages/java-server/README.md)
+- `ios`: [packages/ios-sdk](https://github.com/savvagent/flags-sdks/blob/f92d5f2e97a81d5251b787f0440f07fad538c255/packages/ios-sdk/README.md)
+- `android`: [packages/android-sdk](https://github.com/savvagent/flags-sdks/blob/f92d5f2e97a81d5251b787f0440f07fad538c255/packages/android-sdk/README.md)
+
+## Quick start (Python)
+
+Install from source, pinned to a commit:
+
+```bash
+pip install "savvagent-flags @ git+https://github.com/savvagent/flags-sdks@f92d5f2e97a81d5251b787f0440f07fad538c255#subdirectory=packages/python-server"
 ```
 
-## SDK Documentation
+```python
+import os
 
-- [TypeScript/JavaScript SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/typescript/README.md): Core SDK with caching, real-time updates, telemetry
-- [React SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/react/README.md): React hooks for feature flags
-- [Vue SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/vue/README.md): Vue 3 composables
-- [Svelte SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/svelte/README.md): Svelte stores
-- [Next.js SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/nextjs/README.md): App Router and Pages Router support
-- [React Router SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/react-router/README.md): React Router 8 framework mode: evaluate flags in loaders, actions and middleware, hydrate them into React without a flash of defaults (replaces @savvagent/remix)
-- [Node.js Server SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/node-server/README.md): Server-side SDK for Express, Fastify, etc.
-- [Python Server SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/python-server/README.md): `savvagent-flags` (module `savvagent_flags`), sync and async clients
-- [Go Server SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/go-server/README.md): `github.com/savvagent/flags-sdks/packages/go-server` (package `savvagentflags`), goroutine-safe
-- [Java Server SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/java-server/README.md): `com.savvagent.flags:savvagent-flags-java-server-sdk`, thread-safe for Spring Boot, etc.
-- [Rust Server SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/rust-server/README.md): Crate `savvagent-flags` (lib `savvagent_flags`), async/await with Tokio
-- [iOS SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/ios-sdk/README.md): Swift with async/await, SwiftUI support
-- [Android SDK](https://raw.githubusercontent.com/savvagent/flags-sdks/master/packages/android-sdk/README.md): Kotlin with Jetpack Compose
+from savvagent_flags import FlagClient, FlagClientConfig, FlagContext
 
-## Guides
+client = FlagClient(
+    FlagClientConfig(
+        base_url="https://api.savvagent.com/flags",
+        api_key=os.environ["SAVVAGENT_FLAGS_API_KEY"],
+        application_id="<app id from list_apps>",
+        defaults={"new-checkout": False},
+    )
+)
 
-- [SDK Integration Guide](https://raw.githubusercontent.com/savvagent/flags-sdks/master/docs/SDK-INTEGRATION.md): Complete setup and usage instructions
-- [Dynamic Configuration](https://raw.githubusercontent.com/savvagent/flags-sdks/master/docs/DYNAMIC-CONFIGURATION.md): Advanced flag variations and targeting
-- [Client-Side Overrides](https://raw.githubusercontent.com/savvagent/flags-sdks/master/docs/CLIENT-SIDE-OVERRIDES.md): Testing flags in development
-
-## API Reference
-
-### FlagClient Configuration
-
-```typescript
-interface FlagClientConfig {
-  apiKey: string;              // Required: SDK key (starts with sdk_)
-  baseUrl?: string;            // API URL (default: production)
-  enableRealtime?: boolean;    // SSE updates (default: true)
-  cacheTtl?: number;           // Cache TTL in ms (default: 60000)
-  enableTelemetry?: boolean;   // Track evaluations (default: true)
-  defaults?: Record<string, boolean>;  // Fallback values
-  onError?: (error: Error) => void;    // Error handler
-}
+if client.is_enabled("new-checkout", FlagContext(user_id="user-123")):
+    ...
 ```
 
-### FlagClient Methods
-
-- `isEnabled(flagKey, context?)` - Returns boolean, checks if flag is enabled
-- `evaluate(flagKey, context?)` - Returns detailed result with reason and metadata
-- `withFlag(flagKey, callback, context?)` - Executes callback if flag enabled, tracks errors
-- `trackError(flagKey, error, context?)` - Manually track error with flag context
-- `subscribe(flagKey, callback)` - Subscribe to real-time flag updates
-- `getCachedFlags()` - Get all cached flag keys
-- `clearCache()` - Force re-evaluation
-- `close()` - Cleanup resources
-
-### Context Object
-
-```typescript
-interface EvaluationContext {
-  userId?: string;           // User identifier for targeting
-  attributes?: {             // Custom attributes for rules
-    [key: string]: string | number | boolean;
-  };
-}
-```
-
-## Optional
-
-- [Examples Repository](https://raw.githubusercontent.com/savvagent/flags-sdks/master/examples): Working example apps for all frameworks
-- [Migration Guide](https://raw.githubusercontent.com/savvagent/flags-sdks/master/docs/MIGRATION.md): Migrating from the old savvagent-flags repo layout to the published `@savvagent/*` packages
+Keep the server key in the app's secret store, never in code. `sdk_guide` with `language: "python"` and an `app` returns the full guide with the app's id filled in.

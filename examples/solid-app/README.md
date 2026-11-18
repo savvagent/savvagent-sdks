@@ -1,6 +1,6 @@
-# Savvagent SolidJS Example
+# Savvagent Flags SolidJS Example
 
-Example SolidJS application demonstrating how to use the Savvagent Solid SDK with reactive primitives.
+An example SolidJS application that uses the reactive primitives in [`@savvagent/solid`](../../packages/solid) to evaluate [Savvagent Flags](https://github.com/savvagent/flags-sdks#readme).
 
 ## Features
 
@@ -15,7 +15,7 @@ Example SolidJS application demonstrating how to use the Savvagent Solid SDK wit
 
 1. **Install dependencies:**
    ```bash
-   pnpm install
+   pnpm install --frozen-lockfile --ignore-scripts
    ```
 
 2. **Configure environment variables:**

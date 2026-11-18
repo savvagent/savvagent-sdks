@@ -1,6 +1,6 @@
-# Savvagent Next.js Example
+# Savvagent Flags Next.js Example
 
-Example Next.js application demonstrating how to use the Savvagent SDK with React Server Components and Client Components.
+An example Next.js application that uses [`@savvagent/nextjs`](../../packages/nextjs) to evaluate [Savvagent Flags](https://github.com/savvagent/flags-sdks#readme) in React Server Components and Client Components.
 
 ## Features
 
@@ -15,7 +15,7 @@ Example Next.js application demonstrating how to use the Savvagent SDK with Reac
 
 1. **Install dependencies:**
    ```bash
-   pnpm install
+   pnpm install --frozen-lockfile --ignore-scripts
    ```
 
 2. **Configure environment variables:**

@@ -1,6 +1,6 @@
 # @savvagent/nextjs
 
-Next.js SDK for Savvagent with full App Router support, including Server Components, Client Components, Middleware, and Server Actions.
+Next.js SDK for [Savvagent Flags](https://github.com/savvagent/flags-sdks), the feature flag product of [savvagent-services](https://github.com/savvagent/savvagent-services), with full App Router support, including Server Components, Client Components, Middleware (or Proxy, on Next.js 16), and Server Actions.
 
 ## Installation
 
@@ -11,6 +11,8 @@ pnpm add @savvagent/nextjs
 # or
 yarn add @savvagent/nextjs
 ```
+
+> **The copy on npm is older.** Installing by name gets 1.1.0 (published 2025-12-30), which predates the current source, until the next release is published. To use the current source now, see [Installation](https://github.com/savvagent/flags-sdks#installation) in the repository README.
 
 ## Quick Start
 
@@ -95,7 +97,7 @@ export const config = {
 };
 ```
 
-> **Next.js 16:** the `middleware.ts` file convention is deprecated in favor of `proxy.ts` (export a function named `proxy`, or a default export). The helpers in `@savvagent/nextjs/middleware` take a `NextRequest` and return a `NextResponse`, so they work unchanged from either file. `proxy.ts` runs on the Node.js runtime; the Edge runtime is not available there.
+> **Next.js 16:** the `middleware.ts` file convention is deprecated in favor of `proxy.ts` (export a function named `proxy`, or a default export). The helpers in `@savvagent/nextjs/middleware` take a `NextRequest` and return a `NextResponse`, so they work unchanged from either file. `proxy.ts` runs on the Node.js runtime; the Edge runtime is not available there. To move, rename `middleware.ts` to `proxy.ts` and keep the code above as it is; Next.js 13 to 15 only read `middleware.ts`. The [example app](https://github.com/savvagent/flags-sdks/tree/master/examples/nextjs-app) still uses `middleware.ts`, which Next.js 16 runs with a deprecation warning.
 
 ## User identity
 
@@ -148,7 +150,9 @@ the cookie: not HttpOnly (the browser SDK reads it), `Path=/`,
   with an ID of its own, and the visitor gets the middleware's ID from the
   next request on.
   `Secure` is set when the request URL is https or `x-forwarded-proto` is
-  `https` (behind a TLS-terminating proxy).
+  `https` (behind a TLS-terminating proxy). The header is trusted as sent, so
+  deploy behind a proxy that overwrites it; a forged header can only add
+  `Secure`, never remove it.
 - **Server Actions and Route Handlers**: the server helpers set the cookie
   through `cookies()`.
 - **Server Components** cannot set cookies. Without the middleware, a new

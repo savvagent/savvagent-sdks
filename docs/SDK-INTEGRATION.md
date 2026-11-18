@@ -1,6 +1,6 @@
 # SDK Integration Guide
 
-Complete guide for integrating Savvagent SDK into your application.
+Complete guide for integrating the Savvagent Flags SDKs (the Flags SDKs for [savvagent-services](https://github.com/savvagent/savvagent-services)) into your application. Every SDK talks to the Flags API at `https://api.savvagent.com/flags` by default.
 
 > **For SDK Developers:** If you're building a new SDK or integrating with the Savvagent API directly, see the [SDK Developer Guide](./SDK-DEVELOPER-GUIDE.md) for API specifications, authentication details, and best practices.
 
@@ -16,6 +16,8 @@ npm install @savvagent/sdk
 # Using yarn
 yarn add @savvagent/sdk
 ```
+
+> **The copies on npm are older.** By-name installs get 1.1.0 (published 2025-12-30), which predates the current source, until the next release is published; `@savvagent/react-router` is not on npm at all. To use the current source, see [Installation](../README.md#installation) in the root README.
 
 ## Quick Start
 
@@ -120,8 +122,8 @@ import type { FlagClientConfig, DefaultFlagContext } from '@savvagent/react';
 // App.tsx - Per SDK Developer Guide: Initialize once at app startup
 function App() {
   const config: FlagClientConfig = {
-    apiKey: process.env.NEXT_PUBLIC_SAVVAGENT_SDK_KEY!,
-    baseUrl: process.env.NEXT_PUBLIC_SAVVAGENT_API_URL,
+    apiKey: process.env.NEXT_PUBLIC_SAVVAGENT_FLAGS_API_KEY!,
+    baseUrl: process.env.NEXT_PUBLIC_SAVVAGENT_FLAGS_API_URL,
     enableRealtime: true,
     enableTelemetry: true,
   };
@@ -162,8 +164,8 @@ import { useEffect, useState } from 'react';
 
 // Per SDK Developer Guide: Create single instance
 const client = new FlagClient({
-  apiKey: process.env.NEXT_PUBLIC_SAVVAGENT_SDK_KEY!,
-  baseUrl: process.env.NEXT_PUBLIC_SAVVAGENT_API_URL,
+  apiKey: process.env.NEXT_PUBLIC_SAVVAGENT_FLAGS_API_KEY!,
+  baseUrl: process.env.NEXT_PUBLIC_SAVVAGENT_FLAGS_API_URL,
 });
 
 export default function MyComponent() {
@@ -193,8 +195,8 @@ const app = express();
 // Per SDK Developer Guide: Create single instance at startup
 // Server SDK accepts both sdk_ and srv_ keys
 const savvagent = new FlagClient({
-  apiKey: process.env.SAVVAGENT_SERVER_KEY!, // srv_ key for server-side
-  baseUrl: process.env.SAVVAGENT_API_URL,
+  apiKey: process.env.SAVVAGENT_FLAGS_API_KEY!, // srv_ key for server-side
+  baseUrl: process.env.SAVVAGENT_FLAGS_API_URL,
   cacheTtl: 60000, // 1 minute
   enableRealtime: true,
   timeout: 5000, // 5 second timeout
@@ -238,8 +240,8 @@ process.on('SIGTERM', () => savvagent.close());
   onMount(async () => {
     // Per SDK Developer Guide: Create single instance
     client = new FlagClient({
-      apiKey: import.meta.env.VITE_SAVVAGENT_SDK_KEY,
-      baseUrl: import.meta.env.VITE_SAVVAGENT_API_URL,
+      apiKey: import.meta.env.VITE_SAVVAGENT_FLAGS_API_KEY,
+      baseUrl: import.meta.env.VITE_SAVVAGENT_FLAGS_API_URL,
       enableRealtime: true,
     });
 
@@ -438,8 +440,8 @@ import { FlagClient } from '@savvagent/sdk';
 
 // Good - single instance (per SDK Developer Guide)
 export const savvagent = new FlagClient({
-  apiKey: process.env.SAVVAGENT_SDK_KEY!,
-  baseUrl: process.env.SAVVAGENT_API_URL,
+  apiKey: process.env.SAVVAGENT_FLAGS_API_KEY!,
+  baseUrl: process.env.SAVVAGENT_FLAGS_API_URL,
 });
 
 // Use everywhere
@@ -472,12 +474,12 @@ Never hardcode API keys:
 
 ```bash
 # .env
-SAVVAGENT_API_URL=https://api.savvagent.com/flags
-SAVVAGENT_SDK_KEY=sdk_prod_xxx  # SDK keys use sdk_ prefix
+SAVVAGENT_FLAGS_API_URL=https://api.savvagent.com/flags
+SAVVAGENT_FLAGS_API_KEY=sdk_prod_xxx  # SDK keys use sdk_ prefix
 
 # .env.local (for frontend)
-NEXT_PUBLIC_SAVVAGENT_API_URL=https://api.savvagent.com/flags
-NEXT_PUBLIC_SAVVAGENT_SDK_KEY=sdk_prod_xxx
+NEXT_PUBLIC_SAVVAGENT_FLAGS_API_URL=https://api.savvagent.com/flags
+NEXT_PUBLIC_SAVVAGENT_FLAGS_API_KEY=sdk_prod_xxx
 ```
 
 ### 4. Enable Caching
@@ -486,8 +488,8 @@ Cache evaluations with TTL, invalidate on SSE events for instant updates (per SD
 
 ```typescript
 const client = new FlagClient({
-  apiKey: process.env.SAVVAGENT_SDK_KEY!,
-  baseUrl: process.env.SAVVAGENT_API_URL,
+  apiKey: process.env.SAVVAGENT_FLAGS_API_KEY!,
+  baseUrl: process.env.SAVVAGENT_FLAGS_API_URL,
   cacheTtl: 300000, // 5 minutes (per SDK Developer Guide)
   enableRealtime: true, // Invalidates cache on flag changes
 });
@@ -501,7 +503,7 @@ Per SDK Developer Guide: SSE is optional - the SDK should work without it:
 // SDK automatically handles SSE failures gracefully
 // If SSE connection fails, SDK continues working with cached values
 const client = new FlagClient({
-  apiKey: process.env.SAVVAGENT_SDK_KEY!,
+  apiKey: process.env.SAVVAGENT_FLAGS_API_KEY!,
   enableRealtime: true, // SSE enhances but isn't required
 });
 ```
@@ -515,7 +517,7 @@ Per SDK Developer Guide: Don't send telemetry on every evaluation - batch evalua
 // - Evaluations: batched and sent every 5 seconds
 // - Errors: sent immediately (critical telemetry)
 const client = new FlagClient({
-  apiKey: process.env.SAVVAGENT_SDK_KEY!,
+  apiKey: process.env.SAVVAGENT_FLAGS_API_KEY!,
   enableTelemetry: true, // Enabled by default
 });
 ```
@@ -635,6 +637,6 @@ See [SDK-DEVELOPER-GUIDE.md](./SDK-DEVELOPER-GUIDE.md) for complete API document
 
 ## Support
 
-- Documentation: https://flags-docs.savvagent.com
+- Documentation: https://github.com/savvagent/flags-sdks#readme
 - GitHub Issues: https://github.com/savvagent/flags-sdks/issues
 - Examples: https://github.com/savvagent/flags-sdks/tree/master/examples

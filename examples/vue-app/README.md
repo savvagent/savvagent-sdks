@@ -1,6 +1,6 @@
-# Savvagent Vue Example
+# Savvagent Flags Vue Example
 
-Example Vue 3 application demonstrating how to use the Savvagent Vue SDK with composables.
+An example Vue 3 application that uses the composables in [`@savvagent/vue`](../../packages/vue) to evaluate [Savvagent Flags](https://github.com/savvagent/flags-sdks#readme).
 
 ## Features
 
@@ -15,7 +15,7 @@ Example Vue 3 application demonstrating how to use the Savvagent Vue SDK with co
 
 1. **Install dependencies:**
    ```bash
-   pnpm install
+   pnpm install --frozen-lockfile --ignore-scripts
    ```
 
 2. **Configure environment variables:**

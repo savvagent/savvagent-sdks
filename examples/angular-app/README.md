@@ -1,6 +1,6 @@
-# Savvagent Angular Example
+# Savvagent Flags Angular Example
 
-This example demonstrates how to use the `@savvagent/angular` SDK in an Angular application.
+An example Angular application that uses [`@savvagent/angular`](../../packages/angular) to evaluate [Savvagent Flags](https://github.com/savvagent/flags-sdks#readme).
 
 ## Features
 
@@ -18,7 +18,7 @@ This example demonstrates how to use the `@savvagent/angular` SDK in an Angular 
 From the monorepo root:
 
 ```bash
-pnpm install
+pnpm install --frozen-lockfile --ignore-scripts
 ```
 
 ### 2. Configure Environment

@@ -1,12 +1,14 @@
 # @savvagent/vue
 
-Vue 3 SDK for Savvagent with Composition API composables.
+Vue 3 SDK for [Savvagent Flags](https://github.com/savvagent/flags-sdks), the feature flag product of [savvagent-services](https://github.com/savvagent/savvagent-services), with Composition API composables.
 
 ## Installation
 
 ```bash
 npm install @savvagent/vue
 ```
+
+> **The copy on npm is older.** Installing by name gets 1.1.0 (published 2025-12-30), which predates the current source, until the next release is published. To use the current source now, see [Installation](https://github.com/savvagent/flags-sdks#installation) in the repository README.
 
 ## Quick Start
 
