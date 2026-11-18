@@ -216,6 +216,17 @@ final class SavvagentClientNetworkTests: XCTestCase {
         XCTAssertFalse(flags[1].enabled)
     }
 
+    func testFetchAllFlagsSkipsEntriesWhoseEnabledIsNotABoolean() async throws {
+        MockURLProtocol.requestHandler = { [self] request in
+            ok(request, """
+            {"flags":[{"key":"str","enabled":"true"},{"key":"num","enabled":1},{"key":"zero","enabled":0},
+                      {"key":"real","enabled":true},{"key":"off","enabled":false}]}
+            """)
+        }
+        let flags = try await client.fetchAllFlags()
+        XCTAssertEqual(flags.map { $0.key }, ["real", "off"])
+    }
+
     // MARK: Telemetry
 
     func testFlushPostsEvaluationTelemetry() async throws {
@@ -452,6 +463,16 @@ final class SavvagentClientNetworkTests: XCTestCase {
         let cached = client.cachedDigestsForTesting()
         XCTAssertEqual(Set(cached.keys), ["flag-b", "flag-c"])
         XCTAssertEqual(cached.values.reduce(0) { $0 + $1.count }, 2)
+    }
+
+    func testCacheCountNeverExceedsCapAfterManyInserts() async throws {
+        client.maxCacheEntries = 20
+        for i in 0..<100 {
+            try await seed("flag-\(i % 7)", user: "user-\(i)")
+            let total = client.cachedDigestsForTesting().values.reduce(0) { $0 + $1.count }
+            XCTAssertLessThanOrEqual(total, 20)
+            XCTAssertEqual(client.cacheEntryCountForTesting(), total)
+        }
     }
 
     func testCacheCapCountsContextsAcrossFlags() async throws {

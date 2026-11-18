@@ -324,6 +324,24 @@ class SavvagentClientNetworkTest {
     }
 
     @Test
+    fun testRefreshTreatsNonBooleanEnabledAsDisabled() = runTest {
+        mockWebServer.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setBody("""{"flags": [{"key": "str", "enabled": "true"}, {"key": "num", "enabled": 1}, {"key": "real", "enabled": true}]}""")
+        )
+
+        assertTrue(client.refresh().isSuccess)
+
+        assertEquals(mapOf("str" to false, "num" to false, "real" to true), client.flagUpdates.value)
+    }
+
+    @Test
+    fun testUserDigestIsLowercaseSha256Hex() {
+        assertEquals("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", client.userDigest("abc"))
+    }
+
+    @Test
     fun testRefreshInvalidatesCacheWhenVersionChanges() = runTest {
         mockWebServer.enqueue(
             MockResponse().setResponseCode(200).setBody("""{"enabled": true, "version": 1}""")
