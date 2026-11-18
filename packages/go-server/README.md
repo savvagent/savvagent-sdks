@@ -96,7 +96,7 @@ defer client.Close()
 
 `EnableTelemetry` is accepted but has no effect: this SDK sends no telemetry.
 
-Evaluations are cached per flag and per evaluation context for `CacheTTL`, so two users never share a cached result. At most 10,000 contexts are cached per flag.
+Evaluations are cached per flag and per evaluation context for `CacheTTL`, so two users never share a cached result. The cache holds at most 10,000 entries across all flags and evicts the least recently used entry when full. Entries are keyed by the SHA-256 digest of the context, so the cache never holds the context itself.
 
 ### API keys
 

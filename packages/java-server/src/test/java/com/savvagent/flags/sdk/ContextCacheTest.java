@@ -1,8 +1,6 @@
 package com.savvagent.flags.sdk;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
@@ -59,13 +57,13 @@ class ContextCacheTest {
         server.shutdown();
     }
 
-    private FlagClient client(int maxContextsPerFlag) {
+    private FlagClient client(int maxCacheEntries) {
         return new FlagClient(FlagClientConfig.builder("sdk_test")
                 .baseUrl(server.url("/").toString().replaceAll("/$", ""))
                 .enableRealtime(false)
                 .enableTelemetry(false)
                 .defaults(new HashMap<>())
-                .build(), maxContextsPerFlag);
+                .build(), maxCacheEntries);
     }
 
     private static FlagContext user(String userId) {
@@ -81,7 +79,7 @@ class ContextCacheTest {
 
     @Test
     void eachUserGetsTheirOwnCachedResult() {
-        try (FlagClient client = client(FlagClient.MAX_CONTEXTS_PER_FLAG)) {
+        try (FlagClient client = client(FlagClient.MAX_CACHE_ENTRIES)) {
             assertResult(client.evaluate("checkout", user("a")), true, "evaluated");
             assertResult(client.evaluate("checkout", user("b")), false, "evaluated");
             assertResult(client.evaluate("checkout", user("a")), true, "cached");
@@ -92,7 +90,7 @@ class ContextCacheTest {
 
     @Test
     void contextsDifferingOnlyInAnAttributeAreCachedApart() {
-        try (FlagClient client = client(FlagClient.MAX_CONTEXTS_PER_FLAG)) {
+        try (FlagClient client = client(FlagClient.MAX_CACHE_ENTRIES)) {
             FlagContext pro = user("u");
             pro.setAttribute("plan", "pro");
             FlagContext free = user("u");
@@ -116,7 +114,7 @@ class ContextCacheTest {
         FlagContext two = user("u");
         two.setAttributes(second);
 
-        try (FlagClient client = client(FlagClient.MAX_CONTEXTS_PER_FLAG)) {
+        try (FlagClient client = client(FlagClient.MAX_CACHE_ENTRIES)) {
             assertResult(client.evaluate("checkout", one), false, "evaluated");
             assertResult(client.evaluate("checkout", two), false, "cached");
             assertEquals(1, server.getRequestCount());
@@ -125,29 +123,13 @@ class ContextCacheTest {
 
     @Test
     void invalidatingAFlagDropsEveryContext() {
-        try (FlagClient client = client(FlagClient.MAX_CONTEXTS_PER_FLAG)) {
+        try (FlagClient client = client(FlagClient.MAX_CACHE_ENTRIES)) {
             client.evaluate("checkout", user("a"));
             client.evaluate("checkout", user("b"));
             client.invalidateCache("checkout");
             assertResult(client.evaluate("checkout", user("a")), true, "evaluated");
             assertResult(client.evaluate("checkout", user("b")), false, "evaluated");
             assertEquals(4, server.getRequestCount());
-        }
-    }
-
-    @Test
-    void contextsPerFlagAreBounded() {
-        int bound = 4;
-        try (FlagClient client = client(bound)) {
-            for (int i = 0; i < 10; i++) {
-                client.evaluate("checkout", user("user-" + i));
-                assertTrue(client.cachedContextCount("checkout") <= bound);
-            }
-            assertEquals(10, server.getRequestCount());
-            // The newest entry is retrievable.
-            assertResult(client.evaluate("checkout", user("user-9")), false, "cached");
-            assertEquals(10, server.getRequestCount());
-            assertFalse(client.cachedContextCount("checkout") > bound);
         }
     }
 }

@@ -1,22 +1,36 @@
 package savvagentflags
 
 import (
+	"container/list"
 	"sync"
 	"time"
 )
 
-// maxContextsPerFlag bounds how many contexts the cache holds for one flag, so a host that
-// evaluates a flag for many users cannot grow memory without limit.
-const maxContextsPerFlag = 10000
+// defaultMaxEntries bounds how many entries the cache holds across every flag, so a host that
+// evaluates flags for many users cannot grow memory without limit. When it is full, the least
+// recently used entry is evicted.
+const defaultMaxEntries = 10000
+
+// cacheKey names one entry: the flag key and the context key, which is the SHA-256 hex digest
+// of the context's canonical JSON (see FlagClient.contextKey), never the context itself.
+type cacheKey struct{ flag, ctx string }
+
+// lruItem is the value of one element of the recency list.
+type lruItem struct {
+	key   cacheKey
+	entry cacheEntry
+}
 
 // cache provides thread-safe in-memory caching for flag values. Entries are held per flag and
-// then per context (the JSON of the evaluation context), because the server's answer depends on
-// the context.
+// per context, because the server's answer depends on the context, under one least recently
+// used bound across every flag.
 type cache struct {
-	mu                 sync.RWMutex
-	entries            map[string]map[string]cacheEntry
-	ttl                time.Duration
-	maxContextsPerFlag int
+	mu         sync.Mutex
+	items      map[cacheKey]*list.Element
+	byFlag     map[string]map[string]struct{} // flag key to its cached context digests
+	lru        *list.List                     // front is the most recently used
+	ttl        time.Duration
+	maxEntries int
 
 	// epoch and generations are bumped by every invalidation, so a result fetched before
 	// one can be dropped instead of cached (see Generation and SetAt).
@@ -27,13 +41,20 @@ type cache struct {
 // cacheGeneration is a flag's invalidation generation at one moment.
 type cacheGeneration struct{ epoch, n uint64 }
 
-// newCache creates a new cache with the specified TTL
+// newCache creates a new cache with the specified TTL and the default bound.
 func newCache(ttl time.Duration) *cache {
+	return newCacheWithMaxEntries(ttl, defaultMaxEntries)
+}
+
+// newCacheWithMaxEntries creates a cache that holds at most maxEntries entries across every flag.
+func newCacheWithMaxEntries(ttl time.Duration, maxEntries int) *cache {
 	return &cache{
-		entries:            make(map[string]map[string]cacheEntry),
-		ttl:                ttl,
-		maxContextsPerFlag: maxContextsPerFlag,
-		generations:        make(map[string]uint64),
+		items:       make(map[cacheKey]*list.Element),
+		byFlag:      make(map[string]map[string]struct{}),
+		lru:         list.New(),
+		ttl:         ttl,
+		maxEntries:  maxEntries,
+		generations: make(map[string]uint64),
 	}
 }
 
@@ -46,27 +67,28 @@ func (c *cache) Get(key, ctxKey string) (bool, bool) {
 	return entry.Value, true
 }
 
-// GetEntry retrieves a complete cached entry (includes configuration and variation)
+// GetEntry retrieves a complete cached entry (includes configuration and variation). A hit
+// makes the entry the most recently used; an expired entry is dropped and is a miss.
 func (c *cache) GetEntry(key, ctxKey string) (*cacheEntry, bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	entry, exists := c.entries[key][ctxKey]
+	el, exists := c.items[cacheKey{key, ctxKey}]
 	if !exists {
 		return nil, false
 	}
-
-	// Check if expired
-	if time.Now().After(entry.ExpiresAt) {
+	item := el.Value.(*lruItem)
+	if time.Now().After(item.entry.ExpiresAt) {
+		c.removeLocked(el)
 		return nil, false
 	}
-
+	c.lru.MoveToFront(el)
+	entry := item.entry
 	return &entry, true
 }
 
-// Set stores a value in the cache with TTL. When the flag already holds the maximum number of
-// contexts, expired entries are dropped first, and if more than half the bound is still live
-// the flag's contexts are cleared, so a sweep runs at most once per half-bound of new contexts.
+// Set stores a value in the cache with TTL. When the cache is full, the least recently used
+// entry (of any flag) is evicted.
 func (c *cache) Set(key, ctxKey string, value bool, configuration map[string]interface{}, variation string, version int64, scope string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -76,8 +98,8 @@ func (c *cache) Set(key, ctxKey string, value bool, configuration map[string]int
 // Generation returns the flag's invalidation generation. Read it before sending an evaluate
 // request and pass it to SetAt, which drops the write if the flag was invalidated since.
 func (c *cache) Generation(key string) cacheGeneration {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return cacheGeneration{c.epoch, c.generations[key]}
 }
 
@@ -92,32 +114,41 @@ func (c *cache) SetAt(gen cacheGeneration, key, ctxKey string, value bool, confi
 }
 
 func (c *cache) setLocked(key, ctxKey string, value bool, configuration map[string]interface{}, variation string, version int64, scope string) {
-	contexts, ok := c.entries[key]
-	if !ok {
-		contexts = make(map[string]cacheEntry)
-		c.entries[key] = contexts
-	}
-	if _, present := contexts[ctxKey]; !present && len(contexts) >= c.maxContextsPerFlag {
-		now := time.Now()
-		for k, e := range contexts {
-			if now.After(e.ExpiresAt) {
-				delete(contexts, k)
-			}
-		}
-		if len(contexts) > c.maxContextsPerFlag/2 {
-			for k := range contexts {
-				delete(contexts, k)
-			}
-		}
-	}
-
-	contexts[ctxKey] = cacheEntry{
+	entry := cacheEntry{
 		Value:         value,
 		Configuration: configuration,
 		Variation:     variation,
 		Version:       version,
 		Scope:         scope,
 		ExpiresAt:     time.Now().Add(c.ttl),
+	}
+	k := cacheKey{key, ctxKey}
+	if el, ok := c.items[k]; ok {
+		el.Value.(*lruItem).entry = entry
+		c.lru.MoveToFront(el)
+		return
+	}
+	for c.lru.Len() > 0 && c.lru.Len() >= c.maxEntries {
+		c.removeLocked(c.lru.Back())
+	}
+	c.items[k] = c.lru.PushFront(&lruItem{key: k, entry: entry})
+	digests, ok := c.byFlag[key]
+	if !ok {
+		digests = make(map[string]struct{})
+		c.byFlag[key] = digests
+	}
+	digests[ctxKey] = struct{}{}
+}
+
+// removeLocked drops one entry from the list, the entry map and the per-flag index.
+func (c *cache) removeLocked(el *list.Element) {
+	k := c.lru.Remove(el).(*lruItem).key
+	delete(c.items, k)
+	if digests, ok := c.byFlag[k.flag]; ok {
+		delete(digests, k.ctx)
+		if len(digests) == 0 {
+			delete(c.byFlag, k.flag)
+		}
 	}
 }
 
@@ -130,11 +161,18 @@ func (c *cache) Invalidate(key string) {
 	if key == "" {
 		c.epoch++
 		c.generations = make(map[string]uint64)
-		c.entries = make(map[string]map[string]cacheEntry)
-	} else {
-		c.generations[key]++
-		delete(c.entries, key)
+		c.items = make(map[cacheKey]*list.Element)
+		c.byFlag = make(map[string]map[string]struct{})
+		c.lru.Init()
+		return
 	}
+	c.generations[key]++
+	for ctxKey := range c.byFlag[key] {
+		k := cacheKey{key, ctxKey}
+		c.lru.Remove(c.items[k])
+		delete(c.items, k)
+	}
+	delete(c.byFlag, key)
 }
 
 // Clear removes all entries from the cache
