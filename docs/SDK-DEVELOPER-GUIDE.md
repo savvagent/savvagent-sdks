@@ -472,7 +472,7 @@ A server's answer depends on the evaluation context, so every cache entry is key
 (flag_key, sha256_hex(canonical_context_json))
 ```
 
-- **Canonical context JSON** is the context exactly as it is sent in the evaluate request body, with object keys sorted at every level. Two contexts that produce the same request body produce the same key.
+- **Canonical context JSON** is the context as it is sent in the evaluate request body, in a fixed key order, so two contexts that produce the same request body produce the same key. Each SDK keeps its existing canonical form: TS, Node, Python, Java and Rust sort object keys at every level; Go keeps the `Context` struct's field order and sorts map keys. The digest is compared only within one SDK's own cache, so the forms need not match across SDKs. The mobile SDKs key by the user ID, their whole context key.
 - **Only the digest is kept.** The cache stores the lowercase hex SHA-256 of the canonical JSON, never the JSON itself, so user IDs and attributes are not held in memory as cache keys. The evaluate request still sends the full context.
 - **One bound across all flags.** The cache holds at most 10,000 entries in total, whatever the number of flags, and evicts the least recently used (a cache hit counts as a use). A bound per flag would let memory grow with the number of flags.
 - **Invalidation** of a flag drops every context cached for it.
