@@ -34,7 +34,7 @@ An example Android application that uses the [Savvagent Flags Android SDK](../..
        environment = "production"
    )
    ```
-   The file currently sets `apiUrl` to an old host, `https://flags-beta.savvagent.com`, which no longer resolves. Change it as above, or remove the argument.
+   The example points `apiUrl` at the Flags API; you can also remove the argument, because it is the default.
 
 3. Sync Gradle files and run the app:
    - Click "Sync Now" when prompted

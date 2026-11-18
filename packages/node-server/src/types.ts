@@ -4,7 +4,7 @@
 
 /**
  * Configuration for initializing the FlagClient
- * Per SDK Developer Guide: https://flags-docs.savvagent.com/sdk-developer-guide
+ * Per SDK Developer Guide: https://github.com/savvagent/flags-sdks/blob/master/docs/SDK-DEVELOPER-GUIDE.md
  */
 export interface FlagClientConfig {
   /**
@@ -59,7 +59,7 @@ export interface FlagClientConfig {
 
 /**
  * Context passed to flag evaluation
- * Per SDK Developer Guide: https://flags-docs.savvagent.com/sdk-developer-guide
+ * Per SDK Developer Guide: https://github.com/savvagent/flags-sdks/blob/master/docs/SDK-DEVELOPER-GUIDE.md
  */
 export interface FlagContext {
   /** User ID for targeted rollouts (logged-in users) - required for percentage rollouts */
