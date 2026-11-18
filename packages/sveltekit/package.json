@@ -1,6 +1,6 @@
 {
   "name": "@savvagent/sveltekit",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "description": "SvelteKit SDK for Savvagent feature flags with server and client support",
   "author": "Savvagent",
   "license": "MIT",

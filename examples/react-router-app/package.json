@@ -1,6 +1,6 @@
 {
   "name": "react-router-example",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "private": true,
   "description": "Example React Router 8 (framework mode) app using the Savvagent SDK",
   "type": "module",
