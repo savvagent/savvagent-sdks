@@ -4,7 +4,7 @@ The Python server SDK for [Savvagent Flags](https://github.com/savvagent/flags-s
 
 ## Features
 
-- 🚀 **Fast Evaluation**: In-memory caching with configurable TTL; results are cached per flag and per evaluation context (the context as sent), for `cache_ttl` seconds
+- 🚀 **Fast Evaluation**: In-memory caching with configurable TTL; results are cached per flag and per evaluation context (the context as sent), for `cache_ttl` seconds; the cache keeps at most 10,000 entries across all flags (least recently used first out) and stores each context only as a SHA-256 digest
 - 🔄 **Real-time Updates**: Automatic cache invalidation via Server-Sent Events
 - 📊 **Telemetry**: Automatic tracking of flag evaluations and errors
 - 🤖 **AI Error Detection**: Correlate errors with flag changes

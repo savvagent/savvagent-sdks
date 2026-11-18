@@ -23,6 +23,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `FlagClient.static_flags(flags)` and `AsyncFlagClient.static_flags(flags)`: a client that serves fixed values and never touches the network, for tests; its results have `reason="static"` (#31)
 - Building a client with a `srv_` key and a non-`https`, non-loopback `base_url` prints one warning to stderr: `Savvagent Flags: the server key will be sent over <scheme>; use an https base_url` (#44)
 
+### Changed
+
+- The evaluation cache keys each context by the SHA-256 hex digest of its canonical JSON, so raw user IDs and attributes are no longer kept in the cache; the evaluate request still sends the full context (#30)
+- The cache holds at most 10,000 entries in total across all flags, evicting the least recently used (a cache hit counts as a use), instead of up to 10,000 contexts for each flag (#30)
+
+### Deprecated
+
+- `savvagent_flags.cache.MAX_CONTEXTS_PER_FLAG` is now an alias of the new `MAX_ENTRIES` total bound and will be removed in a future major release (#30)
+
 ### Fixed
 
 - `AsyncFlagClient` sends the configured `environment` when the context has none, as `FlagClient` does; it sent none, so the server used its default environment (#49)
