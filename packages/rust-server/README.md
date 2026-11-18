@@ -320,7 +320,9 @@ let config = Config::new("srv_key")  // or "sdk_key"
 
 Results are cached for `cache_ttl` per flag key and evaluation context: a different context
 (another user, other attributes) is evaluated by the server, and `invalidate_cache(Some(key))`
-drops a flag's cached results for every context.
+drops a flag's cached results for every context. The cache holds at most 10,000 results in
+total across all flags, evicting the least recently used, and stores each context only as the
+SHA-256 digest of its JSON, never the user ID or attributes themselves.
 
 #### Real-time updates
 
