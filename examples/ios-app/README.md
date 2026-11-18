@@ -1,6 +1,6 @@
-# Savvagent iOS Example App
+# Savvagent Flags iOS Example
 
-This is an example iOS application demonstrating how to integrate and use the Savvagent iOS SDK.
+An example iOS application that uses the [Savvagent Flags iOS SDK](../../packages/ios-sdk) to evaluate [Savvagent Flags](https://github.com/savvagent/flags-sdks#readme).
 
 ## Features
 
@@ -95,7 +95,7 @@ You can add more feature flags by:
 ## Learn More
 
 - [iOS SDK Documentation](../../packages/ios-sdk/README.md)
-- [Savvagent Documentation](https://flags-docs.savvagent.com)
+- [Savvagent Flags SDKs](https://github.com/savvagent/flags-sdks#readme)
 - [SwiftUI Guide](https://developer.apple.com/tutorials/swiftui)
 
 ## License

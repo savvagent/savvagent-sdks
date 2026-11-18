@@ -1,6 +1,6 @@
-# Savvagent SvelteKit Example
+# Savvagent Flags SvelteKit Example
 
-Example SvelteKit application demonstrating how to use the Savvagent SDK with Svelte 5.
+An example SvelteKit application (Svelte 5) that uses [`@savvagent/sveltekit`](../../packages/sveltekit) to evaluate [Savvagent Flags](https://github.com/savvagent/flags-sdks#readme).
 
 ## Features
 
@@ -8,13 +8,14 @@ Example SvelteKit application demonstrating how to use the Savvagent SDK with Sv
 - TypeScript
 - Runes for reactivity
 - Client-side feature flag evaluation
+- Server-side evaluation in `+page.server.ts` (`@savvagent/sveltekit/server`)
 - Error handling
 
 ## Setup
 
 1. **Install dependencies:**
    ```bash
-   pnpm install
+   pnpm install --frozen-lockfile --ignore-scripts
    ```
 
 2. **Configure environment variables:**
@@ -24,8 +25,8 @@ Example SvelteKit application demonstrating how to use the Savvagent SDK with Sv
 
    Edit `.env`:
    ```bash
-   VITE_SAVVAGENT_API_URL=http://localhost:8080
-   VITE_SAVVAGENT_SDK_KEY=your-sdk-key-here
+   VITE_SAVVAGENT_FLAGS_API_URL=http://localhost:8080
+   VITE_SAVVAGENT_FLAGS_API_KEY=your-sdk-key-here
    ```
 
 3. **Run the development server:**
@@ -34,6 +35,27 @@ Example SvelteKit application demonstrating how to use the Savvagent SDK with Sv
    ```
 
 4. Open [http://localhost:5173](http://localhost:5173)
+
+## Server-side evaluation
+
+`src/routes/+page.server.ts` evaluates `server-demo` in `load` with
+`getEventContext` and `evaluate` from `@savvagent/sveltekit/server`, so the
+result is in the initial HTML. A first-time visitor gets the
+`savvagent_anonymous_id` cookie on that response. The `user_id` cookie is
+not trusted (pass `getUserId` to `initSvelteKitServer` to identify
+signed-in users).
+
+`src/hooks.server.ts` initializes the server client from server-only
+variables, declared in `src/env.ts`:
+
+```bash
+SAVVAGENT_FLAGS_API_KEY=your-server-key-here
+# Optional; defaults to the SDK's Flags API
+SAVVAGENT_FLAGS_API_URL=http://localhost:8080
+```
+
+The E2E suite points `SAVVAGENT_FLAGS_API_URL` at a mock Flags API
+(`examples/e2e/mock-flags-api.mjs`); see `examples/e2e/specs/server-evaluation.spec.ts`.
 
 ## Usage
 
@@ -49,8 +71,8 @@ Example SvelteKit application demonstrating how to use the Savvagent SDK with Sv
 
   onMount(async () => {
     const client = new SavvagentClient({
-      apiUrl: import.meta.env.VITE_SAVVAGENT_API_URL,
-      sdkKey: import.meta.env.VITE_SAVVAGENT_SDK_KEY,
+      apiUrl: import.meta.env.VITE_SAVVAGENT_FLAGS_API_URL,
+      sdkKey: import.meta.env.VITE_SAVVAGENT_FLAGS_API_KEY,
     });
 
     isEnabled = await client.isEnabled('new-feature', {
@@ -83,8 +105,8 @@ Example SvelteKit application demonstrating how to use the Savvagent SDK with Sv
   onMount(async () => {
     try {
       const client = new SavvagentClient({
-        apiUrl: import.meta.env.VITE_SAVVAGENT_API_URL,
-        sdkKey: import.meta.env.VITE_SAVVAGENT_SDK_KEY,
+        apiUrl: import.meta.env.VITE_SAVVAGENT_FLAGS_API_URL,
+        sdkKey: import.meta.env.VITE_SAVVAGENT_FLAGS_API_KEY,
       });
 
       isEnabled = await client.isEnabled('new-feature', {

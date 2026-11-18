@@ -1,6 +1,6 @@
-# Savvagent Node.js Backend Example
+# Savvagent Flags Node.js Backend Example
 
-Example Node.js/Express backend demonstrating how to use the Savvagent SDK in a server environment.
+An example Node.js (Express) backend that uses [`@savvagent/node-server`](../../packages/node-server) to evaluate [Savvagent Flags](https://github.com/savvagent/flags-sdks#readme).
 
 ## Features
 
@@ -14,7 +14,7 @@ Example Node.js/Express backend demonstrating how to use the Savvagent SDK in a 
 
 1. **Install dependencies:**
    ```bash
-   pnpm install
+   pnpm install --frozen-lockfile --ignore-scripts
    ```
 
 2. **Configure environment variables:**
@@ -25,8 +25,8 @@ Example Node.js/Express backend demonstrating how to use the Savvagent SDK in a 
    Edit `.env`:
    ```bash
    PORT=3000
-   SAVVAGENT_API_URL=http://localhost:8080
-   SAVVAGENT_SDK_KEY=your-sdk-key-here
+   SAVVAGENT_FLAGS_API_URL=http://localhost:8080
+   SAVVAGENT_FLAGS_API_KEY=your-sdk-key-here
    ```
 
 3. **Run the server:**

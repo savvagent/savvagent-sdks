@@ -11,6 +11,7 @@ import json
 import sys
 import time
 import traceback
+from collections.abc import Iterable, Mapping
 from datetime import datetime, timezone
 from typing import Any, Callable, TypeVar
 from urllib.parse import quote
@@ -19,6 +20,7 @@ import httpx
 
 from ._context_key import context_key
 from ._flag_key import default_for, describe_flag_key, is_valid_flag_key
+from ._plain_http import warn_if_plain_http
 from ._response import evaluate_payload, response_metadata
 from .cache import AsyncFlagCache
 from .exceptions import InvalidAPIKeyError, InvalidFlagKeyError
@@ -77,8 +79,11 @@ class AsyncFlagClient:
             raise InvalidAPIKeyError(
                 'Invalid API key. API keys must start with "sdk_" (SDK key) or "srv_" (Server key)'
             )
+        warn_if_plain_http(config.api_key, config.base_url)
 
         self._config = config
+        # Set by static_flags: the values served instead of any lookup.
+        self._fixed: dict[str, bool] | None = None
         self._cache = AsyncFlagCache(config.cache_ttl)
         # The most recent evaluated value per flag, for track_error when the error's
         # context has no cached entry of its own (bounded by the host's flag keys).
@@ -123,17 +128,40 @@ class AsyncFlagClient:
         await self.close()
 
     def _sync_invalidate_cache(self, flag_key: str) -> None:
-        """Synchronously mark a cache entry for invalidation (called from SSE callback)."""
-        # Note: Since SSE callbacks are sync, we store keys to invalidate
-        # and the next async operation will handle it
-        import asyncio
-        self._cache.mark_invalidated(flag_key)
+        """Invalidate a flag now (called from the SSE callback, which cannot await).
+
+        The callback runs on the event loop's thread, so the synchronous
+        invalidate is safe; a lookup straight after it already misses.
+        """
+        self._cache.invalidate_nowait(flag_key)
         self._last_values.pop(flag_key, None)
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(self._cache.invalidate(flag_key))
-        except RuntimeError:
-            pass  # No running loop, cache will be invalidated on next access
+
+    @classmethod
+    def static_flags(
+        cls, flags: Mapping[str, bool] | Iterable[tuple[str, bool]]
+    ) -> AsyncFlagClient:
+        """
+        A client that serves fixed flag values and never touches the network, for tests.
+
+        Each flag in ``flags`` evaluates to its value, any other flag to ``False``;
+        ``evaluate`` reports ``reason="static"``. No request is made, nothing is
+        reported, and no stream is opened; ``get_all_flags`` and
+        ``get_enterprise_flags`` return ``[]``. Config and variation overrides
+        still apply. It is not for production use: it ignores the server entirely.
+        ``async with`` is optional on a static client.
+
+        Example:
+            ```python
+            client = AsyncFlagClient.static_flags({"new-checkout": True})
+            assert await client.is_enabled("new-checkout")
+            assert not client.is_enabled_cached("anything-else")
+            ```
+        """
+        client = cls(
+            FlagClientConfig(api_key="sdk_static", enable_realtime=False, enable_telemetry=False)
+        )
+        client._fixed = {key: bool(value) for key, value in dict(flags).items()}
+        return client
 
     async def evaluate(
         self, flag_key: str, context: FlagContext | None = None
@@ -159,6 +187,23 @@ class AsyncFlagClient:
                 key=flag_key,
                 value=default_for(self._config.defaults, flag_key),
                 reason="error",
+            )
+
+        if self._fixed is not None:
+            configuration: Any = None
+            variation: str | None = None
+            config_override = self._config_overrides.get(flag_key)
+            if config_override:
+                configuration = config_override.config
+            variation_override_entry = self._variation_overrides.get(flag_key)
+            if variation_override_entry:
+                variation = variation_override_entry.variation
+            return FlagEvaluationResult(
+                key=flag_key,
+                value=self._fixed.get(flag_key, False),
+                configuration=configuration,
+                variation=variation,
+                reason="static",
             )
 
         if not self._client:
@@ -311,6 +356,52 @@ class AsyncFlagClient:
         result = await self.evaluate(flag_key, context)
         return result.value
 
+    def is_enabled_cached(self, flag_key: str, context: FlagContext | None = None) -> bool:
+        """
+        Read a flag from the cache without making a request.
+
+        This is a plain (not ``async``) method, for code that cannot await.
+
+        Returns the unexpired cached value for this flag and context (the cache is
+        per context, so pass the same context an earlier lookup used), and
+        otherwise the flag's configured default (``defaults``, else ``False``). A
+        flag never looked up, one whose entry outlived ``cache_ttl``, and one
+        invalidated by the realtime stream are all misses, so something must keep
+        the cache warm: await ``evaluate`` or ``is_enabled`` on the same context
+        at least once per TTL. A hit is counted as an evaluation in telemetry, as a cached
+        ``evaluate`` is; a miss is not. On a ``static_flags`` client it returns
+        the fixed value. Overrides never change the answer.
+
+        Args:
+            flag_key: The flag key to read.
+            context: Optional context, as passed to ``evaluate``.
+
+        Returns:
+            The cached value, or the flag's default on a miss.
+        """
+        if not is_valid_flag_key(flag_key):
+            return default_for(self._config.defaults, flag_key)
+        if self._fixed is not None:
+            return self._fixed.get(flag_key, False)
+        start_time = time.time()
+        ctx_key = context_key(self._prepare_context(context).to_dict())
+        entry = (
+            self._cache.peek_entry(flag_key, context_key=ctx_key) if ctx_key is not None else None
+        )
+        if entry is None:
+            return default_for(self._config.defaults, flag_key)
+        self._last_values[flag_key] = entry.value
+        self._telemetry.track_evaluation_nowait(
+            EvaluationEvent(
+                flag_key=flag_key,
+                result=entry.value,
+                context=context,
+                duration_ms=int((time.time() - start_time) * 1000),
+                timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            )
+        )
+        return entry.value
+
     async def get_config(
         self,
         flag_key: str,
@@ -439,6 +530,31 @@ class AsyncFlagClient:
             self._last_values.clear()
         else:
             self._last_values.pop(flag_key, None)
+
+    def set_environment(self, environment: str) -> None:
+        """
+        Set the environment for flag evaluation.
+
+        Useful for dynamically switching environments (e.g., dev tools). Clears
+        the cache, as FlagClient.set_environment does, since flag values may
+        differ; a lookup already in flight is not cached. This is a plain (not
+        ``async``) method, as on FlagClient.
+
+        Args:
+            environment: The environment name (e.g., "development", "staging", "production", "beta")
+        """
+        self._config.environment = environment
+        self._cache.invalidate_nowait()
+        self._last_values.clear()
+
+    def get_environment(self) -> str:
+        """
+        Get the current environment.
+
+        Returns:
+            The current environment name.
+        """
+        return self._config.environment
 
     async def close(self) -> None:
         """Clean up resources."""
@@ -590,6 +706,8 @@ class AsyncFlagClient:
         Returns:
             List of flag definitions.
         """
+        if self._fixed is not None:
+            return []
         if not self._client:
             raise RuntimeError("Client not initialized. Use 'async with' context manager.")
 
@@ -634,6 +752,8 @@ class AsyncFlagClient:
         Returns:
             List of enterprise flag definitions.
         """
+        if self._fixed is not None:
+            return []
         if not self._client:
             raise RuntimeError("Client not initialized. Use 'async with' context manager.")
 
@@ -674,6 +794,8 @@ class AsyncFlagClient:
         eval_context = dataclasses.replace(context) if context is not None else FlagContext()
         if not eval_context.application_id and self._config.application_id:
             eval_context.application_id = self._config.application_id
+        if not eval_context.environment:
+            eval_context.environment = self._config.environment
         return eval_context
 
     async def _track_evaluation(

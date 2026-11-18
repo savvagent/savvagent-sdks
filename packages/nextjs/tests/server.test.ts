@@ -138,9 +138,10 @@ describe('Server Module', () => {
 
       const context = await createServerContext();
 
+      // A visitor without the cookie still gets a per-visitor anonymous ID.
       expect(context).toEqual({
         user_id: undefined,
-        anonymous_id: undefined,
+        anonymous_id: expect.stringMatching(/^anon_/),
         session_id: undefined,
         language: 'en-US',
       });
@@ -342,12 +343,12 @@ describe('Server Module', () => {
       expect(FlagClient.prototype.evaluate).toHaveBeenCalledWith(
         'test-flag',
         expect.objectContaining({
-          user_id: undefined,
           session_id: 'req-session',
           anonymous_id: 'req-anon',
           language: 'fr-FR',
         })
       );
+      expect(jest.mocked(FlagClient.prototype.evaluate).mock.lastCall?.[1]).not.toHaveProperty('user_id');
     });
 
     it('should handle requests without cookies', async () => {
@@ -356,12 +357,9 @@ describe('Server Module', () => {
       const result = await evaluateForRequest(mockRequest, 'test-flag');
 
       expect(result).toBe(true);
-      expect(FlagClient.prototype.evaluate).toHaveBeenCalledWith(
-        'test-flag',
-        expect.objectContaining({
-          user_id: undefined,
-        })
-      );
+      const context = jest.mocked(FlagClient.prototype.evaluate).mock.lastCall?.[1];
+      expect(context).not.toHaveProperty('user_id');
+      expect(context?.anonymous_id).toMatch(/^anon_/);
     });
 
     it('should merge provided context', async () => {
@@ -377,10 +375,10 @@ describe('Server Module', () => {
       expect(FlagClient.prototype.evaluate).toHaveBeenCalledWith(
         'test-flag',
         expect.objectContaining({
-          user_id: undefined,
           custom_field: 'value',
         })
       );
+      expect(jest.mocked(FlagClient.prototype.evaluate).mock.lastCall?.[1]).not.toHaveProperty('user_id');
     });
 
     it('should parse cookies with equals signs in values', async () => {

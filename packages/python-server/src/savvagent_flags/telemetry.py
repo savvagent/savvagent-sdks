@@ -238,6 +238,8 @@ class AsyncTelemetryService:
 
     BATCH_SIZE = 50
     FLUSH_INTERVAL = 5.0  # seconds
+    MAX_NOWAIT_QUEUE = BATCH_SIZE * 20
+    """Most queued evaluations track_evaluation_nowait adds to; newer ones are dropped."""
 
     def __init__(self, base_url: str, api_key: str, enabled: bool = True) -> None:
         """
@@ -285,6 +287,23 @@ class AsyncTelemetryService:
             self._evaluation_queue.append(event)
             if len(self._evaluation_queue) >= self.BATCH_SIZE:
                 await self._flush_evaluations_unlocked()
+
+    def track_evaluation_nowait(self, event: EvaluationEvent) -> None:
+        """
+        Queue a flag evaluation without awaiting, for code that cannot await.
+
+        The queue is only swapped out under the lock without an await in between,
+        so an append on the event loop's thread is safe. It is sent by the next
+        flush (the periodic one, or a batch filled by track_evaluation). Since
+        this cannot flush, an event is dropped once the queue holds
+        MAX_NOWAIT_QUEUE, so a hot loop with no flush running stays bounded.
+
+        Args:
+            event: The evaluation event to track.
+        """
+        if not self._enabled or len(self._evaluation_queue) >= self.MAX_NOWAIT_QUEUE:
+            return
+        self._evaluation_queue.append(event)
 
     async def track_error(self, event: ErrorEvent) -> None:
         """

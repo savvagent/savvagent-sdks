@@ -316,7 +316,8 @@ describe('@savvagent/sveltekit/server - Server-side functionality', () => {
       const context = getEventContext(mockEvent);
 
       expect(context.user_id).toBeUndefined();
-      expect(context.anonymous_id).toBeUndefined();
+      // A visitor without the cookie gets a per-visitor anonymous ID.
+      expect(context.anonymous_id).toMatch(/^anon_/);
       expect(context.session_id).toBeUndefined();
       expect(context.language).toBeUndefined();
     });
@@ -542,7 +543,7 @@ describe('@savvagent/sveltekit/server - Server-side functionality', () => {
       // The user_id cookie is client-controlled and not trusted by default.
       expect(mockClientInstance.evaluate).toHaveBeenCalledWith('test-flag', {
         user_id: undefined,
-        anonymous_id: undefined,
+        anonymous_id: expect.stringMatching(/^anon_/),
         session_id: undefined,
         language: 'fr-FR',
       });
@@ -580,7 +581,7 @@ describe('@savvagent/sveltekit/server - Server-side functionality', () => {
       expect(result).toBe(false);
       expect(mockClientInstance.evaluate).toHaveBeenCalledWith('test-flag', {
         user_id: undefined,
-        anonymous_id: undefined,
+        anonymous_id: expect.stringMatching(/^anon_/),
         session_id: undefined,
         language: undefined,
         environment: 'development',
@@ -612,7 +613,7 @@ describe('@savvagent/sveltekit/server - Server-side functionality', () => {
       expect(result).toBe(true);
       expect(mockClientInstance.evaluate).toHaveBeenCalledWith('test-flag', {
         user_id: undefined,
-        anonymous_id: undefined,
+        anonymous_id: expect.stringMatching(/^anon_/),
         session_id: undefined,
         language: undefined,
       });
@@ -636,12 +637,8 @@ describe('@savvagent/sveltekit/server - Server-side functionality', () => {
 
       const context = getEventContext(mockEvent);
 
-      expect(context).toEqual({
-        user_id: undefined,
-        anonymous_id: null,
-        session_id: null,
-        language: undefined,
-      });
+      // Missing values are left out; the visitor gets a new anonymous ID.
+      expect(context).toEqual({ anonymous_id: expect.stringMatching(/^anon_/) });
     });
 
     it('should handle empty string cookie values', async () => {
@@ -660,8 +657,10 @@ describe('@savvagent/sveltekit/server - Server-side functionality', () => {
 
       const context = getEventContext(mockEvent);
 
+      // An empty cookie is no ID: it is left out, and the visitor gets a new anonymous ID.
       expect(context.user_id).toBeUndefined();
-      expect(context.session_id).toBe('');
+      expect(context.session_id).toBeUndefined();
+      expect(context.anonymous_id).toMatch(/^anon_/);
       expect(context.language).toBeUndefined();
     });
 

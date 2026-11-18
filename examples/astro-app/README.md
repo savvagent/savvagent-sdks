@@ -1,6 +1,6 @@
-# Savvagent Astro Example
+# Savvagent Flags Astro Example
 
-Example Astro application demonstrating how to use the Savvagent Astro integration.
+An example Astro application that uses the [`@savvagent/astro`](../../packages/astro) integration to evaluate [Savvagent Flags](https://github.com/savvagent/flags-sdks#readme).
 
 ## Features
 
@@ -13,7 +13,7 @@ Example Astro application demonstrating how to use the Savvagent Astro integrati
 
 1. **Install dependencies:**
    ```bash
-   pnpm install
+   pnpm install --frozen-lockfile --ignore-scripts
    ```
 
 2. **Configure environment variables:**
@@ -24,18 +24,18 @@ Example Astro application demonstrating how to use the Savvagent Astro integrati
    Edit `.env`:
    ```bash
    # Server-side evaluation (Astro.locals.savvagent)
-   SAVVAGENT_API_URL=http://localhost:8080
-   SAVVAGENT_SDK_KEY=your-sdk-key-here
+   SAVVAGENT_FLAGS_API_URL=http://localhost:8080
+   SAVVAGENT_FLAGS_API_KEY=your-sdk-key-here
    # Browser client
-   PUBLIC_SAVVAGENT_API_URL=http://localhost:8080
-   PUBLIC_SAVVAGENT_SDK_KEY=your-public-sdk-key-here
+   PUBLIC_SAVVAGENT_FLAGS_API_URL=http://localhost:8080
+   PUBLIC_SAVVAGENT_FLAGS_API_KEY=your-public-sdk-key-here
    ```
 
-   `SAVVAGENT_SDK_KEY` and `SAVVAGENT_API_URL` are used by the server. The page
-   sends `PUBLIC_SAVVAGENT_SDK_KEY` (a public client `sdk_` key, visible to every
-   visitor) and `PUBLIC_SAVVAGENT_API_URL` to the browser client. The browser
+   `SAVVAGENT_FLAGS_API_KEY` and `SAVVAGENT_FLAGS_API_URL` are used by the server. The page
+   sends `PUBLIC_SAVVAGENT_FLAGS_API_KEY` (a public client `sdk_` key, visible to every
+   visitor) and `PUBLIC_SAVVAGENT_FLAGS_API_URL` to the browser client. The browser
    never falls back to the server's key or URL (the server's URL can be an
-   internal address); without `PUBLIC_SAVVAGENT_API_URL` it uses
+   internal address); without `PUBLIC_SAVVAGENT_FLAGS_API_URL` it uses
    `https://api.savvagent.com/flags`.
 
 3. **Run the development server:**

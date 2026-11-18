@@ -12,8 +12,8 @@ import (
 func main() {
 	// Initialize Savvagent Flags client
 	client, err := savvagentflags.NewClient(savvagentflags.Config{
-		APIKey:  getEnv("SAVVAGENT_SDK_KEY", "sdk_your_sdk_key"),
-		BaseURL: getEnv("SAVVAGENT_API_URL", "http://localhost:8080"),
+		APIKey:  getEnv("SAVVAGENT_FLAGS_API_KEY", "sdk_your_sdk_key"),
+		BaseURL: getEnv("SAVVAGENT_FLAGS_API_URL", "http://localhost:8080"),
 		Defaults: map[string]bool{
 			"new-ui":              false,
 			"beta-features":       false,
@@ -110,7 +110,7 @@ func main() {
 	// Start server
 	port := getEnv("PORT", "8082")
 	log.Printf("Server starting on port %s", port)
-	log.Printf("Savvagent Flags API URL: %s", getEnv("SAVVAGENT_API_URL", "http://localhost:8080"))
+	log.Printf("Savvagent Flags API URL: %s", getEnv("SAVVAGENT_FLAGS_API_URL", "http://localhost:8080"))
 
 	if err := r.Run(":" + port); err != nil {
 		log.Fatalf("Failed to start server: %v", err)

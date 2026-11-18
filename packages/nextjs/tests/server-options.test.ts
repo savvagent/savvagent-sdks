@@ -79,6 +79,22 @@ describe('user_id resolution', () => {
     expect(getUserId).toHaveBeenLastCalledWith(request);
   });
 
+  it("treats a per-call user_id of '', null or undefined as not given: getUserId still runs", async () => {
+    const { server, FlagClient } = load();
+    const getUserId = jest.fn(async () => 'session-user');
+    server.initServerClient({ apiKey: 'sdk_test' }, { getUserId });
+    const evaluate = jest.spyOn(FlagClient.prototype, 'evaluate').mockResolvedValue(ok);
+    const request = new Request('https://x.test');
+
+    await server.isEnabled('flag', { user_id: '' });
+    await server.evaluateForRequest(request, 'flag', { user_id: '' });
+    await server.evaluateForRequest(request, 'flag', { user_id: null as unknown as string });
+    await server.evaluateForRequest(request, 'flag', { user_id: undefined });
+
+    expect(getUserId).toHaveBeenCalledTimes(4);
+    for (const call of evaluate.mock.calls) expect(call[1]?.user_id).toBe('session-user');
+  });
+
   it('evaluates without a user and reports the error when getUserId throws', async () => {
     const { server, FlagClient } = load();
     const onError = jest.fn();
@@ -95,7 +111,47 @@ describe('user_id resolution', () => {
     await expect(server.isEnabled('flag')).resolves.toBe(true);
 
     expect(evaluate.mock.calls[0][1]?.user_id).toBeUndefined();
-    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'auth down' }));
+    // A fixed message keeps attacker-influenced error text out of logs; the original is the cause.
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'getUserId failed; evaluating without a user_id',
+        cause: expect.objectContaining({ message: 'auth down' }),
+      })
+    );
+  });
+});
+
+describe('getUserId is time-bounded (#26)', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('drops a trusted cookie user and evaluates when getUserId hangs', async () => {
+    const { server, FlagClient } = load();
+    const onError = jest.fn();
+    server.initServerClient(
+      { apiKey: 'sdk_test', onError },
+      { trustUserIdCookie: true, evaluationTimeoutMs: 30, getUserId: () => new Promise<string>(() => {}) }
+    );
+    const evaluate = jest.spyOn(FlagClient.prototype, 'evaluate').mockResolvedValue(ok);
+
+    const started = Date.now();
+    await expect(server.isEnabled('flag')).resolves.toBe(true);
+
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(evaluate.mock.calls[0][1]).not.toHaveProperty('user_id');
+    expect(evaluate.mock.calls[0][1]?.anonymous_id).toBe('anon-1');
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'getUserId timed out after 30ms; evaluating without a user_id' })
+    );
+  });
+
+  it('keeps a trusted cookie user when getUserId returns undefined', async () => {
+    const { server, FlagClient } = load();
+    server.initServerClient({ apiKey: 'sdk_test' }, { trustUserIdCookie: true, getUserId: () => undefined });
+    const evaluate = jest.spyOn(FlagClient.prototype, 'evaluate').mockResolvedValue(ok);
+
+    await server.isEnabled('flag');
+
+    expect(evaluate.mock.calls[0][1]?.user_id).toBe('forged-user');
   });
 });
 

@@ -4,7 +4,8 @@
  */
 
 export { FlagClient } from './client';
-export { FlagCache } from './cache';
+export { isValidFlagKey, defaultFor } from './flags';
+export { FlagCache, contextCacheKey, DEFAULT_CACHE_MAX_ENTRIES } from './cache';
 export { TelemetryService } from './telemetry';
 export { RealtimeService } from './realtime';
 

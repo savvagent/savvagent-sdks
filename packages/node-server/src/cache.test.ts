@@ -293,15 +293,15 @@ describe('FlagCache cap handling', () => {
   it('falls back to the default cap when maxEntries is NaN', () => {
     const cache = new FlagCache(60000, Number.NaN);
     for (let i = 0; i < 10050; i++) {
-      (cache as any).store('flag', `ctx-${i}`, { value: true, expiresAt: Date.now() + 60000 });
+      (cache as any).shared.store('flag', `ctx-${i}`, { value: true, expiresAt: Date.now() + 60000 });
     }
     expect(cache.size).toBe(10000);
   });
 
   it('sweeps expired entries at most once per TTL when the cache is full', () => {
     const cache = new FlagCache(60000, 10);
-    const sweep = jest.spyOn(cache as any, 'sweepExpired');
-    for (let i = 0; i < 200; i++) (cache as any).store('flag', `ctx-${i}`, { value: true, expiresAt: Date.now() + 60000 });
+    const sweep = jest.spyOn((cache as any).shared, 'sweepExpired');
+    for (let i = 0; i < 200; i++) (cache as any).shared.store('flag', `ctx-${i}`, { value: true, expiresAt: Date.now() + 60000 });
     expect(cache.size).toBe(10);
     expect(sweep.mock.calls.length).toBeLessThanOrEqual(1);
   });
@@ -390,7 +390,7 @@ describe('FlagCache generation bound (#166)', () => {
     const cache = new FlagCache(60000, 3);
     const before = cache.generation('kept');
     for (let i = 0; i < 100; i++) cache.invalidate(`flag-${i}`);
-    expect((cache as any).generations.size).toBeLessThanOrEqual(3);
+    expect((cache as any).shared.generations.size).toBeLessThanOrEqual(3);
     // The epoch move is conservative: a write read before it is dropped.
     cache.set('kept', true, undefined, undefined, undefined, '', undefined, before);
     expect(cache.get('kept')).toBeNull();

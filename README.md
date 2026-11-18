@@ -1,6 +1,10 @@
-# Savvagent SDKs
+# Savvagent Flags SDKs
 
-Official SDKs and example applications for [Savvagent](https://savvagent.com) - the AI-powered feature flag platform that prevents production incidents.
+This repository holds the Flags SDKs for [savvagent-services](https://github.com/savvagent/savvagent-services), with an example application for each. Savvagent Flags is the feature flag product of savvagent-services: agents and people manage flags there (over MCP or the console), and applications evaluate them through these SDKs over REST.
+
+- **Flags API:** every SDK defaults to `https://api.savvagent.com/flags` and evaluates a flag with `POST /api/flags/{key}/evaluate`.
+- **Wire contract and behaviour:** [docs/SDK-DEVELOPER-GUIDE.md](./docs/SDK-DEVELOPER-GUIDE.md) describes the REST contract every SDK implements, and its [cross-SDK behaviour matrix](./docs/SDK-DEVELOPER-GUIDE.md#cross-sdk-behaviour) shows where the SDKs agree and where they differ.
+- **Keys:** client SDKs take an `sdk_` client key. Server SDKs accept a `srv_` server key (recommended) or an `sdk_` key, and warn once when a `srv_` key would be sent over plain `http` to a non-loopback host.
 
 ## Packages
 
@@ -40,6 +44,8 @@ Official SDKs and example applications for [Savvagent](https://savvagent.com) - 
 
 ### Server SDKs
 
+Every server SDK supports defaults read from an environment variable or computed by a function, a cache-only read that never makes a request, and a static client for tests; see each README. The Go and Java SDKs send no telemetry.
+
 - **[@savvagent/node-server](./packages/node-server)** - Node.js Server SDK
   - Built for Express, Fastify, NestJS, and more
   - Server-Sent Events for real-time updates
@@ -57,6 +63,7 @@ Official SDKs and example applications for [Savvagent](https://savvagent.com) - 
   - Maven and Gradle support
   - Thread-safe concurrent access
   - OkHttp-based HTTP client
+  - No telemetry
   - Comprehensive JavaDocs
 
 - **[Go server SDK](./packages/go-server)** - Go Server SDK
@@ -64,7 +71,8 @@ Official SDKs and example applications for [Savvagent](https://savvagent.com) - 
   - Goroutine-safe concurrent access
   - Idiomatic Go patterns
   - Minimal dependencies
-  - High-performance caching
+  - In-memory caching
+  - No telemetry
 
 - **[savvagent-flags (Rust)](./packages/rust-server)** - Rust Server SDK
   - Crate `savvagent-flags`, library `savvagent_flags`
@@ -116,15 +124,22 @@ Then add the dependency:
 ### Installation
 
 ```bash
-# Using pnpm (recommended)
-pnpm add @savvagent/sdk
-
-# Using npm
-npm install @savvagent/sdk
-
-# Using yarn
-yarn add @savvagent/sdk
+npm install @savvagent/sdk   # or: pnpm add @savvagent/sdk / yarn add @savvagent/sdk
 ```
+
+> **The copies on npm are older.** By-name installs of the `@savvagent/*` packages get 1.1.0 (published 2025-12-30), which predates the fixes and features in this repository, such as the `@savvagent/sdk/server` scope and the current default base URL. They stay older until the next release is published. `@savvagent/react-router` has never been published, so it cannot be installed by name at all.
+>
+> To use the current code before that release, build this repository at a pinned commit and install the packed tarballs. Install each package together with the `@savvagent/*` packages it depends on (for example `@savvagent/react-router` needs `@savvagent/react` and `@savvagent/sdk`), so npm does not fetch the older copies:
+>
+> ```bash
+> git clone https://github.com/savvagent/flags-sdks
+> git -C flags-sdks checkout <commit>
+> cd flags-sdks
+> pnpm install --frozen-lockfile --ignore-scripts && pnpm build
+> pnpm --filter @savvagent/sdk --filter @savvagent/react --filter @savvagent/react-router \
+>   pack --pack-destination "$PWD/../savvagent-tarballs"
+> cd ../your-app && npm install ../savvagent-tarballs/*.tgz
+> ```
 
 ### Basic Usage
 
@@ -185,17 +200,18 @@ Working example applications are available in the [examples](./examples) directo
 ## Documentation
 
 - **[SDK Integration Guide](./docs/SDK-INTEGRATION.md)** - Complete integration instructions
-- **[Migration Guide](./docs/MIGRATION.md)** - Migrating from the old repo structure
+- **[SDK Developer Guide](./docs/SDK-DEVELOPER-GUIDE.md)** - The REST wire contract and the [cross-SDK behaviour matrix](./docs/SDK-DEVELOPER-GUIDE.md#cross-sdk-behaviour)
+- **[Migration Guide](./docs/MIGRATION.md)** - Migrating from the old package names and repositories
 - **[API Reference](./packages/typescript/README.md)** - Full SDK API documentation
 
 ## AI-Assisted Development
 
-Use AI coding assistants (Claude Code, Cursor, GitHub Copilot) to integrate Savvagent faster. We provide AI-optimized documentation:
+Use AI coding assistants (Claude Code, Cursor, GitHub Copilot) to integrate Savvagent Flags faster. The best route for an agent is the unified Savvagent MCP server: its `sdk_guide` tool returns an install and setup guide for one language, pinned to a reviewed commit of this repository. These files are also available:
 
 | File | Description | Use Case |
 |------|-------------|----------|
-| [llms.txt](./llms.txt) | Quick reference (~6KB) | Fast lookups, links to detailed docs |
-| [llms-full.txt](./llms-full.txt) | Complete docs (~22KB) | Full context for complex integrations |
+| [llms.txt](./llms.txt) | The production `llms.txt` of the Flags server, rendered from savvagent-services (do not edit it by hand) | Where an agent should start: the MCP server, its tools and the SDKs |
+| [llms-full.txt](./llms-full.txt) | Complete docs (~24KB) | Full context for complex integrations |
 
 ### Quick Start with AI
 
@@ -207,7 +223,7 @@ Reference: https://raw.githubusercontent.com/savvagent/flags-sdks/master/llms-fu
 
 **Add to project context** for better suggestions:
 ```bash
-# Claude Code - add to .claude/settings.json
+# Claude Code - reference it from your project's CLAUDE.md
 # Cursor - add to Settings > Features > Docs
 https://raw.githubusercontent.com/savvagent/flags-sdks/master/llms-full.txt
 ```
@@ -227,21 +243,23 @@ This is a pnpm workspace monorepo with independent package versioning.
 
 ```bash
 # Clone the repository
-git clone https://github.com/savvagent/flags-sdks.git
+git clone https://github.com/savvagent/flags-sdks
 cd flags-sdks
 
-# Install dependencies
-pnpm install
+# Install dependencies, from the lockfile and without dependency install scripts
+pnpm install --frozen-lockfile --ignore-scripts
 
 # Build all packages
 pnpm build
 
 # Run tests
-pnpm test
+CI=true pnpm test
 
 # Lint code
 pnpm lint
 ```
+
+`--ignore-scripts` skips every dependency's install script, including the esbuild postinstall that `pnpm-workspace.yaml` otherwise allows. The packages build and their tests pass without them, and so do the example app builds (checked from a fresh clone, except the Angular example, whose CLI refuses Node 24 releases before 24.15). Their dev servers and Playwright suites were not part of that check; if one of them reports a missing or mismatched esbuild binary, `pnpm rebuild esbuild` runs the skipped script.
 
 ### Local Development
 
@@ -386,7 +404,8 @@ MIT License - see [LICENSE](./LICENSE) for details
 
 ## Related Projects
 
-- **[Savvagent](https://savvagent.com)** - The Savvagent platform
+- **[savvagent-services](https://github.com/savvagent/savvagent-services)** - The Savvagent services, including the Flags API and the unified MCP server these SDKs work with
+- **[Savvagent](https://savvagent.com)** - The Savvagent website
 
 ## Packages Status
 
@@ -408,7 +427,7 @@ MIT License - see [LICENSE](./LICENSE) for details
 | [@savvagent/solid](./packages/solid) | [![npm](https://img.shields.io/npm/v/@savvagent/solid)](https://www.npmjs.com/package/@savvagent/solid) | Beta |
 | [@savvagent/svelte](./packages/svelte) | [![npm](https://img.shields.io/npm/v/@savvagent/svelte)](https://www.npmjs.com/package/@savvagent/svelte) | Beta |
 | [@savvagent/nextjs](./packages/nextjs) | [![npm](https://img.shields.io/npm/v/@savvagent/nextjs)](https://www.npmjs.com/package/@savvagent/nextjs) | Beta |
-| [@savvagent/react-router](./packages/react-router) | [![npm](https://img.shields.io/npm/v/@savvagent/react-router)](https://www.npmjs.com/package/@savvagent/react-router) | Beta |
+| [@savvagent/react-router](./packages/react-router) | Not published yet | Beta |
 | [@savvagent/sveltekit](./packages/sveltekit) | [![npm](https://img.shields.io/npm/v/@savvagent/sveltekit)](https://www.npmjs.com/package/@savvagent/sveltekit) | Beta |
 | [@savvagent/astro](./packages/astro) | [![npm](https://img.shields.io/npm/v/@savvagent/astro)](https://www.npmjs.com/package/@savvagent/astro) | Beta |
 

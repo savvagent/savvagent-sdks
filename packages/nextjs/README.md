@@ -1,6 +1,6 @@
 # @savvagent/nextjs
 
-Next.js SDK for Savvagent with full App Router support, including Server Components, Client Components, Middleware, and Server Actions.
+Next.js SDK for [Savvagent Flags](https://github.com/savvagent/flags-sdks), the feature flag product of [savvagent-services](https://github.com/savvagent/savvagent-services), with full App Router support, including Server Components, Client Components, Middleware (or Proxy, on Next.js 16), and Server Actions.
 
 ## Installation
 
@@ -11,6 +11,8 @@ pnpm add @savvagent/nextjs
 # or
 yarn add @savvagent/nextjs
 ```
+
+> **The copy on npm is older.** Installing by name gets 1.1.0 (published 2025-12-30), which predates the current source, until the next release is published. To use the current source now, see [Installation](https://github.com/savvagent/flags-sdks#installation) in the repository README.
 
 ## Quick Start
 
@@ -23,7 +25,7 @@ import { auth } from '@/auth'; // your auth library
 
 initServerClient(
   {
-    apiKey: process.env.SAVVAGENT_API_KEY!,
+    apiKey: process.env.SAVVAGENT_FLAGS_API_KEY!,
     applicationId: process.env.SAVVAGENT_APP_ID,
   },
   // Who the request is for, from your own auth (see "User identity" below).
@@ -77,7 +79,7 @@ import { initMiddlewareClient, createMiddleware, isEnabledInMiddleware } from '@
 import { NextResponse } from 'next/server';
 
 initMiddlewareClient({
-  apiKey: process.env.SAVVAGENT_API_KEY!,
+  apiKey: process.env.SAVVAGENT_FLAGS_API_KEY!,
 });
 
 export default createMiddleware({
@@ -95,7 +97,7 @@ export const config = {
 };
 ```
 
-> **Next.js 16:** the `middleware.ts` file convention is deprecated in favor of `proxy.ts` (export a function named `proxy`, or a default export). The helpers in `@savvagent/nextjs/middleware` take a `NextRequest` and return a `NextResponse`, so they work unchanged from either file. `proxy.ts` runs on the Node.js runtime; the Edge runtime is not available there.
+> **Next.js 16:** the `middleware.ts` file convention is deprecated in favor of `proxy.ts` (export a function named `proxy`, or a default export). The helpers in `@savvagent/nextjs/middleware` take a `NextRequest` and return a `NextResponse`, so they work unchanged from either file. `proxy.ts` runs on the Node.js runtime; the Edge runtime is not available there. To move, rename `middleware.ts` to `proxy.ts` and keep the code above as it is; Next.js 13 to 15 only read `middleware.ts`. The [example app](https://github.com/savvagent/flags-sdks/tree/master/examples/nextjs-app) still uses `middleware.ts`, which Next.js 16 runs with a deprecation warning.
 
 ## User identity
 
@@ -110,14 +112,52 @@ middleware helpers resolve `user_id` in this order:
 2. The `getUserId` option of `initServerClient` / `initMiddlewareClient`.
    For Server Components it takes no arguments and can call `cookies()`,
    `headers()` or your auth library; `evaluateForRequest` passes it the
-   `Request`, and the middleware helpers pass it the `NextRequest`. If it
-   throws or rejects, the error goes to `onError` and the flag is evaluated
-   without a user.
+   `Request`, and the middleware helpers pass it the `NextRequest`. It is
+   bounded by `evaluationTimeoutMs` (default 1000 ms). If it throws, rejects
+   or times out, the failure goes to `onError` (as
+   `getUserId failed; evaluating without a user_id`, with the original error
+   as `cause`, or `getUserId timed out ...`) and the flag is evaluated without
+   a user, also without a trusted `user_id` cookie. If it returns nothing,
+   the next source applies.
 3. The `user_id` cookie, only when `trustUserIdCookie: true` is set. Use this
    for demos, or when nothing a flag gates is sensitive.
 
-`anonymous_id` (from the `savvagent_anonymous_id` cookie), `session_id` and
-`language` are still read from the request.
+`session_id` and `language` are read from the request.
+
+## Anonymous visitors
+
+Every visitor is evaluated with their own `anonymous_id`, so percentage
+rollouts bucket anonymous visitors one by one instead of all together. The ID
+comes from the `savvagent_anonymous_id` cookie, the cookie the browser SDK
+reads, so a visitor gets the same flags from Server Components and from
+Client Components.
+
+A visitor without the cookie gets a new `anon_<uuid>` ID, which is stored in
+the cookie: not HttpOnly (the browser SDK reads it), `Path=/`,
+`SameSite=Lax`, one year, and `Secure` on https. Where it is stored:
+
+- **Middleware** (recommended): `createMiddleware`, `redirectIfEnabled` and
+  `rewriteIfEnabled` set the cookie on their response, and forward the new ID
+  to the page rendered for the same request. In a middleware function of your
+  own, `getAnonymousId(request)` returns the ID and
+  `setAnonymousIdCookie(request, response)` sets the cookie on the response
+  you return.
+  When `createMiddleware`'s `onRequest` returns its own response (for
+  example `NextResponse.rewrite(...)`), the cookie is set on that response,
+  but the page rendered for that request does not see the new ID unless you
+  forward it: build the response with the request headers carrying it, or
+  use `rewriteIfEnabled`, which does. Otherwise that first page evaluates
+  with an ID of its own, and the visitor gets the middleware's ID from the
+  next request on.
+  `Secure` is set when the request URL is https or `x-forwarded-proto` is
+  `https` (behind a TLS-terminating proxy). The header is trusted as sent, so
+  deploy behind a proxy that overwrites it; a forged header can only add
+  `Secure`, never remove it.
+- **Server Actions and Route Handlers**: the server helpers set the cookie
+  through `cookies()`.
+- **Server Components** cannot set cookies. Without the middleware, a new
+  visitor keeps one ID for the whole render, and gets the cookie from the
+  middleware or a later Server Action.
 
 ## When the Flags API is down
 
@@ -131,7 +171,8 @@ stall every page:
   `evaluateMultiple`, `isEnabledInMiddleware`, `redirectIfEnabled` and
   `rewriteIfEnabled` is bounded by `evaluationTimeoutMs` (default 1000 ms). On a
   timeout or error it resolves with the flag's default from `config.defaults`
-  (`reason: 'error'`) and does not throw.
+  (`reason: 'error'`) and does not throw. `getUserId` has its own bound of the
+  same length.
 - `onError` receives the same error message at most once a minute.
 
 Calls you make on the raw client (`getServerClient()`, `getMiddlewareClient()`,
@@ -152,9 +193,9 @@ import { initServerClient } from '@savvagent/nextjs/server';
 
 initServerClient(
   {
-    apiKey: process.env.SAVVAGENT_API_KEY!,
+    apiKey: process.env.SAVVAGENT_FLAGS_API_KEY!,
     applicationId: process.env.SAVVAGENT_APP_ID,
-    baseUrl: process.env.SAVVAGENT_BASE_URL,
+    baseUrl: process.env.SAVVAGENT_FLAGS_API_URL,
   },
   {
     getUserId: async () => (await auth())?.user?.id,
@@ -272,7 +313,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <SavvagentProvider
       config={{
-        apiKey: process.env.NEXT_PUBLIC_SAVVAGENT_API_KEY!,
+        apiKey: process.env.NEXT_PUBLIC_SAVVAGENT_FLAGS_API_KEY!,
         enableRealtime: true,
       }}
     >
@@ -355,20 +396,29 @@ Initialize the middleware client. It takes the same options as
 import { initMiddlewareClient } from '@savvagent/nextjs/middleware';
 
 initMiddlewareClient(
-  { apiKey: process.env.SAVVAGENT_API_KEY! },
+  { apiKey: process.env.SAVVAGENT_FLAGS_API_KEY! },
   { getUserId: async (request) => (await verifySession(request.cookies.get('session')?.value))?.userId }
 );
 ```
 
 `getRequestContext(request, overrides?, { trustUserIdCookie }?)` reads the
 `user_id` cookie only when `trustUserIdCookie` is set, and does not call
-`getUserId`.
+`getUserId`. Its `anonymous_id` is the visitor's (see
+[Anonymous visitors](#anonymous-visitors)).
+
+`getAnonymousId(request)` returns the visitor's anonymous ID: the cookie's, or
+the new one assigned to this request. `setAnonymousIdCookie(request, response)`
+adds the cookie for a newly assigned ID to `response` and returns it (or a
+copy, when the response's headers are immutable); it does nothing for a
+returning visitor.
 
 #### `createMiddleware(config)`
 
 Create a middleware function with custom logic. `onRequest` also receives the
 raw client as its second argument; its calls are not bounded by
-`evaluationTimeoutMs`, so prefer `isEnabledInMiddleware`.
+`evaluationTimeoutMs`, so prefer `isEnabledInMiddleware`. The response
+(`onRequest`'s, or `NextResponse.next()`) sets the anonymous ID cookie for a
+new visitor.
 
 ```ts
 import { createMiddleware, isEnabledInMiddleware } from '@savvagent/nextjs/middleware';
@@ -478,7 +528,7 @@ import { initMiddlewareClient, isEnabledInMiddleware } from '@savvagent/nextjs/m
 import { NextRequest, NextResponse } from 'next/server';
 
 initMiddlewareClient({
-  apiKey: process.env.SAVVAGENT_API_KEY!,
+  apiKey: process.env.SAVVAGENT_FLAGS_API_KEY!,
 });
 
 export async function middleware(request: NextRequest) {
@@ -519,14 +569,14 @@ export default async function Page() {
 
 ```env
 # Server-side API key (for Server Components, Route Handlers, Middleware)
-SAVVAGENT_API_KEY=sdk_...
+SAVVAGENT_FLAGS_API_KEY=sdk_...
 
 # Client-side API key (for Client Components with real-time updates)
-NEXT_PUBLIC_SAVVAGENT_API_KEY=sdk_...
+NEXT_PUBLIC_SAVVAGENT_FLAGS_API_KEY=sdk_...
 
 # Optional
 SAVVAGENT_APP_ID=your-app-id
-SAVVAGENT_BASE_URL=https://api.savvagent.com/flags
+SAVVAGENT_FLAGS_API_URL=https://api.savvagent.com/flags
 ```
 
 ## TypeScript Support

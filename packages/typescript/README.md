@@ -1,6 +1,6 @@
-# @savvagent/typescript
+# @savvagent/sdk
 
-Official TypeScript/JavaScript SDK for Savvagent - AI-powered feature flags with automatic error detection.
+The TypeScript/JavaScript SDK for [Savvagent Flags](https://github.com/savvagent/flags-sdks), the feature flag product of [savvagent-services](https://github.com/savvagent/savvagent-services). The `@savvagent/sdk/server` subpath is the server scope the Next.js, SvelteKit, Astro and React Router SDKs build on.
 
 ## Features
 
@@ -14,17 +14,19 @@ Official TypeScript/JavaScript SDK for Savvagent - AI-powered feature flags with
 ## Installation
 
 ```bash
-npm install @savvagent/typescript
+npm install @savvagent/sdk
 # or
-yarn add @savvagent/typescript
+yarn add @savvagent/sdk
 # or
-pnpm add @savvagent/typescript
+pnpm add @savvagent/sdk
 ```
+
+> **The copy on npm is older.** Installing by name gets 1.1.0 (published 2025-12-30), which predates the current source, until the next release is published. To use the current source now, see [Installation](https://github.com/savvagent/flags-sdks#installation) in the repository README.
 
 ## Quick Start
 
 ```typescript
-import { FlagClient } from '@savvagent/typescript';
+import { FlagClient } from '@savvagent/sdk';
 
 // Initialize the client
 const client = new FlagClient({
@@ -149,6 +151,30 @@ if (client.isRealtimeConnected()) {
 }
 ```
 
+### Using `FlagCache` directly
+
+`FlagCache` is the client's evaluation cache, exported for code that builds its own client (`@savvagent/node-server` uses it). It is keyed by flag key and context key, where the context key is `contextCacheKey(context)` of the context as sent to the server:
+
+```typescript
+import { FlagCache, contextCacheKey, DEFAULT_CACHE_MAX_ENTRIES } from '@savvagent/sdk';
+
+const cache = new FlagCache(60_000, DEFAULT_CACHE_MAX_ENTRIES); // TTL in ms, LRU cap
+const key = contextCacheKey({ user_id: 'user-123', environment: 'production' });
+
+const generation = cache.generation('new-checkout'); // read before the request
+cache.set('new-checkout', true, undefined, key, undefined, generation); // dropped if invalidated since
+
+cache.get('new-checkout', key); // true
+cache.get('new-checkout');      // null: without a context key, only the empty-context entry is read
+cache.invalidate('new-checkout'); // every context
+```
+
+- `get(key)` and `getEntry(key)` without a context key read only the entry stored for the empty context (`''`), never a value cached for another context.
+- Reads return `null` on a miss or an expired entry. A TTL of 0 or `maxEntries` of 0 stores nothing.
+- `invalidate(key)` and `clear()` advance the generation that `set` checks, so a result whose request started before the invalidation is not cached.
+
+The flag-key rule and the defaults lookup are exported too: `isValidFlagKey(key)` (1-128 characters of `[A-Za-z0-9._-]`, not `.` or `..`) and `defaultFor(defaults, key)` (`true` only for an own `true` entry).
+
 ## Configuration
 
 ```typescript
@@ -265,7 +291,7 @@ export function FlagProvider({ children }: { children: React.ReactNode }) {
   const [client] = useState(
     () =>
       new FlagClient({
-        apiKey: process.env.NEXT_PUBLIC_SAVVAGENT_KEY!,
+        apiKey: process.env.NEXT_PUBLIC_SAVVAGENT_FLAGS_API_KEY!,
       })
   );
 
@@ -310,7 +336,7 @@ import { FlagClient } from '@savvagent/client-web';
 import { ref, onMounted, onUnmounted } from 'vue';
 
 const client = new FlagClient({
-  apiKey: import.meta.env.VITE_SAVVAGENT_KEY,
+  apiKey: import.meta.env.VITE_SAVVAGENT_FLAGS_API_KEY,
 });
 
 export function useFlag(flagKey: string, context?: any) {
@@ -340,7 +366,7 @@ import { FlagClient } from '@savvagent/client-web';
 import { writable } from 'svelte/store';
 
 const client = new FlagClient({
-  apiKey: import.meta.env.VITE_SAVVAGENT_KEY,
+  apiKey: import.meta.env.VITE_SAVVAGENT_FLAGS_API_KEY,
 });
 
 export function flagStore(flagKey: string, context?: any) {
@@ -362,6 +388,87 @@ export function flagStore(flagKey: string, context?: any) {
 }
 ```
 
+## Server request scope (`@savvagent/sdk/server`)
+
+`@savvagent/sdk/server` is the per-request layer the server integrations
+(`@savvagent/nextjs`, `@savvagent/sveltekit`) are built on. Use it to
+integrate a server framework that has no package of its own. It has no
+runtime dependency on the rest of the SDK: you pass it the `FlagClient`
+constructor (or instance) you already use, and it needs only Web Crypto, so
+it runs on Node.js, edge runtimes, Deno and Bun.
+
+```typescript
+import { FlagClient } from '@savvagent/sdk';
+import {
+  assignAnonymousId,
+  buildRequestContext,
+  createRequestScope,
+  createServerClient,
+  isSecureUrl,
+  parseCookies,
+  serializeAnonymousIdCookie,
+} from '@savvagent/sdk/server';
+
+// Once per process: server defaults and a throttled onError.
+const server = createServerClient(FlagClient, { apiKey: process.env.SAVVAGENT_FLAGS_API_KEY! });
+
+async function handle(request: Request): Promise<Response> {
+  const context = buildRequestContext({
+    cookies: parseCookies(request.headers.get('cookie')),
+    acceptLanguage: request.headers.get('accept-language'),
+  });
+  const { anonymousId, isNew } = assignAnonymousId(context);
+  const flags = createRequestScope({
+    client: server.client,
+    context,
+    getUserId: () => verifySession(request), // your auth
+    evaluationTimeoutMs: server.timeoutMs,
+    reportError: server.reportError,
+    defaults: server.config.defaults,
+  });
+
+  const response = new Response((await flags.isEnabled('new-checkout')) ? 'new' : 'old');
+  if (isNew) {
+    response.headers.append('Set-Cookie', serializeAnonymousIdCookie(anonymousId, { secure: isSecureUrl(request.url) }));
+  }
+  return response;
+}
+```
+
+What it guarantees:
+
+- **`user_id`.** The `user_id` cookie is ignored unless you pass
+  `trustUserIdCookie: true` to `buildRequestContext`: the browser sets it, so
+  any visitor could claim another user's ID. `getUserId` is called at most
+  once per scope and bounded by `evaluationTimeoutMs`; if it throws, rejects
+  or times out, the failure is reported and the request is evaluated without
+  any `user_id`. An explicit `userId` option, or `user_id` in the context you
+  pass, wins.
+- **Anonymous ID.** `assignAnonymousId` gives a visitor without the
+  `savvagent_anonymous_id` cookie a new `anon_<uuid>` ID, so no visitor falls
+  into the shared client's process-wide bucket.
+  `serializeAnonymousIdCookie` (or `anonymousIdCookieOptions`, for framework
+  cookie APIs) stores it: not HttpOnly, so the browser SDK reads it;
+  `Path=/`, `SameSite=Lax`, one year, `Secure` on https.
+- **Bounded evaluation.** `toServerConfig` (applied by `createServerClient`)
+  turns off realtime and language detection and makes one attempt per
+  evaluation. `evaluateBounded` and the scope's methods resolve with the
+  flag's default from `defaults` (`reason: 'error'`) after
+  `evaluationTimeoutMs` (default 1000 ms), on an error, or when the client is
+  `null` (it could not be created), and never reject.
+- **Errors.** `throttleErrors` reports each message at most once a minute,
+  and a throwing handler is logged instead of escaping a timer callback.
+
+Exports: the cookie names and `ANONYMOUS_ID_MAX_AGE`; `parseCookies`,
+`newAnonymousId`, `assignAnonymousId`,
+`anonymousIdCookieOptions`, `serializeAnonymousIdCookie`, `isSecureUrl`;
+`buildRequestContext`, `mergeContext`, `resolveUserId`;
+`toServerConfig`, `createServerClient`, `throttleErrors`, `guardReporter`,
+`defaultReportError`, `withTimeout`, `defaultFor`, `fallbackResult`
+(with an optional `{ timestamp: true }` for `metadata.timestamp`),
+`evaluateBounded`, `createRequestScope`; `DEFAULT_EVALUATION_TIMEOUT_MS` and
+`ERROR_REPORT_INTERVAL_MS`.
+
 ## Best Practices
 
 ### 1. Initialize Once
@@ -371,7 +478,7 @@ Create a single client instance and reuse it throughout your application:
 ```typescript
 // flags.ts
 export const flagClient = new FlagClient({
-  apiKey: process.env.SAVVAGENT_API_KEY!,
+  apiKey: process.env.SAVVAGENT_FLAGS_API_KEY!,
 });
 
 // other-file.ts
@@ -495,6 +602,6 @@ MIT
 
 ## Support
 
-- Documentation: https://flags-docs.savvagent.com
+- Documentation: https://github.com/savvagent/flags-sdks#readme
 - Issues: https://github.com/savvagent/flags-sdks/issues
 - Email: support@savvagent.com

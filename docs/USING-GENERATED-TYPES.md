@@ -9,7 +9,9 @@ The generated types are located at:
 packages/typescript/src/generated/api-types.ts
 ```
 
-**Status:** ⚠️ Generated but **not yet integrated** into the SDK code.
+**Status:** integrated. `packages/typescript/src/client.ts` types its evaluate request and response with them, and `packages/typescript/src/index.ts` re-exports them (`components` and the schema aliases) for advanced use. The examples below show the pattern for code that does not use them yet.
+
+**Source:** the file was generated with `openapi-typescript` from the OpenAPI spec of the archived savvagent-flags server. The Flags API is now served by [savvagent-services](https://github.com/savvagent/savvagent-services), which does not publish a flags OpenAPI spec yet, so `pnpm sync:types` (which reads `../savvagent-flags/docs/openapi.json`) has no current source. Edit the file by hand, and keep it matching the wire contract in [SDK-DEVELOPER-GUIDE.md](./SDK-DEVELOPER-GUIDE.md).
 
 ## What the Generated Types Provide
 
@@ -420,19 +422,15 @@ export class FlagClient {
 - ✅ Documentation through types
 
 ### Maintenance Benefits
-- ✅ Single source of truth (OpenAPI spec)
-- ✅ Automatic type updates via sync workflow
-- ✅ No manual type copying between repos
+- ✅ One file describes the wire types (kept in step with the wire contract by hand until a spec is published again)
 
 ## Migration Checklist
 
-- [ ] Add type imports from `./generated/api-types`
-- [ ] Type all API responses in client.ts
-- [ ] Type all API requests
+- [x] Add type imports from `./generated/api-types`
+- [x] Type the evaluate request and response in client.ts
 - [ ] Align telemetry types with backend
 - [ ] Add runtime validation (optional)
-- [ ] Export generated types in index.ts
-- [ ] Update SDK documentation
+- [x] Export generated types in index.ts
 - [ ] Add tests for type compatibility
 
 ## Related Files
@@ -441,7 +439,6 @@ export class FlagClient {
 - `packages/typescript/src/types.ts` - SDK's developer-facing types
 - `packages/typescript/src/client.ts` - Main client (integration point)
 - `packages/typescript/src/telemetry.ts` - Telemetry service (integration point)
-- `../../savvagent-flags/docs/openapi.json` - Source OpenAPI spec
 
 ## Related Documentation
 
@@ -451,6 +448,5 @@ export class FlagClient {
 
 ## Further Reading
 
-- [SDK Type Sync Guide](../../savvagent-flags/docs/SDK-TYPE-SYNC.md)
 - [openapi-typescript Documentation](https://github.com/drwpow/openapi-typescript)
 - [TypeScript Utility Types](https://www.typescriptlang.org/docs/handbook/utility-types.html)

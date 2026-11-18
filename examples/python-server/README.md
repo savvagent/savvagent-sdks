@@ -1,6 +1,6 @@
 # Savvagent Flags Python Server Example
 
-Example Python backend demonstrating how to use the Savvagent Flags SDK in a server environment with both FastAPI (async) and Flask (sync) implementations.
+An example Python backend that uses the [Savvagent Flags Python server SDK](../../packages/python-server) to evaluate [Savvagent Flags](https://github.com/savvagent/flags-sdks#readme), with both FastAPI (async) and Flask (sync) implementations.
 
 ## Features
 
@@ -39,9 +39,9 @@ Example Python backend demonstrating how to use the Savvagent Flags SDK in a ser
 
    Edit `.env`:
    ```bash
-   SAVVAGENT_API_KEY=sdk_your_key_here
+   SAVVAGENT_FLAGS_API_KEY=sdk_your_key_here
    SAVVAGENT_APP_ID=python-server-example
-   SAVVAGENT_API_URL=http://localhost:8080
+   SAVVAGENT_FLAGS_API_URL=http://localhost:8080
    PORT=8000
    ```
 

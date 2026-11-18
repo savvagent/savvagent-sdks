@@ -197,9 +197,33 @@ class SavvagentClient(
     }
 
     /**
+     * Replaces control characters (CR, LF, tab and every other ISO control), Unicode line and
+     * paragraph separators (U+2028, U+2029) and format characters (bidi overrides such as
+     * U+202E) with `?` so an untrusted flag key cannot forge log lines (CWE-117) or reorder
+     * how the message is displayed.
+     */
+    private fun sanitizeForMessage(text: String): String =
+        text.map { if (isUnsafeForMessage(it)) '?' else it }.joinToString("")
+
+    private fun isUnsafeForMessage(c: Char): Boolean =
+        Character.isISOControl(c) || when (Character.getType(c).toByte()) {
+            Character.LINE_SEPARATOR, Character.PARAGRAPH_SEPARATOR, Character.FORMAT -> true
+            else -> false
+        }
+
+    /**
      * Evaluate a feature flag and get full details (Phase 1 & 2)
      */
     suspend fun evaluate(flagKey: String, userContext: UserContext): Result<FlagEvaluationResult> {
+        // Reject a key that is not one safe URL path segment before any request is built
+        if (!isValidFlagKey(flagKey)) {
+            val error = SavvagentException(
+                "Invalid flag key \"${sanitizeForMessage(flagKey.take(64))}\" (length ${flagKey.length}): " +
+                    "keys are 1-128 characters of [A-Za-z0-9._-] and not \".\" or \"..\""
+            )
+            logError(error.message ?: "Invalid flag key")
+            return Result.failure(error)
+        }
         return withContext(Dispatchers.IO) {
             try {
                 // Check cache first (only valid for the same user)
@@ -876,6 +900,18 @@ class SavvagentClient(
  * Exception thrown by the Savvagent SDK
  */
 class SavvagentException(message: String, cause: Throwable? = null) : Exception(message, cause)
+
+private val FLAG_KEY_PATTERN = Regex("^[A-Za-z0-9._-]{1,128}$")
+
+/**
+ * Whether [key] is a valid flag key: 1-128 characters of `[A-Za-z0-9._-]`, and not `.` or `..`.
+ * This is the server's key rule, shared by every Savvagent SDK. The key becomes one segment of
+ * the evaluate URL path: `.` and `..` cannot be carried in a path (they are normalized away),
+ * and characters such as `/`, `?` and `#` would send the request, and the SDK key with it, to
+ * another endpoint.
+ */
+internal fun isValidFlagKey(key: String): Boolean =
+    key != "." && key != ".." && FLAG_KEY_PATTERN.matches(key)
 
 private fun JSONObject.optStringOrNull(name: String): String? {
     return if (has(name) && !isNull(name)) getString(name) else null

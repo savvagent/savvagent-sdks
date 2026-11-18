@@ -1,12 +1,14 @@
-# Savvagent SDKs - Complete Documentation
+# Savvagent Flags SDKs - Complete Documentation
 
-> Savvagent is an AI-powered feature flag platform that prevents production incidents. This repository contains official SDKs for TypeScript/JavaScript, React, Vue, Svelte, Next.js, React Router, Node.js, Go, Java, Rust, iOS, and Android.
+> This repository (https://github.com/savvagent/flags-sdks) holds the Flags SDKs for savvagent-services (https://github.com/savvagent/savvagent-services): TypeScript/JavaScript, React, Angular, Vue, Solid, Svelte, SvelteKit, Next.js, React Router, Astro, Node.js, Python, Go, Java, Rust, iOS, and Android. Savvagent Flags is the feature flag product of savvagent-services. Every SDK defaults to the Flags API at https://api.savvagent.com/flags.
+
+If you are an agent wiring an SDK into a project, prefer the unified Savvagent MCP server (https://mcp.savvagent.com/mcp): call `whoami`, then `sdk_guide` with the project's language. It returns install steps pinned to a reviewed commit of this repository. See llms.txt for the details.
 
 ---
 
 ## Overview
 
-Savvagent enables safe feature rollouts by:
+Savvagent Flags enables safe feature rollouts by:
 - **Feature Flags**: Boolean toggles that control feature visibility with targeting rules
 - **AI Error Detection**: Automatically correlates production errors with recent flag changes
 - **Real-time Updates**: Server-Sent Events push flag changes instantly to all clients
@@ -21,6 +23,8 @@ Savvagent enables safe feature rollouts by:
 ---
 
 ## Installation
+
+The `@savvagent/*` copies on npm are 1.1.0 (published 2025-12-30) and predate the current source until the next release is published; `@savvagent/react-router` is not on npm at all. To use the current source, clone https://github.com/savvagent/flags-sdks at a pinned commit, run `pnpm install --frozen-lockfile --ignore-scripts && pnpm build`, then `pnpm --filter <package> pack` each package you need together with the `@savvagent/*` packages it depends on, and install the tarballs. The commands below install the older npm copies.
 
 ### TypeScript/JavaScript (npm)
 ```bash
@@ -48,7 +52,7 @@ npm install @savvagent/nextjs
 
 ### React Router 8 (framework mode)
 ```bash
-npm install @savvagent/react-router
+npm install @savvagent/react-router   # not published yet: install it from source as described above
 ```
 Replaces `@savvagent/remix` (Remix is now React Router).
 
@@ -235,7 +239,7 @@ export default function RootLayout({ children }) {
       <body>
         <SavvagentProvider
           config={{
-            apiKey: process.env.SAVVAGENT_SDK_KEY!,
+            apiKey: process.env.SAVVAGENT_FLAGS_API_KEY!,
           }}
         >
           {children}
@@ -266,7 +270,7 @@ instead of defaults. The client hooks are those of `@savvagent/react`.
 import { createSavvagentServer } from '@savvagent/react-router';
 
 export const savvagent = createSavvagentServer(
-  { apiKey: process.env.SAVVAGENT_SDK_KEY!, applicationId: 'my-app' },
+  { apiKey: process.env.SAVVAGENT_FLAGS_API_KEY!, applicationId: 'my-app' },
   {
     defaultContext: { environment: 'production' },
     // The user comes from your own auth, never from a client-set cookie.
@@ -318,7 +322,7 @@ import { FlagClient } from '@savvagent/node-server';
 
 const app = express();
 const flags = new FlagClient({
-  apiKey: process.env.SAVVAGENT_SDK_KEY!,
+  apiKey: process.env.SAVVAGENT_FLAGS_API_KEY!,
   cache: { enabled: true, ttl: 60000 },
 });
 
@@ -341,7 +345,7 @@ app.get('/api/feature', async (req, res) => {
 ```python
 from savvagent_flags import FlagClient, FlagClientConfig, FlagContext
 
-config = FlagClientConfig(api_key="sdk_your_api_key")
+config = FlagClientConfig(api_key="srv_your_server_key")  # or an sdk_ client key
 
 with FlagClient(config) as client:
     if client.is_enabled("new-feature", FlagContext(user_id="user-123")):
@@ -361,7 +365,7 @@ import (
 
 func main() {
     client, err := savvagentflags.NewClient(savvagentflags.Config{
-        APIKey:  "sdk_your_api_key",
+        APIKey:  "srv_your_server_key", // or an sdk_ client key
         BaseURL: "https://api.savvagent.com/flags",
     })
     if err != nil {
@@ -391,7 +395,7 @@ import com.savvagent.flags.sdk.FlagContext;
 
 public class Example {
     public static void main(String[] args) {
-        FlagClientConfig config = FlagClientConfig.builder("sdk_your_api_key")
+        FlagClientConfig config = FlagClientConfig.builder("srv_your_server_key") // or an sdk_ client key
             .baseUrl("https://api.savvagent.com/flags")
             .build();
         FlagClient client = new FlagClient(config);
@@ -418,7 +422,7 @@ use savvagent_flags::{Config, Context, FlagClient};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let config = Config::new("sdk_your_api_key")
+    let config = Config::new("srv_your_server_key") // or an sdk_ client key
         .with_base_url("https://api.savvagent.com/flags");
     let client = FlagClient::new(config)?;
 
@@ -795,7 +799,7 @@ const client = new FlagClient({
 ```typescript
 // lib/flags.ts
 export const flagClient = new FlagClient({
-  apiKey: process.env.SAVVAGENT_SDK_KEY!,
+  apiKey: process.env.SAVVAGENT_FLAGS_API_KEY!,
 });
 
 // other files
@@ -837,6 +841,8 @@ function Feature() {
 
 ### 5. Enable Telemetry for Analytics
 
+The TypeScript, Node.js, Python, Rust, iOS and Android SDKs send telemetry. The Go and Java SDKs send none: their telemetry option is accepted but has no effect.
+
 ```typescript
 const client = new FlagClient({
   apiKey: 'sdk_...',
@@ -869,7 +875,7 @@ const client = new FlagClient({
 
 ```typescript
 const client = new FlagClient({
-  apiKey: process.env.SAVVAGENT_SDK_KEY!,
+  apiKey: process.env.SAVVAGENT_FLAGS_API_KEY!,
   baseUrl: 'https://api.savvagent.com/flags',
   cache: { enabled: true, ttl: 60000 },
   enableTelemetry: true,
@@ -879,13 +885,13 @@ const client = new FlagClient({
 ### Environment Variables
 
 ```bash
-# .env
-SAVVAGENT_SDK_KEY=sdk_prod_xxx
-SAVVAGENT_API_URL=https://api.savvagent.com/flags
+# .env (server-side: a srv_ server key, or an sdk_ client key)
+SAVVAGENT_FLAGS_API_KEY=srv_prod_xxx
+SAVVAGENT_FLAGS_API_URL=https://api.savvagent.com/flags
 
 # .env.local (client-side)
-NEXT_PUBLIC_SAVVAGENT_SDK_KEY=sdk_prod_xxx
-VITE_SAVVAGENT_SDK_KEY=sdk_prod_xxx
+NEXT_PUBLIC_SAVVAGENT_FLAGS_API_KEY=sdk_prod_xxx
+VITE_SAVVAGENT_FLAGS_API_KEY=sdk_prod_xxx
 ```
 
 ---
@@ -924,11 +930,12 @@ VITE_SAVVAGENT_SDK_KEY=sdk_prod_xxx
 | @savvagent/vue | [![npm](https://img.shields.io/npm/v/@savvagent/vue)](https://npmjs.com/package/@savvagent/vue) | Beta |
 | @savvagent/nextjs | [![npm](https://img.shields.io/npm/v/@savvagent/nextjs)](https://npmjs.com/package/@savvagent/nextjs) | Beta |
 | @savvagent/node-server | [![npm](https://img.shields.io/npm/v/@savvagent/node-server)](https://npmjs.com/package/@savvagent/node-server) | Beta |
+| @savvagent/react-router | Not published yet | Beta |
 
 ---
 
 ## Support
 
-- **Documentation**: https://flags-docs.savvagent.com
+- **Documentation**: https://github.com/savvagent/flags-sdks#readme
 - **GitHub Issues**: https://github.com/savvagent/flags-sdks/issues
 - **Email**: support@savvagent.com

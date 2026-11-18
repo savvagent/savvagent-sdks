@@ -1,6 +1,6 @@
 # @savvagent/astro
 
-Astro integration for Savvagent with server-side rendering and middleware support.
+Astro integration for [Savvagent Flags](https://github.com/savvagent/flags-sdks), the feature flag product of [savvagent-services](https://github.com/savvagent/savvagent-services), with server-side rendering and middleware support.
 
 ## Requirements
 
@@ -18,6 +18,8 @@ Astro integration for Savvagent with server-side rendering and middleware suppor
 npm install @savvagent/astro
 ```
 
+> **The copy on npm is older.** Installing by name gets 1.1.0 (published 2025-12-30), which predates the current source, until the next release is published. To use the current source now, see [Installation](https://github.com/savvagent/flags-sdks#installation) in the repository README.
+
 ## Quick Start
 
 ### 1. Add Integration
@@ -30,7 +32,7 @@ environment variables are read when the server starts (not baked in at
 ```js
 // src/savvagent.config.mjs
 export default {
-  apiKey: process.env.SAVVAGENT_SDK_KEY,
+  apiKey: process.env.SAVVAGENT_FLAGS_API_KEY,
   applicationId: process.env.SAVVAGENT_APP_ID,
   onError: (error) => console.error('[Savvagent]', error),
 };
@@ -47,7 +49,7 @@ export default defineConfig({
 ```
 
 `configModule` is resolved against the project root. You can pass the config
-inline instead, with `savvagent({ config: { apiKey: process.env.SAVVAGENT_SDK_KEY } })`,
+inline instead, with `savvagent({ config: { apiKey: process.env.SAVVAGENT_FLAGS_API_KEY } })`,
 but then it is serialized as JSON into the server bundle: values are fixed when
 the Astro config is loaded (at `astro build` for production), the `apiKey` is
 written into the built files, and function options are dropped. The
@@ -84,9 +86,23 @@ provides `Astro.locals.savvagent` on every request. It also injects the
    restart the dev server.
 3. The `user_id` cookie, only with `trustUserIdCookie: true`.
 
+With both `getUserId` and `trustUserIdCookie`, the two ways `getUserId` can
+come back empty are treated differently:
+
+- It returns nothing (`undefined`, `null` or `''`): no user from your auth, so
+  the trusted `user_id` cookie is used.
+- It throws, rejects or times out: your auth could not answer, so the request
+  is evaluated without any `user_id`, not even the cookie's. Once `getUserId`
+  is configured it decides who the user is, and a failure falls back to the
+  least privileged identity.
+
+The `reportError` you pass to `createSavvagentLocals` yourself is wrapped so
+that a throw from it is logged, never thrown out of the timers that bound
+`getUserId` and each evaluation.
+
 ```js
 // src/savvagent.config.mjs
-export default { apiKey: process.env.SAVVAGENT_SDK_KEY };
+export default { apiKey: process.env.SAVVAGENT_FLAGS_API_KEY };
 export function getUserId({ locals }) {
   return locals.user?.id;
 }
@@ -232,21 +248,36 @@ const data = await withFlag('use-new-api', async () => {
 
 #### `evaluateForRequest(request, flagKey, context?, options?)`
 
-Evaluate with automatic request context. `options` takes the same options as
-`Astro.locals.savvagent` (`getUserId`, `trustUserIdCookie` and
-`evaluationTimeoutMs`) plus `locals`: pass `Astro.locals` when your
-`getUserId` reads from it, otherwise it receives an empty object and the
-request is evaluated anonymously. (`createFlagMiddleware` passes the request's
-locals for you.) The integration's `configModule` `getUserId` is not applied
-here automatically; pass it again. The evaluation is bounded and falls back to
-the flag's default.
+Evaluate with automatic request context. Pass `{ locals: Astro.locals }` as
+`options`: the evaluation then goes through the request's
+`Astro.locals.savvagent`, with its anonymous ID (also for a first-time visitor,
+whose cookie the integration has just set), the integration's `getUserId`
+(resolved once per request) and its `trustUserIdCookie` and
+`evaluationTimeoutMs`. `context` is merged over it as in
+`Astro.locals.savvagent`.
+
+Without `Astro.locals.savvagent` (no integration, or a middleware that runs
+before it), `options` takes the same options as `Astro.locals.savvagent`
+(`getUserId`, `trustUserIdCookie` and `evaluationTimeoutMs`), and a new scope is
+built from the request alone: it assigns no anonymous ID. Either way the
+evaluation is bounded and falls back to the flag's default.
+
+> **Trust:** a helper can narrow trust but never widen it. With
+> `Astro.locals.savvagent`, a helper's `trustUserIdCookie: false` makes that
+> call evaluate without a `user_id` that came from the cookie (a user from the
+> integration's `getUserId`, or a `user_id` in `context`, still applies).
+> `trustUserIdCookie: true`, or nothing, changes nothing: if the integration
+> does not trust the cookie, a helper cannot enable it (a scope built from the
+> request alone, without `Astro.locals.savvagent`, follows the helper's own
+> options as before). A helper's own `getUserId` and timeout are ignored when
+> `Astro.locals.savvagent` exists. The same applies to `createFlagMiddleware`.
 
 ```astro
 ---
 import { evaluateForRequest } from '@savvagent/astro';
 
-const showBeta = await evaluateForRequest(Astro.request, 'beta-ui', {
-  user_id: Astro.locals.user?.id,
+const showBeta = await evaluateForRequest(Astro.request, 'beta-ui', undefined, {
+  locals: Astro.locals,
 });
 ---
 ```
@@ -284,11 +315,18 @@ const flagMiddleware = createFlagMiddleware(
 export const onRequest = sequence(flagMiddleware);
 ```
 
-The second argument takes `getUserId`, `trustUserIdCookie`,
-`evaluationTimeoutMs` and `context`: extra context for every evaluation, or a
+When the integration is installed, its middleware runs first, and
+`createFlagMiddleware` evaluates through `context.locals.savvagent`: the same
+anonymous ID (a first-time visitor's included), and the `getUserId` from your
+`configModule`, resolved once per request for the middleware and the page
+alike. You don't pass `getUserId` again.
+
+The second argument takes `context`: extra context for every evaluation, or a
 function of the Astro context that returns it, such as
-`({ locals }) => ({ user_id: locals.user?.id })`. Each evaluation is bounded and
-falls back to the flag's default.
+`({ locals }) => ({ user_id: locals.user?.id })`. It also takes `getUserId`,
+`trustUserIdCookie` and `evaluationTimeoutMs`, which apply only when there is
+no `context.locals.savvagent`. Each evaluation is bounded and falls back to the
+flag's default.
 
 > **Warning:** the `user_id` cookie is read only with `trustUserIdCookie: true`.
 > The browser sets it, so with it any visitor could steer redirects, rewrites

@@ -10,6 +10,10 @@
     type DefaultFlagContext,
   } from '@savvagent/svelte';
   import FlagOverridePanel from '#lib/FlagOverridePanel.svelte';
+  import type { PageProps } from './$types';
+
+  // Evaluated on the server in +page.server.ts.
+  let { data }: PageProps = $props();
 
   let initialized = $state(false);
   let client: ReturnType<typeof getSavvagent> | null = null;
@@ -33,9 +37,9 @@
     // Per SDK Developer Guide: FlagClientConfig with proper authentication
     const config: FlagClientConfig = {
       // SDK API key (starts with sdk_) - safe to embed in client-side code
-      apiKey: import.meta.env.VITE_SAVVAGENT_SDK_KEY || 'sdk_your_key_here',
+      apiKey: import.meta.env.VITE_SAVVAGENT_FLAGS_API_KEY || 'sdk_your_key_here',
       // Base URL for the Savvagent API
-      baseUrl: import.meta.env.VITE_SAVVAGENT_API_URL || 'http://localhost:8080',
+      baseUrl: import.meta.env.VITE_SAVVAGENT_FLAGS_API_URL || 'http://localhost:8080',
       // Application ID for application-scoped flags
       applicationId: 'f8209ef5-a661-4f46-8b84-4c855a97d5ef',
       // Enable real-time updates via SSE (default: true)
@@ -270,6 +274,23 @@
   {/if}
 </div>
 
+<section class="server-flag" data-testid="server-flag">
+  <h2>Server-Side Evaluation</h2>
+  <p>
+    <code>server-demo</code>:
+    <span data-testid="server-flag-value">{data.serverFlag.value ? 'enabled' : 'disabled'}</span>
+    (reason: <span data-testid="server-flag-reason">{data.serverFlag.reason}</span>)
+  </p>
+  <p>
+    Evaluated with anonymous_id
+    <span data-testid="server-anonymous-id">{data.serverFlag.received?.anonymous_id ?? '(unknown)'}</span>
+    and user_id
+    <span data-testid="server-user-id"
+      >{data.serverFlag.received ? (data.serverFlag.received.user_id ?? '(none)') : '(unknown)'}</span
+    >
+  </p>
+</section>
+
 {#if initialized}
   <FlagOverridePanel />
 {/if}
@@ -306,6 +327,20 @@
     font-size: 1.5rem;
     margin-bottom: 1rem;
     color: #555;
+  }
+
+  .server-flag {
+    max-width: 800px;
+    margin: 0 auto 2rem;
+    padding: 1.5rem;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  }
+
+  .server-flag p {
+    margin-bottom: 0.5rem;
+    word-break: break-all;
   }
 
   .feature-card {

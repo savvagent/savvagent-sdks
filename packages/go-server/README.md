@@ -1,12 +1,12 @@
 # Savvagent Flags Go Server SDK
 
-Official Go Server SDK for Savvagent Flags - AI-powered feature flags with automatic error detection.
+The Go server SDK for [Savvagent Flags](https://github.com/savvagent/flags-sdks), the feature flag product of [savvagent-services](https://github.com/savvagent/savvagent-services).
 
 ## Features
 
 - 🚀 **Fast Evaluation**: Thread-safe in-memory caching with configurable TTL
-- 📊 **Telemetry**: Automatic tracking of flag evaluations
-- 🤖 **AI Error Detection**: Correlate errors with flag changes
+- 🔑 **Server Keys**: Accepts `srv_` server keys (recommended for server apps) and `sdk_` client keys
+- 🧪 **Testable**: A static client for tests and a cache-only read that never does I/O
 - 📦 **Type Safe**: Full Go type safety with comprehensive documentation
 - 🌐 **Server-Optimized**: Built specifically for Go server environments
 - ⚡ **High Performance**: Minimal allocations and optimized for concurrency
@@ -38,7 +38,7 @@ import (
 func main() {
     // Initialize the client
     config := savvagentflags.Config{
-        APIKey:        "sdk_your_api_key_here",
+        APIKey:        "srv_your_server_key_here", // or an sdk_ client key
         ApplicationID: "your-app-id",
     }
 
@@ -72,12 +72,11 @@ func main() {
 
 ```go
 config := savvagentflags.Config{
-    APIKey:          "sdk_your_api_key_here",
+    APIKey:          "srv_your_server_key_here",
     ApplicationID:   "your-app-id",
     BaseURL:         "https://api.savvagent.com/flags", // optional
     EnableRealtime:  true,                         // default: false; true opens the update stream
     CacheTTL:        60 * time.Second,            // default: 60 seconds
-    EnableTelemetry: true,                         // default: true
     Timeout:         5 * time.Second,             // default: 5 seconds
     Defaults: map[string]bool{
         "feature-a": false,
@@ -95,7 +94,46 @@ if err != nil {
 defer client.Close()
 ```
 
+`EnableTelemetry` is accepted but has no effect: this SDK sends no telemetry.
+
 Evaluations are cached per flag and per evaluation context for `CacheTTL`, so two users never share a cached result. At most 10,000 contexts are cached per flag.
+
+### API keys
+
+`APIKey` takes a server key (`srv_...`) or a client key (`sdk_...`); anything else makes
+`NewClient` return an error. The SDK developer guide recommends a server key for server apps. A
+server key is a secret, so `NewClient` logs one warning through `log/slog` when it would be sent
+to a base URL that is not `https`:
+
+```
+Savvagent Flags: the server key will be sent over http; use an https base_url
+```
+
+There is no warning for a client key, or for the loopback hosts `localhost`, `127.0.0.1` and
+`[::1]`, so local development over plain HTTP stays quiet.
+
+### Defaults from the environment
+
+`Defaults` is what a lookup returns when Savvagent Flags cannot be reached. For a service moving
+from env-var flags, `SetDefaultFromEnv` reads a flag's default from an environment variable, once,
+when you build the config:
+
+```go
+config := savvagentflags.Config{APIKey: os.Getenv("SAVVAGENT_FLAGS_API_KEY")}
+// NEW_CHECKOUT_ENABLED=true|false|1|0|yes|no|on|off (any case)
+config.SetDefaultFromEnv("new-checkout", "NEW_CHECKOUT_ENABLED")
+
+// Or compute a default some other way; return ok=false to leave it unset.
+config.SetDefaultFunc("beta-banner", func() (enabled, ok bool) {
+    return region == "eu", true
+})
+
+client, err := savvagentflags.NewClient(config)
+```
+
+An unset variable is ignored silently. A variable that is empty or not a boolean is ignored with a
+`slog` warning naming the variable (never its value). In both cases any earlier default, or
+`false`, stays in place.
 
 ### Real-time updates
 
@@ -107,6 +145,39 @@ for services that need fast changes. The stream never delays or fails a lookup; 
 up to 30 seconds, 5 minutes if the key is rejected) and drops the whole cache on every connection,
 since changes may have been missed. Call `Close` to stop it. `OnError` is called once per failed
 connection attempt, possibly from the stream goroutine, so it must be safe for concurrent use.
+
+### Cache-only reads
+
+`IsEnabledCached` never makes a request and never blocks on the network. It returns the unexpired
+cached value for that flag and context, and otherwise the flag's default (`Defaults`, else
+`false`). The cache is per context, so pass the same context an earlier `Evaluate` or `IsEnabled`
+used, and keep the cache warm by calling one of those at least once per `CacheTTL`:
+
+```go
+// Somewhere that may do I/O, for example a request handler or a refresher goroutine.
+client.IsEnabled("new-banner", ctx)
+
+// On a hot path that must not wait for the network.
+if client.IsEnabledCached("new-banner", ctx) {
+    // ...
+}
+```
+
+### Testing with a static client
+
+`NewStaticClient` returns a `*FlagClient` that serves fixed values and never touches the network.
+Listed flags evaluate to their value, every other flag to `false`, and `Evaluate` reports
+`Reason: "static"`. Config and variation overrides still apply.
+
+```go
+func TestCheckout(t *testing.T) {
+    flags := savvagentflags.NewStaticClient(map[string]bool{"new-checkout": true})
+    defer flags.Close()
+
+    handler := NewCheckoutHandler(flags) // code under test takes a *FlagClient
+    // ...
+}
+```
 
 ## Usage Examples
 
@@ -280,12 +351,12 @@ Configuration for the FlagClient.
 
 ```go
 type Config struct {
-    APIKey          string
+    APIKey          string // srv_ or sdk_
     ApplicationID   string
     BaseURL         string
     EnableRealtime  bool
     CacheTTL        time.Duration
-    EnableTelemetry bool
+    EnableTelemetry bool // no effect: this SDK sends no telemetry
     Defaults        map[string]bool
     OnError         func(error)
     Timeout         time.Duration
@@ -316,7 +387,7 @@ Result from flag evaluation.
 type EvaluationResult struct {
     Key      string
     Value    bool
-    Reason   string    // "cached", "evaluated", "default", "error"
+    Reason   string    // "cached", "evaluated", "error", or "static" (NewStaticClient)
     Metadata *Metadata
 }
 
@@ -355,6 +426,30 @@ Checks if a flag is enabled (convenience method).
 ```go
 enabled := client.IsEnabled("my-flag", ctx)
 ```
+
+#### IsEnabledCached(flagKey string, ctx *Context) bool
+
+Reads a flag from the cache without any I/O: the unexpired cached value, else the default.
+
+```go
+enabled := client.IsEnabledCached("my-flag", ctx)
+```
+
+#### NewStaticClient(flags map[string]bool) *FlagClient
+
+A client with fixed flag values for tests; it never makes a request.
+
+```go
+client := savvagentflags.NewStaticClient(map[string]bool{"my-flag": true})
+```
+
+#### (*Config) SetDefaultFromEnv(flagKey, envVar string)
+
+Sets a flag's default from a boolean environment variable, read once.
+
+#### (*Config) SetDefaultFunc(flagKey string, value func() (enabled, ok bool))
+
+Sets a flag's default from a function, called once.
 
 #### InvalidateCache(flagKey string)
 

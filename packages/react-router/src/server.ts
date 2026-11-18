@@ -4,21 +4,34 @@
 
 import { FlagClient } from '@savvagent/sdk';
 import type { FlagClientConfig, FlagContext, FlagEvaluationResult } from '@savvagent/sdk';
+import {
+  DEFAULT_EVALUATION_TIMEOUT_MS,
+  assignAnonymousId,
+  buildRequestContext,
+  createRequestScope,
+  defaultReportError,
+  isSecureUrl,
+  mergeContext,
+  parseCookies,
+  serializeAnonymousIdCookie,
+  throttleErrors,
+  toServerConfig,
+} from '@savvagent/sdk/server';
 import { createContext } from 'react-router';
 import type { MiddlewareFunction, RouterContextProvider } from 'react-router';
 
-/** Cookie that keeps a visitor's anonymous ID stable across requests. */
-export const ANONYMOUS_ID_COOKIE = 'savvagent_anonymous_id';
-/** Cookie read for `user_id` only when `trustUserIdCookie` is enabled. */
-export const USER_ID_COOKIE = 'user_id';
-/** Cookie read for `session_id`. */
-export const SESSION_ID_COOKIE = 'session_id';
-
-const ANONYMOUS_ID_MAX_AGE = 60 * 60 * 24 * 365;
-/** Default bound on one server-side evaluation, in milliseconds. */
-export const DEFAULT_EVALUATION_TIMEOUT_MS = 1000;
-/** Window in which the same error message is reported to `onError` only once. */
-export const ERROR_REPORT_INTERVAL_MS = 60_000;
+// The request scope (cookies, context, user_id rules, bounded evaluation,
+// error throttling) is the one shared by every server integration (#26).
+export {
+  ANONYMOUS_ID_COOKIE,
+  USER_ID_COOKIE,
+  SESSION_ID_COOKIE,
+  DEFAULT_EVALUATION_TIMEOUT_MS,
+  ERROR_REPORT_INTERVAL_MS,
+  parseCookies,
+  toServerConfig,
+  throttleErrors,
+} from '@savvagent/sdk/server';
 
 /**
  * Flag results evaluated on the server, keyed by flag key. Return this from a
@@ -44,6 +57,12 @@ export interface SavvagentServerOptions {
    * Resolve the authenticated user's ID for a request from your own auth
    * (a session, a verified token, a value your auth middleware put in the
    * router context). This is the recommended source of `user_id`.
+   *
+   * Called once per request scope, bounded by `evaluationTimeoutMs`. A
+   * non-empty string is the user; nothing keeps a trusted `user_id` cookie
+   * (with `trustUserIdCookie`). If it throws, rejects or times out, the
+   * failure goes to `onError` and the request is evaluated without any
+   * `user_id`, the trusted cookie's included.
    */
   getUserId?: (args: UserIdArgs) => string | null | undefined | Promise<string | null | undefined>;
   /**
@@ -59,7 +78,7 @@ export interface SavvagentServerOptions {
    */
   setAnonymousIdCookie?: boolean;
   /**
-   * Upper bound on one flag evaluation, in milliseconds (default: 1000). When
+   * Upper bound on one flag evaluation, and on `getUserId`, in milliseconds (default: 1000). When
    * the Flags API is slow or down, the evaluation resolves with the flag's
    * default (`reason: 'error'`) instead of holding up the page.
    */
@@ -144,101 +163,6 @@ export function getSavvagent(context: Readonly<RouterContextProvider>): Savvagen
 }
 
 /**
- * Apply server-side defaults to a client config: no realtime (SSE)
- * connection, no language detection from the server's own locale, and a
- * single attempt per evaluation (no retries while a page waits).
- */
-export function toServerConfig(config: FlagClientConfig): FlagClientConfig {
-  return {
-    ...config,
-    enableRealtime: config.enableRealtime ?? false,
-    disableLanguageDetection: config.disableLanguageDetection ?? true,
-    retryAttempts: config.retryAttempts ?? 1,
-  };
-}
-
-/**
- * Wrap an error handler so the same error message is reported at most once
- * per `intervalMs`. When the Flags API is down, every request fails the same
- * way; this keeps the logs readable.
- */
-const MAX_THROTTLED_MESSAGES = 100;
-
-/** @internal Exported for tests only. */
-export function throttleErrors(
-  onError: (error: Error) => void,
-  intervalMs: number = ERROR_REPORT_INTERVAL_MS
-): (error: Error) => void {
-  const lastReported = new Map<string, number>();
-  return (error: Error) => {
-    const now = Date.now();
-    const key = error?.message ?? String(error);
-    const last = lastReported.get(key);
-    if (last !== undefined && now - last < intervalMs) return;
-    if (lastReported.size >= MAX_THROTTLED_MESSAGES) {
-      for (const [message, time] of lastReported) {
-        if (now - time >= intervalMs) lastReported.delete(message);
-      }
-      // Hard cap: messages can carry dynamic text (URLs, IDs), so drop the
-      // oldest entries rather than letting the map grow during an outage.
-      while (lastReported.size >= MAX_THROTTLED_MESSAGES) {
-        lastReported.delete(lastReported.keys().next().value as string);
-      }
-    }
-    // Delete first so a re-reported message moves to the end: the cap then
-    // evicts the least recently reported message.
-    lastReported.delete(key);
-    lastReported.set(key, now);
-    // The app's handler runs inside timer callbacks too, so a throw here
-    // would become an uncaught exception and stop the process.
-    try {
-      onError(error);
-    } catch (handlerError) {
-      console.error('[Savvagent] onError handler threw', handlerError);
-    }
-  };
-}
-
-/** Parse a `Cookie` header into a name/value map. */
-export function parseCookies(header: string | null): Record<string, string> {
-  const cookies: Record<string, string> = {};
-  if (!header) return cookies;
-  for (const part of header.split(';')) {
-    const index = part.indexOf('=');
-    if (index < 0) continue;
-    const name = part.slice(0, index).trim();
-    if (!name || name in cookies) continue;
-    const raw = part.slice(index + 1).trim().replace(/^"(.*)"$/, '$1');
-    try {
-      cookies[name] = decodeURIComponent(raw);
-    } catch {
-      cookies[name] = raw;
-    }
-  }
-  return cookies;
-}
-
-function newAnonymousId(): string {
-  return `anon_${globalThis.crypto.randomUUID()}`;
-}
-
-/** Drop keys whose value is undefined, null or '' so they never override. */
-function compact(context: FlagContext): FlagContext {
-  return Object.fromEntries(
-    Object.entries(context).filter(([, value]) => value !== undefined && value !== null && value !== '')
-  ) as FlagContext;
-}
-
-function mergeContext(base: FlagContext, extra?: FlagContext): FlagContext {
-  if (!extra) return base;
-  const merged: FlagContext = { ...base, ...compact(extra) };
-  if (base.attributes || extra.attributes) {
-    merged.attributes = { ...base.attributes, ...extra.attributes };
-  }
-  return merged;
-}
-
-/**
  * Create the server-side Savvagent integration for a React Router app.
  * Call it once, in a server-only module such as `app/savvagent.server.ts`.
  *
@@ -252,7 +176,7 @@ function mergeContext(base: FlagContext, extra?: FlagContext): FlagContext {
  * import { createSavvagentServer } from '@savvagent/react-router';
  *
  * export const savvagent = createSavvagentServer(
- *   { apiKey: process.env.SAVVAGENT_SDK_KEY!, applicationId: 'my-app' },
+ *   { apiKey: process.env.SAVVAGENT_FLAGS_API_KEY!, applicationId: 'my-app' },
  *   { getUserId: async ({ request }) => (await getSession(request)).get('userId') }
  * );
  * ```
@@ -264,7 +188,7 @@ export function createSavvagentServer(
   let client: FlagClient | null = null;
   let failed = false;
   const timeoutMs = options.evaluationTimeoutMs ?? DEFAULT_EVALUATION_TIMEOUT_MS;
-  const reportError = throttleErrors(config.onError ?? ((error) => console.error('[Savvagent]', error)));
+  const reportError = throttleErrors(config.onError ?? defaultReportError);
 
   const getClient = (): FlagClient | null => {
     if (!client && !failed) {
@@ -279,75 +203,16 @@ export function createSavvagentServer(
     return client;
   };
 
-  const getRequestContext = (request: Request, overrides?: FlagContext): FlagContext => {
-    const cookies = parseCookies(request.headers.get('cookie'));
-    const fromRequest = compact({
-      user_id: options.trustUserIdCookie ? cookies[USER_ID_COOKIE] : undefined,
-      anonymous_id: cookies[ANONYMOUS_ID_COOKIE],
-      session_id: cookies[SESSION_ID_COOKIE],
-      language: request.headers.get('accept-language')?.split(',')[0]?.split(';')[0]?.trim(),
-    });
-    return mergeContext(mergeContext(options.defaultContext ?? {}, fromRequest), overrides);
-  };
-
-  const scope = (requestContext: FlagContext, headers: Headers): SavvagentRequest => {
-    const merge = (context?: FlagContext) => mergeContext(requestContext, context);
-    // Own-property lookup: a key like `__proto__` must not read Object.prototype.
-    const defaultFor = (flagKey: string): boolean => {
-      const defaults = config.defaults;
-      return !!defaults && Object.prototype.hasOwnProperty.call(defaults, flagKey) && defaults[flagKey] === true;
-    };
-
-    const fallback = (flagKey: string): FlagEvaluationResult => ({
-      key: flagKey,
-      value: defaultFor(flagKey),
-      reason: 'error',
-    });
-
-    const evaluate = async (flagKey: string, context?: FlagContext): Promise<FlagEvaluationResult> => {
-      const flagClient = getClient();
-      if (!flagClient) return fallback(flagKey);
-      // Bound the evaluation so a slow or unreachable API cannot hold up the page.
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const timedOut = new Promise<FlagEvaluationResult>((resolve) => {
-        timer = setTimeout(() => {
-          reportError(new Error(`Flag evaluation (${flagKey}) timed out after ${timeoutMs}ms`));
-          resolve(fallback(flagKey));
-        }, timeoutMs);
-      });
-      try {
-        return await Promise.race([flagClient.evaluate(flagKey, merge(context)), timedOut]);
-      } finally {
-        clearTimeout(timer);
-      }
-    };
-
-    const trackError = (flagKey: string, error: Error, context?: FlagContext) => {
-      getClient()?.trackError(flagKey, error, merge(context));
-    };
-
-    return {
-      context: requestContext,
-      headers,
-      evaluate,
-      isEnabled: async (flagKey, context) => (await evaluate(flagKey, context)).value,
-      evaluateFlags: async (flagKeys, context) => {
-        const results = await Promise.all(flagKeys.map((flagKey) => evaluate(flagKey, context)));
-        return Object.fromEntries(results.map((result, i) => [flagKeys[i], result]));
+  const getRequestContext = (request: Request, overrides?: FlagContext): FlagContext =>
+    buildRequestContext(
+      {
+        cookies: parseCookies(request.headers.get('cookie')),
+        acceptLanguage: request.headers.get('accept-language'),
+        trustUserIdCookie: options.trustUserIdCookie,
+        defaultContext: options.defaultContext,
       },
-      withFlag: async (flagKey, callback, context) => {
-        // Uses the bounded evaluation; errors are tracked against the flag, then re-thrown.
-        if (!(await evaluate(flagKey, context)).value) return null;
-        try {
-          return await callback();
-        } catch (error) {
-          trackError(flagKey, error as Error, context);
-          throw error;
-        }
-      },
-      trackError,
-    };
-  };
+      overrides
+    );
 
   const createScope = async (
     request: Request,
@@ -357,30 +222,46 @@ export function createSavvagentServer(
     const requestContext = getRequestContext(request);
     const headers = new Headers();
 
-    if (forOptions.userId !== undefined) {
-      requestContext.user_id = forOptions.userId ?? undefined;
-    } else if (options.getUserId) {
-      const userId = await options.getUserId({ request, context: routerContext });
-      if (userId) requestContext.user_id = userId;
-    }
-    if (!requestContext.user_id) delete requestContext.user_id;
-
     // Always evaluate with a per-visitor anonymous ID, so the shared client's
     // own process-wide ID is never used for anyone.
-    if (!requestContext.anonymous_id) {
-      requestContext.anonymous_id = newAnonymousId();
-      if (options.setAnonymousIdCookie !== false) {
-        const secure = new URL(request.url).protocol === 'https:' ? '; Secure' : '';
-        // Not HttpOnly: the browser SDK reads it to bucket the visitor the same way.
-        headers.append(
-          'Set-Cookie',
-          `${ANONYMOUS_ID_COOKIE}=${encodeURIComponent(requestContext.anonymous_id)}; Path=/; ` +
-            `Max-Age=${ANONYMOUS_ID_MAX_AGE}; SameSite=Lax${secure}`
-        );
-      }
+    const { anonymousId, isNew } = assignAnonymousId(requestContext);
+    if (isNew && options.setAnonymousIdCookie !== false) {
+      // Not HttpOnly: the browser SDK reads it to bucket the visitor the same way.
+      headers.append('Set-Cookie', serializeAnonymousIdCookie(anonymousId, { secure: isSecureUrl(request.url) }));
     }
 
-    return scope(mergeContext(requestContext, forOptions.context), headers);
+    // The user rules (explicit user wins, bounded getUserId, anonymous on
+    // failure) live in the shared scope. A `user_id` given in the per-request
+    // context is as explicit as `userId`.
+    const explicitUser =
+      forOptions.userId !== undefined
+        ? forOptions.userId
+        : typeof forOptions.context?.user_id === 'string' && forOptions.context.user_id !== ''
+          ? forOptions.context.user_id
+          : undefined;
+    const getUserId = options.getUserId;
+    const scope = createRequestScope({
+      client: getClient(),
+      context: mergeContext(requestContext, forOptions.context),
+      userId: explicitUser,
+      getUserId: getUserId && (() => getUserId({ request, context: routerContext })),
+      evaluationTimeoutMs: timeoutMs,
+      reportError,
+      defaults: config.defaults,
+    });
+    // `scope.context.user_id` is public: settle the user here, where the
+    // caller already awaits, so it is final once forRequest()/the middleware
+    // resolves. The scope runs getUserId once and not at all without a client.
+    await scope.resolveContext();
+    return {
+      context: scope.context,
+      headers,
+      evaluate: scope.evaluate,
+      isEnabled: scope.isEnabled,
+      evaluateFlags: scope.evaluateFlags,
+      withFlag: scope.withFlag,
+      trackError: scope.trackError,
+    };
   };
 
   const middleware: MiddlewareFunction<Response> = async ({ request, context }, next) => {

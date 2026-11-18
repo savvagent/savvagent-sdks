@@ -3,16 +3,25 @@
  */
 
 import { FlagClient, FlagClientConfig, FlagContext, FlagEvaluationResult } from '@savvagent/sdk';
-import { cookies, headers } from 'next/headers';
 import {
-  BoundedClient,
-  boundedEvaluate,
-  boundedWithFlag,
-  createBoundedClient,
-  resolveUserId,
-} from './bounded';
+  ANONYMOUS_ID_COOKIE,
+  RequestScope,
+  ServerClient,
+  anonymousIdCookieOptions,
+  buildRequestContext,
+  createRequestScope,
+  createServerClient,
+  defaultReportError,
+  evaluateBounded,
+  fallbackResult,
+  isSecureUrl,
+  newAnonymousId,
+  parseCookies,
+} from '@savvagent/sdk/server';
+import { cookies, headers } from 'next/headers';
+import * as React from 'react';
 
-export { DEFAULT_EVALUATION_TIMEOUT_MS } from './bounded';
+export { DEFAULT_EVALUATION_TIMEOUT_MS } from '@savvagent/sdk/server';
 
 /** Options for {@link initServerClient}. */
 export interface ServerClientOptions {
@@ -21,8 +30,10 @@ export interface ServerClientOptions {
    * verified token). Called once per evaluation helper call, inside the
    * request, so it can use `cookies()`, `headers()` or your auth library.
    * `evaluateForRequest` passes it the request.
-   * This is the recommended source of `user_id`. If it throws or rejects,
-   * the error goes to `onError` and the flag is evaluated without a user.
+   * This is the recommended source of `user_id`. It is bounded by
+   * `evaluationTimeoutMs`; if it throws, rejects or times out, the failure
+   * goes to `onError` and the flag is evaluated without a user (also
+   * without a trusted `user_id` cookie).
    */
   getUserId?: (request?: Request) => string | null | undefined | Promise<string | null | undefined>;
   /**
@@ -33,24 +44,117 @@ export interface ServerClientOptions {
    */
   trustUserIdCookie?: boolean;
   /**
-   * Upper bound on one flag evaluation, in milliseconds (default: 1000).
-   * When the Flags API is slow or down, the evaluation resolves with the
-   * flag's default (`reason: 'error'`) instead of holding up the page.
+   * Upper bound on one flag evaluation, and on `getUserId`, in milliseconds
+   * (default: 1000). When the Flags API is slow or down, the evaluation
+   * resolves with the flag's default (`reason: 'error'`) instead of holding
+   * up the page.
    */
   evaluationTimeoutMs?: number;
 }
 
 // Global client instance for server-side usage
-let serverClient: BoundedClient | null = null;
+let serverClient: ServerClient<FlagClient> | null = null;
 let serverOptions: ServerClientOptions = {};
 
-function getBounded(): BoundedClient {
+function getBounded(): ServerClient<FlagClient> {
   if (!serverClient) {
     throw new Error(
       'Server client not initialized. Call initServerClient() first.'
     );
   }
   return serverClient;
+}
+
+/** A failed evaluation: the flag's default, `reason: 'error'`, with a timestamp. */
+function fallbackFor(config: FlagClientConfig | undefined) {
+  return (flagKey: string): FlagEvaluationResult => fallbackResult(flagKey, config?.defaults, { timestamp: true });
+}
+
+/**
+ * A per-call `user_id` counts as an explicit user only when it is a non-empty
+ * string, like the shared merge rule (`''`, `null` and `undefined` do not
+ * override). Passing `''` to the scope as `userId` would mean "no user".
+ */
+function explicitUserId(userId: string | null | undefined): string | undefined {
+  return typeof userId === 'string' && userId !== '' ? userId : undefined;
+}
+
+/**
+ * React's `cache`, which memoizes per request on the server. React exports it
+ * only under the `react-server` condition (App Router); in the Pages Router or
+ * with React 18 outside Server Components it is missing. Read it from the
+ * namespace, so a missing export is `undefined` rather than an import error.
+ */
+const reactCache = (React as { cache?: <T extends (...args: never[]) => unknown>(fn: T) => T }).cache;
+
+/**
+ * The anonymous ID of a visitor who has no `savvagent_anonymous_id` cookie
+ * yet, one per request where React's `cache` exists. Without it, each call
+ * gets a new ID (stored in the cookie where Next.js allows it). The
+ * middleware from `@savvagent/nextjs/middleware` normally assigns the ID
+ * before the page renders; this covers apps without it.
+ */
+const requestAnonymousId: () => string =
+  typeof reactCache === 'function' ? reactCache((): string => newAnonymousId()) : () => newAnonymousId();
+
+/**
+ * Store a newly assigned anonymous ID in the visitor's cookie. Next.js
+ * allows that in Server Actions and Route Handlers only; in a Server
+ * Component `set` throws, and the ID stays per request until the middleware
+ * (or a later action) stores one.
+ */
+function storeAnonymousId(
+  cookieStore: Awaited<ReturnType<typeof cookies>>,
+  anonymousId: string,
+  secure: boolean
+): void {
+  try {
+    cookieStore.set(ANONYMOUS_ID_COOKIE, anonymousId, anonymousIdCookieOptions(secure));
+  } catch {
+    // Expected in Server Components (read-only cookies); see above.
+  }
+}
+
+/** Whether the request reached Next.js over https, from the `x-forwarded-proto` header Next.js sets. */
+function forwardedHttps(headersList: Awaited<ReturnType<typeof headers>>): boolean {
+  return headersList.get('x-forwarded-proto')?.split(',')[0]?.trim() === 'https';
+}
+
+/** Scope options shared by every helper: the client, its bound, reporter and fallback. */
+function scopeOptions(bounded: ServerClient<FlagClient> | null) {
+  return {
+    client: bounded?.client ?? null,
+    evaluationTimeoutMs: bounded?.timeoutMs,
+    reportError: bounded?.reportError ?? defaultReportError,
+    fallback: fallbackFor(bounded?.config),
+  };
+}
+
+/**
+ * The request scope of the current Server Component, Server Action or
+ * Route Handler, from `cookies()` and `headers()`. `overrides.user_id`, when
+ * given, is used instead of `getUserId` and the cookie.
+ */
+async function serverScope(overrides?: FlagContext): Promise<RequestScope> {
+  const cookieStore = await cookies();
+  const headersList = await headers();
+  const context = buildRequestContext({
+    cookies: (name) => cookieStore.get(name)?.value,
+    acceptLanguage: headersList.get('accept-language'),
+    trustUserIdCookie: serverOptions.trustUserIdCookie,
+  });
+  // An anonymous_id passed by the caller needs no new one.
+  if (!context.anonymous_id && !overrides?.anonymous_id) {
+    context.anonymous_id = requestAnonymousId();
+    storeAnonymousId(cookieStore, context.anonymous_id, forwardedHttps(headersList));
+  }
+  const { getUserId } = serverOptions;
+  return createRequestScope({
+    ...scopeOptions(serverClient),
+    context,
+    userId: explicitUserId(overrides?.user_id),
+    getUserId: getUserId && (() => getUserId()),
+  });
 }
 
 /**
@@ -73,7 +177,7 @@ function getBounded(): BoundedClient {
  *
  * initServerClient(
  *   {
- *     apiKey: process.env.SAVVAGENT_API_KEY!,
+ *     apiKey: process.env.SAVVAGENT_FLAGS_API_KEY!,
  *     applicationId: process.env.SAVVAGENT_APP_ID,
  *   },
  *   { getUserId: async () => (await auth())?.user?.id }
@@ -82,7 +186,7 @@ function getBounded(): BoundedClient {
  */
 export function initServerClient(config: FlagClientConfig, options: ServerClientOptions = {}): void {
   if (!serverClient) {
-    serverClient = createBoundedClient(FlagClient, config, options.evaluationTimeoutMs);
+    serverClient = createServerClient(FlagClient, config, { evaluationTimeoutMs: options.evaluationTimeoutMs });
     serverOptions = options;
   }
 }
@@ -103,7 +207,10 @@ export function getServerClient(): FlagClient {
  * `user_id` comes from, in order: `overrides.user_id`, the `getUserId`
  * option, or the `user_id` cookie when `trustUserIdCookie` is set. The
  * cookie is not read otherwise, because the browser controls it.
- * `anonymous_id`, `session_id` and `language` come from the request.
+ * `session_id` and `language` come from the request. `anonymous_id` comes
+ * from the `savvagent_anonymous_id` cookie; a visitor without one gets a
+ * new ID for this request, stored in the cookie where Next.js allows it
+ * (Server Actions and Route Handlers; the middleware stores it for pages).
  *
  * @param overrides - Additional context properties
  * @returns FlagContext with request data
@@ -121,28 +228,8 @@ export function getServerClient(): FlagClient {
 export async function createServerContext(
   overrides?: FlagContext
 ): Promise<FlagContext> {
-  const cookieStore = await cookies();
-  const headersList = await headers();
-
-  let userId: string | undefined;
-  if (overrides?.user_id === undefined) {
-    const { getUserId } = serverOptions;
-    userId = await resolveUserId(getUserId && (() => getUserId()), serverClient?.reportError ?? console.error);
-    if (userId === undefined && serverOptions.trustUserIdCookie) {
-      userId = cookieStore.get('user_id')?.value;
-    }
-  }
-
-  const context: FlagContext = {
-    anonymous_id: cookieStore.get('savvagent_anonymous_id')?.value,
-    session_id: cookieStore.get('session_id')?.value,
-    language: headersList.get('accept-language')?.split(',')[0],
-    ...overrides,
-  };
-  // An undefined `overrides.user_id` means "not given", not "no user".
-  context.user_id = overrides?.user_id ?? userId;
-
-  return context;
+  const scope = await serverScope(overrides);
+  return scope.resolveContext(overrides);
 }
 
 /**
@@ -168,9 +255,8 @@ export async function isEnabled(
   flagKey: string,
   context?: FlagContext
 ): Promise<boolean> {
-  const bounded = getBounded();
-  const serverContext = await createServerContext(context);
-  return (await boundedEvaluate(bounded, flagKey, serverContext)).value;
+  getBounded();
+  return (await serverScope(context)).isEnabled(flagKey, context);
 }
 
 /**
@@ -196,9 +282,8 @@ export async function isEnabled(
  * ```
  */
 export async function evaluate(flagKey: string, context?: FlagContext): Promise<FlagEvaluationResult> {
-  const bounded = getBounded();
-  const serverContext = await createServerContext(context);
-  return boundedEvaluate(bounded, flagKey, serverContext);
+  getBounded();
+  return (await serverScope(context)).evaluate(flagKey, context);
 }
 
 /**
@@ -227,9 +312,8 @@ export async function withFlag<T>(
   callback: () => T | Promise<T>,
   context?: FlagContext
 ): Promise<T | null> {
-  const bounded = getBounded();
-  const serverContext = await createServerContext(context);
-  return boundedWithFlag(bounded, flagKey, callback, serverContext);
+  getBounded();
+  return (await serverScope(context)).withFlag(flagKey, callback, context);
 }
 
 /**
@@ -297,32 +381,39 @@ export async function evaluateForRequest(
   context?: FlagContext
 ): Promise<boolean> {
   const bounded = getBounded();
-  const cookieHeader = request.headers.get('cookie') || '';
-  const cookies = Object.fromEntries(
-    cookieHeader.split('; ').map((c) => {
-      const [key, ...values] = c.split('=');
-      return [key, values.join('=')];
-    })
-  );
-
-  let userId: string | undefined;
-  if (context?.user_id === undefined) {
-    const { getUserId } = serverOptions;
-    userId = await resolveUserId(getUserId && (() => getUserId(request)), bounded.reportError);
-    if (userId === undefined && serverOptions.trustUserIdCookie) {
-      userId = cookies.user_id;
+  const requestContext = buildRequestContext({
+    cookies: parseCookies(request.headers.get('cookie')),
+    acceptLanguage: request.headers.get('accept-language'),
+    trustUserIdCookie: serverOptions.trustUserIdCookie,
+  });
+  if (!requestContext.anonymous_id && !context?.anonymous_id) {
+    requestContext.anonymous_id = anonymousIdFor(request);
+    try {
+      storeAnonymousId(await cookies(), requestContext.anonymous_id, isSecureUrl(request.url));
+    } catch {
+      // Outside a Next.js request scope there is no cookie store to write to.
     }
   }
+  const { getUserId } = serverOptions;
+  const scope = createRequestScope({
+    ...scopeOptions(bounded),
+    context: requestContext,
+    userId: explicitUserId(context?.user_id),
+    getUserId: getUserId && (() => getUserId(request)),
+  });
+  return scope.isEnabled(flagKey, context);
+}
 
-  const requestContext: FlagContext = {
-    anonymous_id: cookies.savvagent_anonymous_id,
-    session_id: cookies.session_id,
-    language: request.headers.get('accept-language')?.split(',')[0],
-    ...context,
-  };
-  requestContext.user_id = context?.user_id ?? userId;
+/** Anonymous IDs assigned to requests without the cookie, so repeated calls agree. */
+const requestIds = new WeakMap<Request, string>();
 
-  return (await boundedEvaluate(bounded, flagKey, requestContext)).value;
+function anonymousIdFor(request: Request): string {
+  let anonymousId = requestIds.get(request);
+  if (!anonymousId) {
+    anonymousId = newAnonymousId();
+    requestIds.set(request, anonymousId);
+  }
+  return anonymousId;
 }
 
 /**
@@ -390,7 +481,8 @@ export async function evaluateMultiple(
   options?: EvaluateMultipleOptions
 ): Promise<EvaluateMultipleResult> {
   const bounded = getBounded();
-  const serverContext = await createServerContext(context);
+  const serverContext = await (await serverScope(context)).resolveContext(context);
+  const { reportError, fallback } = scopeOptions(bounded);
 
   const values: Record<string, boolean> = {};
   const results: Record<string, FlagEvaluationResult> = {};
@@ -402,8 +494,13 @@ export async function evaluateMultiple(
   await Promise.all(
     flagKeys.map(async (flagKey) => {
       errors[flagKey] = null;
-      let evalResult = await boundedEvaluate(bounded, flagKey, serverContext, (error) => {
-        errors[flagKey] = error;
+      let evalResult = await evaluateBounded(bounded.client, flagKey, serverContext, {
+        timeoutMs: bounded.timeoutMs,
+        reportError,
+        fallback,
+        onFailure: (error) => {
+          errors[flagKey] = error;
+        },
       });
       const defaults = options?.defaultValues;
       if (evalResult.reason === 'error' && defaults && Object.prototype.hasOwnProperty.call(defaults, flagKey)) {

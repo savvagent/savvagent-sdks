@@ -1,6 +1,6 @@
 # savvagent-flags
 
-Official Python Server SDK for Savvagent Flags - AI-powered feature flags with automatic error detection.
+The Python server SDK for [Savvagent Flags](https://github.com/savvagent/flags-sdks), the feature flag product of [savvagent-services](https://github.com/savvagent/savvagent-services).
 
 ## Features
 
@@ -77,6 +77,7 @@ config = FlagClientConfig(
     api_key="sdk_your_api_key_here",
     application_id="your-app-id",
     base_url="https://api.savvagent.com/flags",  # optional
+    environment="production",  # default: "production"; sent when the context has none
     enable_realtime=True,  # default: True
     cache_ttl=60,  # seconds, default: 60
     enable_telemetry=True,  # default: True
@@ -86,6 +87,28 @@ config = FlagClientConfig(
         "feature-b": True,
     },
     on_error=lambda e: print(f"Savvagent Flags error: {e}"),
+)
+```
+
+Both clients fill `context.environment` from `environment` when the caller's
+context does not set it. A `srv_` server key is a secret: if `base_url` is not
+`https` (and the host is not `localhost`, `127.0.0.1` or `[::1]`), the client
+prints one warning to stderr when it is built:
+`Savvagent Flags: the server key will be sent over http; use an https base_url`.
+
+### Defaults from the environment
+
+For a service moving from env-var flags, a default can come from an environment
+variable or any function. Each is read once, when called, not per lookup:
+
+```python
+config = (
+    FlagClientConfig(api_key="srv_your_server_key")
+    # 1/true/yes/on or 0/false/no/off, ignoring case and surrounding whitespace.
+    # Unset: ignored silently. Anything else: ignored with a warning on stderr.
+    .set_default_from_env("new-checkout", "NEW_CHECKOUT_ENABLED")
+    # None keeps any earlier default (or False).
+    .set_default_from("beta-banner", lambda: settings.BETA_BANNER)
 )
 ```
 
@@ -187,6 +210,46 @@ client.set_variation_override("experiment", "variant_a")
 client.clear_all_overrides()
 ```
 
+### Reading Without a Request
+
+`is_enabled_cached` never makes a request: it returns the unexpired cached value
+for the flag and context, else the flag's configured default. On
+`AsyncFlagClient` it is a plain method, so code that cannot `await` can call it.
+Keep the cache warm by evaluating the same context at least once per `cache_ttl`.
+
+```python
+await client.is_enabled("new-checkout", context)  # fills the cache
+
+def render_sync_template(context: FlagContext) -> str:
+    if client.is_enabled_cached("new-checkout", context):  # no I/O
+        return "new"
+    return "old"
+```
+
+### Static Client for Tests
+
+`static_flags` builds a client that serves fixed values and never touches the
+network (any other flag is `False`, `evaluate` reports `reason="static"`, and
+overrides still apply):
+
+```python
+from savvagent_flags import AsyncFlagClient, FlagClient
+
+client = FlagClient.static_flags({"new-checkout": True})
+assert client.is_enabled("new-checkout")
+assert not client.is_enabled("anything-else")
+
+async_client = AsyncFlagClient.static_flags({"new-checkout": True})  # async with is optional
+assert await async_client.is_enabled("new-checkout")
+```
+
+### Switching Environment
+
+```python
+client.set_environment("staging")  # clears the cache; plain method on both clients
+client.get_environment()  # "staging"
+```
+
 ## Framework Integration
 
 ### FastAPI
@@ -262,7 +325,7 @@ def get_client():
     if _client is None:
         from django.conf import settings
         _client = FlagClient(FlagClientConfig(
-            api_key=settings.SAVVAGENT_API_KEY,
+            api_key=settings.SAVVAGENT_FLAGS_API_KEY,
         ))
     return _client
 
@@ -360,6 +423,23 @@ Manually invalidate cache.
 client.invalidate_cache("my-flag")  # Specific flag
 client.invalidate_cache()  # All flags
 ```
+
+##### is_enabled_cached(flag_key, context?) → bool
+
+The cached value, else the configured default, without a request. A plain
+(synchronous) method on both clients.
+
+```python
+enabled = client.is_enabled_cached("my-flag", FlagContext(user_id="123"))
+```
+
+##### set_environment(environment) / get_environment() → str
+
+Change the environment sent with evaluations (clears the cache), or read it.
+
+##### FlagClient.static_flags(flags) / AsyncFlagClient.static_flags(flags)
+
+A client with fixed values and no network access, for tests.
 
 ##### close()
 

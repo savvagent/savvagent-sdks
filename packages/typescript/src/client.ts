@@ -9,27 +9,11 @@ import {
   FlagListResponse,
 } from './types';
 import { components } from './generated/api-types';
+import { isValidFlagKey, defaultFor } from './flags';
 
 // Type aliases for generated API types
 type ApiEvaluateRequest = components['schemas']['EvaluateFlag'];
 type ApiEvaluateResponse = components['schemas']['FlagEvaluationResponse'];
-
-/**
- * Whether `key` can be a flag key. Mirrors the server's rule: 1-128 characters
- * from `[A-Za-z0-9._-]`, and not `.` or `..`. The key is sent as one URL path
- * segment, and `.` and `..` cannot be carried in one (clients normalize them
- * away), so no flag can have those keys. Checking before the request keeps an
- * invalid key, and the SDK key sent with it, from steering the request to
- * another endpoint.
- */
-function isValidFlagKey(key: unknown): boolean {
-  return (
-    typeof key === 'string' &&
-    key !== '.' &&
-    key !== '..' &&
-    /^[A-Za-z0-9._-]{1,128}$/.test(key)
-  );
-}
 
 /**
  * Savvagent Client for feature flag evaluation with AI-powered error detection
@@ -297,15 +281,9 @@ export class FlagClient {
     return exponentialDelay + jitter;
   }
 
-  /**
-   * The configured default for a flag: `true` only when `defaults` has its
-   * own `true` entry for the key. A plain index would read inherited
-   * properties, so `__proto__`, `toString` and `constructor` (all valid flag
-   * keys) would return `Object.prototype` or a function instead of a boolean.
-   */
+  /** The configured default for a flag (see the exported {@link defaultFor}). */
   private defaultFor(key: string): boolean {
-    const defaults = this.config.defaults;
-    return Object.prototype.hasOwnProperty.call(defaults, key) && defaults[key] === true;
+    return defaultFor(this.config.defaults, key);
   }
 
   /**

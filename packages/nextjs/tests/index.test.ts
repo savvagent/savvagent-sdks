@@ -149,22 +149,18 @@ describe('Index Module (Main Entry Point)', () => {
     it('should specify correct entry points', () => {
       const packageJson = require('../package.json');
 
-      // Main entry
-      expect(packageJson.exports['.'].import).toContain('index.mjs');
-      expect(packageJson.exports['.'].require).toContain('index.js');
-      expect(packageJson.exports['.'].types).toContain('index.d.ts');
-
-      // Client entry
-      expect(packageJson.exports['./client'].import).toContain('client.mjs');
-      expect(packageJson.exports['./client'].require).toContain('client.js');
-
-      // Server entry
-      expect(packageJson.exports['./server'].import).toContain('server.mjs');
-      expect(packageJson.exports['./server'].require).toContain('server.js');
-
-      // Middleware entry
-      expect(packageJson.exports['./middleware'].import).toContain('middleware.mjs');
-      expect(packageJson.exports['./middleware'].require).toContain('middleware.js');
+      // Each entry has per-condition types: .d.mts for import, .d.ts for require.
+      for (const [subpath, file] of [
+        ['.', 'index'],
+        ['./client', 'client'],
+        ['./server', 'server'],
+        ['./middleware', 'middleware'],
+      ]) {
+        expect(packageJson.exports[subpath]).toEqual({
+          import: { types: `./dist/${file}.d.mts`, default: `./dist/${file}.mjs` },
+          require: { types: `./dist/${file}.d.ts`, default: `./dist/${file}.js` },
+        });
+      }
     });
   });
 

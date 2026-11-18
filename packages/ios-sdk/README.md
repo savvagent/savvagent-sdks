@@ -1,6 +1,6 @@
 # Savvagent iOS SDK
 
-The official iOS SDK for [Savvagent](https://savvagent.com) - the AI-powered feature flag platform that prevents production incidents.
+The iOS SDK for [Savvagent Flags](https://github.com/savvagent/flags-sdks), the feature flag product of [savvagent-services](https://github.com/savvagent/savvagent-services).
 
 ## Features
 
@@ -314,6 +314,7 @@ The SDK defines the following errors:
 
 ```swift
 enum SavvagentError: Error {
+    case invalidFlagKey(String) // not 1-128 of [A-Za-z0-9._-], or "." / ".."; no request is made
     case invalidURL
     case requestFailed
     case invalidResponse
@@ -329,6 +330,8 @@ do {
         flagKey: "feature",
         context: context
     )
+} catch SavvagentError.invalidFlagKey(let key) {
+    print("Invalid flag key: \(key)")
 } catch SavvagentError.requestFailed {
     print("Request failed")
 } catch SavvagentError.invalidResponse {
@@ -352,14 +355,14 @@ See the [iOS example app](../../examples/ios-app) for a complete implementation.
 
 ## Documentation
 
-- [API Reference](https://flags-docs.savvagent.com/ios-sdk)
-- [Integration Guide](https://flags-docs.savvagent.com/guides/ios)
-- [Migration Guide](https://flags-docs.savvagent.com/migration/ios)
+- [SDK Integration Guide](../../docs/SDK-INTEGRATION.md)
+- [SDK Developer Guide](../../docs/SDK-DEVELOPER-GUIDE.md): the REST wire contract and the cross-SDK behaviour matrix
+- [Migration Guide](../../docs/MIGRATION-GUIDE.md)
 
 ## Support
 
 - [GitHub Issues](https://github.com/savvagent/flags-sdks/issues)
-- [Documentation](https://flags-docs.savvagent.com)
+- [Documentation](https://github.com/savvagent/flags-sdks#readme)
 - [Email](mailto:support@savvagent.com)
 
 ## License

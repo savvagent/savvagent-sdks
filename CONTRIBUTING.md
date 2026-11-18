@@ -1,6 +1,6 @@
-# Contributing to Savvagent SDKs
+# Contributing to the Savvagent Flags SDKs
 
-Thank you for your interest in contributing to Savvagent SDKs! This document provides guidelines and instructions for contributing.
+Thank you for your interest in contributing! This repository holds the Flags SDKs for [savvagent-services](https://github.com/savvagent/savvagent-services); the Flags API they talk to lives there. This document provides guidelines and instructions for contributing to the SDKs.
 
 ## Code of Conduct
 
@@ -20,19 +20,20 @@ By participating in this project, you agree to maintain a respectful and inclusi
 
 2. **Clone your fork:**
    ```bash
-   git clone https://github.com/YOUR_USERNAME/flags-sdks.git
+   git clone https://github.com/<your-github-account>/flags-sdks.git
    cd flags-sdks
    ```
 
 3. **Add upstream remote:**
    ```bash
-   git remote add upstream https://github.com/yourusername/flags-sdks.git
+   git remote add upstream https://github.com/savvagent/flags-sdks
    ```
 
-4. **Install dependencies:**
+4. **Install dependencies** from the lockfile, without running dependency install scripts:
    ```bash
-   pnpm install
+   pnpm install --frozen-lockfile --ignore-scripts
    ```
+   The packages build and test without those scripts. Run a plain `pnpm install` only when you change dependencies, and commit the updated `pnpm-lock.yaml`.
 
 5. **Build packages:**
    ```bash
@@ -322,7 +323,7 @@ Update documentation in `docs/` for:
 
 Releases are automated via GitHub Actions:
 
-1. Merge PR to `main`
+1. Merge PR to `master`
 2. Changesets creates "Version Packages" PR
 3. Review and merge version PR
 4. Packages automatically publish to npm

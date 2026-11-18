@@ -149,6 +149,76 @@ class SavvagentClientNetworkTest {
     }
 
     @Test
+    fun testInvalidFlagKeysFailWithoutARequest() = runTest {
+        val invalidKeys = listOf("", "/", ".", "..", "a".repeat(129), "a/b", "flag?x=1", "flag#x", "fl ag", "flag%2F", "caf\u00e9")
+
+        for (key in invalidKeys) {
+            val result = client.evaluate(key, UserContext(userId = "user-123"))
+
+            assertTrue("expected failure for \"$key\"", result.isFailure)
+            val error = result.exceptionOrNull()
+            assertTrue("expected SavvagentException for \"$key\"", error is SavvagentException)
+            assertTrue(error!!.message!!.contains("Invalid flag key"))
+            assertTrue(client.isEnabled(key, UserContext(userId = "user-123")).isFailure)
+            assertEquals("fallback", client.getVariation(key, UserContext(userId = "user-123"), "fallback"))
+        }
+
+        assertEquals(0, mockWebServer.requestCount)
+    }
+
+    @Test
+    fun testInvalidFlagKeyMessageHasNoControlCharacters() = runTest {
+        val result = client.evaluate("bad\r\nkey\tx\u0000", UserContext(userId = "user-123"))
+
+        val message = result.exceptionOrNull()!!.message!!
+        assertTrue(message.contains("Invalid flag key"))
+        assertTrue(message.contains("bad??key?x?"))
+        assertTrue(message.none { Character.isISOControl(it) })
+        assertEquals(0, mockWebServer.requestCount)
+    }
+
+    @Test
+    fun testInvalidFlagKeyMessageHasNoLineSeparatorsOrBidiControls() = runTest {
+        val result = client.evaluate("a\u2028b\u2029c\u202Ed\u200Be", UserContext(userId = "user-123"))
+
+        val message = result.exceptionOrNull()!!.message!!
+        assertTrue(message.contains("a?b?c?d?e"))
+        assertTrue(
+            message.none {
+                val type = Character.getType(it).toByte()
+                type == Character.LINE_SEPARATOR || type == Character.PARAGRAPH_SEPARATOR || type == Character.FORMAT
+            }
+        )
+        assertEquals(0, mockWebServer.requestCount)
+    }
+
+    @Test
+    fun testValidFlagKeysAreSent() = runTest {
+        val longest = "a".repeat(128)
+        val validKeys = listOf("test-flag", "My_Flag.v2", "a", "...", longest)
+
+        for (key in validKeys) {
+            mockWebServer.enqueue(MockResponse().setResponseCode(200).setBody("""{"enabled": true}"""))
+
+            val result = client.isEnabled(key, UserContext(userId = "user-123"))
+
+            assertTrue("expected success for \"$key\"", result.isSuccess)
+            assertEquals("/api/flags/$key/evaluate", mockWebServer.takeRequest().path)
+        }
+    }
+
+    @Test
+    fun testIsValidFlagKey() {
+        assertTrue(isValidFlagKey("test-flag"))
+        assertTrue(isValidFlagKey("a".repeat(128)))
+        assertFalse(isValidFlagKey(""))
+        assertFalse(isValidFlagKey("/"))
+        assertFalse(isValidFlagKey("."))
+        assertFalse(isValidFlagKey(".."))
+        assertFalse(isValidFlagKey("a".repeat(129)))
+    }
+
+    @Test
     fun testIsEnabledSendsSnakeCaseContext() = runTest {
         mockWebServer.enqueue(
             MockResponse()

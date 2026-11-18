@@ -194,9 +194,9 @@ function App() {
   // Per SDK Developer Guide: FlagClientConfig with proper authentication
   const config: FlagClientConfig = {
     // SDK API key (starts with sdk_) - safe to embed in client-side code
-    apiKey: import.meta.env.VITE_SAVVAGENT_SDK_KEY || 'sdk_your_key_here',
+    apiKey: import.meta.env.VITE_SAVVAGENT_FLAGS_API_KEY || 'sdk_your_key_here',
     // Base URL for the Savvagent API
-    baseUrl: import.meta.env.VITE_SAVVAGENT_API_URL || 'http://localhost:8080',
+    baseUrl: import.meta.env.VITE_SAVVAGENT_FLAGS_API_URL || 'http://localhost:8080',
     // Application ID for application-scoped flags
     applicationId: 'f8209ef5-a661-4f46-8b84-4c855a97d5ef',
     // Enable real-time updates via SSE (default: true)

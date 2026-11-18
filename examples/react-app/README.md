@@ -1,6 +1,6 @@
-# Savvagent React Example
+# Savvagent Flags React Example
 
-Example React application demonstrating how to use the Savvagent React SDK with hooks.
+An example React application that uses the hooks in [`@savvagent/react`](../../packages/react) to evaluate [Savvagent Flags](https://github.com/savvagent/flags-sdks#readme).
 
 ## Features
 
@@ -14,7 +14,7 @@ Example React application demonstrating how to use the Savvagent React SDK with 
 
 1. **Install dependencies:**
    ```bash
-   pnpm install
+   pnpm install --frozen-lockfile --ignore-scripts
    ```
 
 2. **Configure environment variables:**
@@ -24,8 +24,8 @@ Example React application demonstrating how to use the Savvagent React SDK with 
 
    Edit `.env.local`:
    ```bash
-   VITE_SAVVAGENT_API_URL=http://localhost:8080
-   VITE_SAVVAGENT_SDK_KEY=your-sdk-key-here
+   VITE_SAVVAGENT_FLAGS_API_URL=http://localhost:8080
+   VITE_SAVVAGENT_FLAGS_API_KEY=your-sdk-key-here
    ```
 
 3. **Run the development server:**
@@ -65,8 +65,8 @@ import { SavvagentProvider } from '@savvagent/react';
 function App() {
   return (
     <SavvagentProvider
-      apiUrl={import.meta.env.VITE_SAVVAGENT_API_URL}
-      sdkKey={import.meta.env.VITE_SAVVAGENT_SDK_KEY}
+      apiUrl={import.meta.env.VITE_SAVVAGENT_FLAGS_API_URL}
+      sdkKey={import.meta.env.VITE_SAVVAGENT_FLAGS_API_KEY}
     >
       <MyApp />
     </SavvagentProvider>

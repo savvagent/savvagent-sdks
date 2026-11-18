@@ -8,6 +8,31 @@
 
 import type { AstroIntegration, AstroIntegrationLogger, MiddlewareHandler } from 'astro';
 import { FlagClient, FlagClientConfig, FlagContext, FlagEvaluationResult } from '@savvagent/sdk';
+import {
+  ANONYMOUS_ID_COOKIE,
+  anonymousIdCookieOptions,
+  buildRequestContext,
+  createRequestScope,
+  defaultReportError,
+  guardReporter,
+  isSecureUrl,
+  newAnonymousId as newWebCryptoAnonymousId,
+  parseCookies,
+  throttleErrors,
+  toServerConfig,
+} from '@savvagent/sdk/server';
+import { helperScope as internalHelperScope, localsInternals } from './helper-scope';
+
+// The request scope (cookies, context, user_id rules, bounded evaluation,
+// error throttling) is the one shared by every server integration (#26).
+export {
+  ANONYMOUS_ID_COOKIE,
+  USER_ID_COOKIE,
+  DEFAULT_EVALUATION_TIMEOUT_MS,
+  ERROR_REPORT_INTERVAL_MS,
+  toServerConfig,
+  throttleErrors,
+} from '@savvagent/sdk/server';
 
 let clientInstance: FlagClient | null = null;
 /** Defaults and throttled error reporter of {@link clientInstance}, for the request helpers. */
@@ -133,74 +158,6 @@ declare global {
 export const SAVVAGENT_CONFIG_MODULE_ID = 'virtual:@savvagent/astro/config';
 const RESOLVED_CONFIG_MODULE_ID = '\0' + SAVVAGENT_CONFIG_MODULE_ID;
 
-/** Cookie that keeps a visitor's anonymous ID stable across requests. */
-export const ANONYMOUS_ID_COOKIE = 'savvagent_anonymous_id';
-/** Cookie read for `user_id` only when `trustUserIdCookie` is enabled. */
-export const USER_ID_COOKIE = 'user_id';
-const ANONYMOUS_ID_MAX_AGE = 60 * 60 * 24 * 365;
-/** Default bound on one server-side evaluation, in milliseconds. */
-export const DEFAULT_EVALUATION_TIMEOUT_MS = 1000;
-/** Window in which the same error message is reported to `onError` only once. */
-export const ERROR_REPORT_INTERVAL_MS = 60_000;
-const MAX_THROTTLED_MESSAGES = 100;
-
-/**
- * Apply server-side defaults to a client config: no realtime (SSE)
- * connection (it relies on browser globals), no language detection from the
- * server's own locale, and a single attempt per evaluation (no retries while
- * a page waits).
- */
-export function toServerConfig(config: FlagClientConfig): FlagClientConfig {
-  return {
-    ...config,
-    enableRealtime: config.enableRealtime ?? false,
-    disableLanguageDetection: config.disableLanguageDetection ?? true,
-    retryAttempts: config.retryAttempts ?? 1,
-  };
-}
-
-/**
- * Wrap an error handler so the same error message is reported at most once
- * per `intervalMs`, tracking at most 100 distinct messages. When the Flags
- * API is down, every request fails the same way; this keeps the logs readable.
- * Mirrors `@savvagent/react-router` (to be shared, see issue #26).
- *
- * @internal Exported for tests only.
- */
-export function throttleErrors(
-  onError: (error: Error) => void,
-  intervalMs: number = ERROR_REPORT_INTERVAL_MS
-): (error: Error) => void {
-  const lastReported = new Map<string, number>();
-  return (error: Error) => {
-    const now = Date.now();
-    const key = error?.message ?? String(error);
-    const last = lastReported.get(key);
-    if (last !== undefined && now - last < intervalMs) return;
-    if (lastReported.size >= MAX_THROTTLED_MESSAGES) {
-      for (const [message, time] of lastReported) {
-        if (now - time >= intervalMs) lastReported.delete(message);
-      }
-      // Hard cap: messages can carry dynamic text (URLs, IDs), so drop the
-      // oldest entries rather than letting the map grow during an outage.
-      while (lastReported.size >= MAX_THROTTLED_MESSAGES) {
-        lastReported.delete(lastReported.keys().next().value as string);
-      }
-    }
-    // Delete first so a re-reported message moves to the end: the cap then
-    // evicts the least recently reported message.
-    lastReported.delete(key);
-    lastReported.set(key, now);
-    // The app's handler runs inside timer callbacks too, so a throw here
-    // would become an uncaught exception and stop the process.
-    try {
-      onError(error);
-    } catch (handlerError) {
-      console.error('[Savvagent] onError handler threw', handlerError);
-    }
-  };
-}
-
 /**
  * Check a client config for problems that would stop the client from
  * being created. Returns human-readable problems (empty when valid).
@@ -299,7 +256,7 @@ function reportConfigProblems(
  * import savvagent from '@savvagent/astro';
  *
  * export default defineConfig({
- *   // src/savvagent.config.mjs: export default { apiKey: process.env.SAVVAGENT_SDK_KEY };
+ *   // src/savvagent.config.mjs: export default { apiKey: process.env.SAVVAGENT_FLAGS_API_KEY };
  *   integrations: [savvagent({ configModule: './src/savvagent.config.mjs' })],
  * });
  * ```
@@ -414,7 +371,14 @@ export interface SavvagentLocalsOptions {
 }
 
 /**
- * Build the request-scoped API exposed as `Astro.locals.savvagent`.
+ * Build the request-scoped API exposed as `Astro.locals.savvagent`, on the
+ * request scope shared by the server integrations (`@savvagent/sdk/server`).
+ *
+ * `getUserId` is called once, on the first evaluation, and bounded by
+ * `evaluationTimeoutMs`. When it returns a non-empty string, that is the
+ * user. When it returns nothing, a trusted `user_id` cookie (with
+ * `trustUserIdCookie`) is kept. When it throws, rejects or times out, the
+ * request is evaluated without any `user_id`, the trusted cookie's included.
  *
  * @param client - The FlagClient to evaluate with, or null to always return defaults
  * @param request - The current request
@@ -426,131 +390,67 @@ export function createSavvagentLocals(
   options: SavvagentLocalsOptions = {}
 ): SavvagentLocals {
   // The user_id cookie is set by the browser, so it identifies no one unless trusted (#23).
-  const fromRequest = options.isPrerendered
+  const context: FlagContext = options.isPrerendered
     ? {}
-    : getRequestContext(request, undefined, { trustUserIdCookie: options.trustUserIdCookie });
-  const requestContext = Object.fromEntries(
-    Object.entries({ ...fromRequest, anonymous_id: fromRequest.anonymous_id || options.anonymousId }).filter(
-      ([key, value]) => key !== '' && value !== undefined && value !== ''
-    )
-  ) as FlagContext;
-
-  // Own-property lookup: a key like `__proto__` must not read Object.prototype.
-  const defaultFor = (flagKey: string): boolean => {
-    const defaults = options.defaults;
-    return !!defaults && Object.prototype.hasOwnProperty.call(defaults, flagKey) && defaults[flagKey] === true;
-  };
-
-  if (!client) {
-    return {
-      client: null,
-      context: requestContext,
-      isEnabled: async (flagKey) => defaultFor(flagKey),
-      evaluate: async (flagKey) => ({ key: flagKey, value: defaultFor(flagKey), reason: 'error' }),
-      withFlag: async (flagKey, callback) => (defaultFor(flagKey) ? callback() : null),
-      trackError: () => {},
-    };
-  }
-
-  const timeoutMs = options.evaluationTimeoutMs ?? DEFAULT_EVALUATION_TIMEOUT_MS;
-  const reportError = options.reportError ?? ((error: Error) => console.error('[Savvagent]', error));
-
-  // getUserId runs once, on the first evaluation, so a user that the app's
-  // own middleware stores in Astro.locals after this middleware is visible.
-  // It is bounded by its own timer of the same length, and if it throws,
-  // rejects or times out the request continues anonymously (the least
-  // privileged identity) instead of failing every evaluation.
-  let userResolved: Promise<void> | undefined;
-  const resolveUser = (): Promise<void> => {
-    const getUserId = options.getUserId;
-    if (typeof getUserId !== 'function' || options.isPrerendered) return Promise.resolve();
-    userResolved ??= (async () => {
-      try {
-        // Inside the async function, a synchronous throw becomes a rejection.
-        const pending = (async () => getUserId({ request, locals: options.locals ?? ({} as App.Locals) }))();
-        let timedOut = false;
-        const userId = await withTimeout(pending, timeoutMs, () => {
-          timedOut = true;
-          reportError(new Error(`getUserId timed out after ${timeoutMs}ms; evaluating without a user_id`));
-          return undefined;
-        });
-        if (userId) requestContext.user_id = userId;
-        // "Without a user_id" includes a trusted cookie's: getUserId is the
-        // authority once it is configured, so its failure is anonymous.
-        else if (timedOut) delete requestContext.user_id;
-      } catch (error) {
-        delete requestContext.user_id;
-        // A fixed message keeps attacker-influenced error text out of log
-        // lines and throttle keys; the original error travels as `cause`.
-        reportError(
-          Object.assign(new Error('getUserId failed; evaluating without a user_id'), { cause: error })
-        );
-      }
-    })();
-    return userResolved;
-  };
-  const merge = async (context?: FlagContext): Promise<FlagContext> => {
-    await resolveUser();
-    return { ...requestContext, ...context };
-  };
-
-  // Bound an evaluation so a slow or unreachable API cannot hold up the page.
-  const bounded = <T>(flagKey: string, evaluation: Promise<T>, fallback: T): Promise<T> =>
-    withTimeout(evaluation, timeoutMs, () => {
-      reportError(new Error(`Flag evaluation (${flagKey}) timed out after ${timeoutMs}ms`));
-      return fallback;
-    });
-
-  const isEnabled = async (flagKey: string, context?: FlagContext): Promise<boolean> => {
-    const merged = await merge(context);
-    return bounded(flagKey, client.isEnabled(flagKey, merged), defaultFor(flagKey));
-  };
-
-  const trackError = (flagKey: string, error: Error, context?: FlagContext): void => {
-    // Synchronous API: use the user already resolved for this request, if any.
-    client.trackError(flagKey, error, { ...requestContext, ...context });
-  };
-
-  return {
-    client,
-    context: requestContext,
-    isEnabled,
-    evaluate: async (flagKey, context) => {
-      const merged = await merge(context);
-      return bounded(flagKey, client.evaluate(flagKey, merged), {
-        key: flagKey,
-        value: defaultFor(flagKey),
-        reason: 'error',
+    : buildRequestContext({
+        cookies: parseCookies(request.headers.get('cookie')),
+        acceptLanguage: request.headers.get('accept-language'),
+        trustUserIdCookie: options.trustUserIdCookie,
       });
-    },
-    withFlag: async (flagKey, callback, context) => {
-      // Uses the bounded evaluation; errors are tracked against the flag, then re-thrown.
-      if (!(await isEnabled(flagKey, context))) return null;
-      try {
-        return await callback();
-      } catch (error) {
-        trackError(flagKey, error as Error, context);
-        throw error;
-      }
-    },
-    trackError,
-  };
-}
+  if (!context.anonymous_id && options.anonymousId) context.anonymous_id = options.anonymousId;
 
-/**
- * Settle with `work`, or with `onTimeout()` after `ms` milliseconds, whichever
- * comes first. The timer is always cleared.
- */
-async function withTimeout<T>(work: Promise<T>, ms: number, onTimeout: () => T): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timedOut = new Promise<T>((resolve) => {
-    timer = setTimeout(() => resolve(onTimeout()), ms);
+  // Wrapped once, here: it is also called from timer callbacks (the bounds
+  // on getUserId and on each evaluation), where a throw from the app's
+  // handler would be an uncaught exception.
+  const reportError = guardReporter(options.reportError ?? defaultReportError);
+  const getUserId = options.getUserId;
+  // Set when getUserId supplied the user, so a user that is still in the
+  // context afterwards can only have come from the cookie.
+  let userFromGetter = false;
+  const scope = createRequestScope({
+    client,
+    context,
+    getUserId:
+      typeof getUserId === 'function' && !options.isPrerendered
+        ? async () => {
+            const userId = await getUserId({ request, locals: options.locals ?? ({} as App.Locals) });
+            if (typeof userId === 'string' && userId !== '') userFromGetter = true;
+            return userId;
+          }
+        : undefined,
+    evaluationTimeoutMs: options.evaluationTimeoutMs,
+    reportError,
+    defaults: options.defaults,
   });
-  try {
-    return await Promise.race([work, timedOut]);
-  } finally {
-    clearTimeout(timer);
-  }
+
+  const locals: SavvagentLocals = {
+    client,
+    context: scope.context,
+    isEnabled: scope.isEnabled,
+    evaluate: scope.evaluate,
+    withFlag: scope.withFlag,
+    trackError: scope.trackError,
+  };
+  localsInternals.set(locals, {
+    // The user in the context, settled, and whether it is the cookie's.
+    cookieUser: async () => {
+      await scope.resolveContext();
+      return scope.context.user_id !== undefined && !userFromGetter;
+    },
+    cookieUserNow: () => scope.context.user_id !== undefined && !userFromGetter,
+    // The same request without any `user_id` from the context (an explicit
+    // `user_id` in a call's own context still applies).
+    withoutUser: () =>
+      createRequestScope({
+        client,
+        context: scope.context,
+        userId: null,
+        evaluationTimeoutMs: options.evaluationTimeoutMs,
+        reportError,
+        defaults: options.defaults,
+      }),
+  });
+  return locals;
 }
 
 /** Windows-safe import specifier for an absolute file path. */
@@ -558,21 +458,18 @@ export function toImportPath(filePath: string): string {
   return filePath.replace(/\\/g, '/');
 }
 
-type CryptoLike = { randomUUID?: () => string; getRandomValues?: <T extends ArrayBufferView>(a: T) => T };
-
 /**
- * A random anonymous ID (`anon_<uuid>`, the format the browser SDK and
- * `@savvagent/react-router` use) from a cryptographic source: Web Crypto when
- * available, else node:crypto (loaded lazily).
+ * A random anonymous ID, `anon_<uuid>`: the format the browser SDK and the
+ * other server integrations use. It comes from Web Crypto
+ * (`@savvagent/sdk/server`'s `newAnonymousId`). Node.js 18, which Astro 4
+ * and 5 support, has no global Web Crypto without a flag; there the ID
+ * comes from `node:crypto`, loaded lazily so edge runtimes never import it.
  */
 export async function newAnonymousId(): Promise<string> {
-  let source = globalThis.crypto as CryptoLike | undefined;
-  if (!source?.randomUUID && !source?.getRandomValues) {
-    source = (await import('node:crypto')) as CryptoLike;
-  }
-  if (source.randomUUID) return `anon_${source.randomUUID()}`;
-  const bytes = source.getRandomValues!(new Uint8Array(16));
-  return `anon_${Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')}`;
+  const webCrypto = globalThis.crypto as { randomUUID?: unknown; getRandomValues?: unknown } | undefined;
+  if (webCrypto?.randomUUID || webCrypto?.getRandomValues) return newWebCryptoAnonymousId();
+  const { randomUUID } = await import('node:crypto');
+  return `anon_${randomUUID()}`;
 }
 
 /**
@@ -589,9 +486,7 @@ export function createSavvagentMiddleware(
 ): MiddlewareHandler {
   let client: FlagClient | null = null;
   let failed = false;
-  const reportError = throttleErrors(
-    config?.onError ?? ((error) => console.error('[Savvagent]', error))
-  );
+  const reportError = throttleErrors(config?.onError ?? defaultReportError);
 
   return async (context, next) => {
     if (!client && !failed) {
@@ -613,13 +508,7 @@ export function createSavvagentMiddleware(
       anonymousId = await newAnonymousId();
       // Not HttpOnly: the browser SDK reads this cookie so client-side
       // evaluations use the same anonymous ID as the server.
-      context.cookies.set(ANONYMOUS_ID_COOKIE, anonymousId, {
-        path: '/',
-        sameSite: 'lax',
-        secure: context.url?.protocol === 'https:',
-        httpOnly: false,
-        maxAge: ANONYMOUS_ID_MAX_AGE,
-      });
+      context.cookies.set(ANONYMOUS_ID_COOKIE, anonymousId, anonymousIdCookieOptions(isSecureUrl(context.url)));
     }
 
     context.locals.savvagent = createSavvagentLocals(client, context.request, {
@@ -647,9 +536,7 @@ export function initSavvagent(config: FlagClientConfig): FlagClient {
   if (!clientInstance) {
     clientInstance = new FlagClient(config);
     clientDefaults = config.defaults;
-    clientReportError = throttleErrors(
-      config.onError ?? ((error) => console.error('[Savvagent]', error))
-    );
+    clientReportError = throttleErrors(config.onError ?? defaultReportError);
   }
   return clientInstance;
 }
@@ -667,14 +554,6 @@ export function getSavvagent(): FlagClient {
     );
   }
   return clientInstance;
-}
-
-function decodeCookieValue(value: string): string {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
-  }
 }
 
 /** Options for {@link getRequestContext}. */
@@ -706,23 +585,13 @@ export function getRequestContext(
   overrides?: FlagContext,
   options: RequestContextOptions = {}
 ): FlagContext {
-  const cookieHeader = request.headers.get('cookie') || '';
-  const cookies = Object.fromEntries(
-    cookieHeader.split('; ').map((c) => {
-      const [key, ...values] = c.split('=');
-      return [key, decodeCookieValue(values.join('='))];
-    })
-  );
-
-  const context: FlagContext = {
-    user_id: options.trustUserIdCookie ? cookies[USER_ID_COOKIE] : undefined,
-    anonymous_id: cookies[ANONYMOUS_ID_COOKIE],
-    session_id: cookies.session_id,
-    language: request.headers.get('accept-language')?.split(',')[0] || undefined,
-    ...overrides,
-  };
-
-  return context;
+  const context = buildRequestContext({
+    cookies: parseCookies(request.headers.get('cookie')),
+    acceptLanguage: request.headers.get('accept-language'),
+    trustUserIdCookie: options.trustUserIdCookie,
+  });
+  // Overrides replace request values as given, as they always have here.
+  return { ...context, ...overrides };
 }
 
 /**
@@ -887,22 +756,51 @@ export function getEnvironment(): string {
 /**
  * Options for {@link evaluateForRequest} and {@link createFlagMiddleware}:
  * the same `user_id` sources and evaluation bound as `Astro.locals.savvagent`.
+ *
+ * When the request already has `Astro.locals.savvagent` (the integration or
+ * {@link createSavvagentMiddleware} ran first), the helpers evaluate through
+ * it: same anonymous ID (also for a first-time visitor), same user, resolved
+ * once per request. `trustUserIdCookie`, `getUserId` and
+ * `evaluationTimeoutMs` then come from the integration, and these options
+ * apply only when there is no `Astro.locals.savvagent`.
+ *
+ * A helper can narrow trust but never widen it. `trustUserIdCookie: false`
+ * on a helper makes that call evaluate without a `user_id` that came from the
+ * cookie (a user from the integration's `getUserId`, or a `user_id` passed in
+ * the `context` argument, still applies). `trustUserIdCookie: true`, or
+ * saying nothing, changes nothing: if the integration does not trust the
+ * cookie, a helper cannot enable it. If `locals.savvagent` is not the scope
+ * the middleware created (for example a copy of it), narrowing cannot tell
+ * where its `user_id` came from, so the helper evaluates with a fresh scope:
+ * anonymous, because the integration's `getUserId` is not available to it
+ * (only a `getUserId` in the helper's own options, and a `user_id` in the
+ * call's `context`, apply). With no initialised client that scope returns
+ * defaults instead of throwing. A helper's own `getUserId` and
+ * `evaluationTimeoutMs` are ignored when the request has `Astro.locals.savvagent`.
  */
 export interface RequestHelperOptions extends SavvagentMiddlewareOptions {
-  /** `Astro.locals` of the request, passed to `getUserId`. */
+  /** `Astro.locals` of the request: its `savvagent` scope is reused, and it is passed to `getUserId`. */
   locals?: App.Locals;
 }
 
-/** The request scope the helpers evaluate with: same rules as `Astro.locals.savvagent`. */
+/**
+ * The request scope the helpers evaluate with: the request's `Astro.locals.savvagent` when it exists (narrowed when the
+ * helper passes `trustUserIdCookie: false`), else a new scope with the same rules (and
+ * no anonymous ID cookie of its own). Uses the client without `getSavvagent()`,
+ * which throws when the client was never initialised; a scope with no client
+ * returns defaults (reason 'error') instead.
+ */
 function helperScope(request: Request, options: RequestHelperOptions): SavvagentLocals {
-  return createSavvagentLocals(getSavvagent(), request, {
-    defaults: clientDefaults,
-    trustUserIdCookie: options.trustUserIdCookie,
-    getUserId: options.getUserId,
-    locals: options.locals,
-    evaluationTimeoutMs: options.evaluationTimeoutMs,
-    reportError: clientReportError,
-  });
+  return internalHelperScope(options, () =>
+    createSavvagentLocals(clientInstance ?? null, request, {
+      defaults: clientDefaults,
+      trustUserIdCookie: options.trustUserIdCookie,
+      getUserId: options.getUserId,
+      locals: options.locals,
+      evaluationTimeoutMs: options.evaluationTimeoutMs,
+      reportError: clientReportError,
+    })
+  );
 }
 
 /**
@@ -910,7 +808,9 @@ function helperScope(request: Request, options: RequestHelperOptions): Savvagent
  *
  * Uses the same rules as `Astro.locals.savvagent`: the evaluation is bounded
  * by `evaluationTimeoutMs` (default 1000) and falls back to the flag's
- * default, and `user_id` comes from `context`, then `getUserId`.
+ * default, and `user_id` comes from `context`, then `getUserId`. Pass
+ * `{ locals: Astro.locals }` to evaluate through the request's
+ * `Astro.locals.savvagent` (see {@link RequestHelperOptions}).
  *
  * **Warning:** the `user_id` cookie is read only with
  * `trustUserIdCookie: true`. The browser controls that cookie, so any
@@ -927,8 +827,9 @@ function helperScope(request: Request, options: RequestHelperOptions): Savvagent
  * ---
  * import { evaluateForRequest } from '@savvagent/astro';
  *
- * const showBeta = await evaluateForRequest(Astro.request, 'beta-ui', {
- *   user_id: Astro.locals.user?.id,
+ * // Evaluates through Astro.locals.savvagent: its anonymous ID and user.
+ * const showBeta = await evaluateForRequest(Astro.request, 'beta-ui', undefined, {
+ *   locals: Astro.locals,
  * });
  * ---
  *
@@ -968,9 +869,11 @@ export async function evaluateForRequest(
  * export const onRequest = sequence(flagMiddleware);
  * ```
  *
- * Each flag is evaluated with the same rules as `Astro.locals.savvagent`:
- * bounded by `evaluationTimeoutMs` (default 1000, falling back to the flag's
- * default), with `user_id` from the `context` option, then `getUserId`.
+ * Each flag is evaluated through the request's `Astro.locals.savvagent` when
+ * the Savvagent middleware ran first (see {@link RequestHelperOptions}), else
+ * with the same rules: bounded by `evaluationTimeoutMs` (default 1000,
+ * falling back to the flag's default), with `user_id` from the `context`
+ * option, then `getUserId`.
  *
  * **Warning:** the `user_id` cookie is read only with
  * `trustUserIdCookie: true`. The browser controls that cookie, so with it
@@ -1003,6 +906,7 @@ export function createFlagMiddleware(
   middlewareOptions: FlagMiddlewareOptions = {}
 ) {
   return async (context: any, next: () => Promise<Response>) => {
+    // Reuses context.locals.savvagent when the Savvagent middleware ran first.
     const scope = helperScope(context.request, { ...middlewareOptions, locals: context.locals });
     const extraContext =
       typeof middlewareOptions.context === 'function'

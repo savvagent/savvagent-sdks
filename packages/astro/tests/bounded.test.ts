@@ -127,7 +127,9 @@ describe('evaluation timer', () => {
 
   it('is cleared when the evaluation settles first', async () => {
     vi.useFakeTimers();
-    const client = { isEnabled: vi.fn().mockResolvedValue(true), evaluate: vi.fn() } as unknown as FlagClient;
+    const client = {
+      evaluate: vi.fn(async (key: string) => ({ key, value: true, reason: 'evaluated' })),
+    } as unknown as FlagClient;
     const savvagent = createSavvagentLocals(client, new Request('http://localhost/'));
 
     await expect(savvagent.isEnabled('f')).resolves.toBe(true);
@@ -137,10 +139,7 @@ describe('evaluation timer', () => {
   it('resolves with the default at the timeout and leaves no timer behind', async () => {
     vi.useFakeTimers();
     const reportError = vi.fn();
-    const client = {
-      evaluate: vi.fn(() => new Promise(() => {})),
-      isEnabled: vi.fn(() => new Promise(() => {})),
-    } as unknown as FlagClient;
+    const client = { evaluate: vi.fn(() => new Promise(() => {})) } as unknown as FlagClient;
     const savvagent = createSavvagentLocals(client, new Request('http://localhost/'), {
       defaults: { f: true },
       evaluationTimeoutMs: 1000,
@@ -163,9 +162,9 @@ describe('getUserId isolation', () => {
   });
 
   const makeClient = () =>
-    ({ isEnabled: vi.fn().mockResolvedValue(true), evaluate: vi.fn() }) as unknown as FlagClient & {
-      isEnabled: ReturnType<typeof vi.fn>;
-    };
+    ({
+      evaluate: vi.fn(async (key: string) => ({ key, value: true, reason: 'evaluated' })),
+    }) as unknown as FlagClient & { evaluate: ReturnType<typeof vi.fn> };
 
   it('bounds a slow getUserId and evaluates without a user_id', async () => {
     vi.useFakeTimers();
@@ -180,7 +179,7 @@ describe('getUserId isolation', () => {
     const result = savvagent.isEnabled('f');
     await vi.advanceTimersByTimeAsync(1000);
     await expect(result).resolves.toBe(true);
-    expect(client.isEnabled).toHaveBeenCalledWith('f', {});
+    expect(client.evaluate).toHaveBeenCalledWith('f', {});
     expect(reportError).toHaveBeenCalledTimes(1);
     expect(reportError.mock.calls[0][0].message).toMatch(/getUserId timed out after 1000ms/);
     expect(vi.getTimerCount()).toBe(0);
@@ -205,8 +204,8 @@ describe('getUserId isolation', () => {
 
     await expect(savvagent.isEnabled('a')).resolves.toBe(true);
     await expect(savvagent.isEnabled('b')).resolves.toBe(true);
-    expect(client.isEnabled).toHaveBeenNthCalledWith(1, 'a', { anonymous_id: 'anon_1' });
-    expect(client.isEnabled).toHaveBeenNthCalledWith(2, 'b', { anonymous_id: 'anon_1' });
+    expect(client.evaluate).toHaveBeenNthCalledWith(1, 'a', { anonymous_id: 'anon_1' });
+    expect(client.evaluate).toHaveBeenNthCalledWith(2, 'b', { anonymous_id: 'anon_1' });
     expect(reportError).toHaveBeenCalledTimes(1);
     expect(reportError.mock.calls[0][0].message).toBe('getUserId failed; evaluating without a user_id');
     expect((reportError.mock.calls[0][0] as Error & { cause?: Error }).cause?.message).toBe('session store down');
@@ -225,7 +224,81 @@ describe('getUserId isolation', () => {
       }
     );
     await savvagent.isEnabled('a');
-    expect(client.isEnabled).toHaveBeenCalledWith('a', { anonymous_id: 'anon_1' });
+    expect(client.evaluate).toHaveBeenCalledWith('a', { anonymous_id: 'anon_1' });
+  });
+});
+
+describe('getUserId and a trusted user_id cookie (#26)', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const makeClient = () =>
+    ({
+      evaluate: vi.fn(async (key: string) => ({ key, value: true, reason: 'evaluated' })),
+      trackError: vi.fn(),
+    }) as unknown as FlagClient & { evaluate: ReturnType<typeof vi.fn> };
+  const trustedCookieRequest = () =>
+    new Request('http://localhost/', { headers: { cookie: 'user_id=cookie-user' } });
+
+  it('drops the trusted cookie user when getUserId hangs past the bound', async () => {
+    vi.useFakeTimers();
+    const client = makeClient();
+    const reportError = vi.fn();
+    const savvagent = createSavvagentLocals(client, trustedCookieRequest(), {
+      trustUserIdCookie: true,
+      getUserId: () => new Promise(() => {}),
+      anonymousId: 'anon_1',
+      evaluationTimeoutMs: 500,
+      reportError,
+    });
+
+    const result = savvagent.isEnabled('f');
+    await vi.advanceTimersByTimeAsync(500);
+    await expect(result).resolves.toBe(true);
+    expect(client.evaluate).toHaveBeenCalledWith('f', { anonymous_id: 'anon_1' });
+    expect(savvagent.context).not.toHaveProperty('user_id');
+    expect(reportError).toHaveBeenCalledTimes(1);
+    expect(reportError.mock.calls[0][0].message).toMatch(/getUserId timed out after 500ms/);
+  });
+
+  it('keeps the trusted cookie user when getUserId returns undefined', async () => {
+    const client = makeClient();
+    const reportError = vi.fn();
+    const savvagent = createSavvagentLocals(client, trustedCookieRequest(), {
+      trustUserIdCookie: true,
+      getUserId: () => undefined,
+      anonymousId: 'anon_1',
+      reportError,
+    });
+
+    await savvagent.isEnabled('f');
+    expect(client.evaluate).toHaveBeenCalledWith('f', { user_id: 'cookie-user', anonymous_id: 'anon_1' });
+    expect(reportError).not.toHaveBeenCalled();
+  });
+
+  it('never lets a throwing reportError escape from a timer callback', async () => {
+    vi.useFakeTimers();
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const client = {
+      evaluate: vi.fn(() => new Promise(() => {})),
+      trackError: vi.fn(),
+    } as unknown as FlagClient;
+    const savvagent = createSavvagentLocals(client, new Request('http://localhost/'), {
+      getUserId: () => new Promise(() => {}),
+      defaults: { f: true },
+      evaluationTimeoutMs: 100,
+      reportError: () => {
+        throw new Error('sink offline');
+      },
+    });
+
+    const result = savvagent.evaluate('f');
+    // Two timers fire: getUserId's bound, then the evaluation's.
+    await vi.advanceTimersByTimeAsync(200);
+    await expect(result).resolves.toEqual({ key: 'f', value: true, reason: 'error' });
+    expect(consoleError).toHaveBeenCalledWith('[Savvagent] onError handler threw', expect.any(Error));
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
 
