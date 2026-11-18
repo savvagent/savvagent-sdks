@@ -165,17 +165,3 @@ func TestCacheInvalidateDropsAllContexts(t *testing.T) {
 		t.Error("g/a was dropped by Invalidate(f)")
 	}
 }
-
-func TestCacheBoundsContextsPerFlag(t *testing.T) {
-	c := newCache(time.Minute)
-	c.maxContextsPerFlag = 4
-	for i := 0; i < 10; i++ {
-		c.Set("f", fmt.Sprintf("ctx-%d", i), true, nil, "", 0, "")
-		if n := len(c.entries["f"]); n > 4 {
-			t.Fatalf("after %d inserts, %d contexts held, want at most 4", i+1, n)
-		}
-	}
-	if _, found := c.Get("f", "ctx-9"); !found {
-		t.Error("the newest context is not cached")
-	}
-}

@@ -2,6 +2,8 @@ package savvagentflags
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -165,14 +167,25 @@ func (c *FlagClient) prepareContext(ctx *Context) Context {
 	return prepared
 }
 
-// contextKey prepares ctx and returns it with its cache key: the JSON of the prepared context
-// (map keys sorted by encoding/json), which is also the request body's context. Evaluate (which
-// stores entries) and IsEnabledCached (which reads them) both use it, so the two keys cannot
-// drift apart.
-func (c *FlagClient) contextKey(ctx *Context) (Context, string, error) {
+// canonicalContext prepares ctx and returns it with its canonical JSON (map keys sorted by
+// encoding/json), which is also the request body's context.
+func (c *FlagClient) canonicalContext(ctx *Context) (Context, string, error) {
 	prepared := c.prepareContext(ctx)
 	ctxJSON, err := json.Marshal(prepared)
 	return prepared, string(ctxJSON), err
+}
+
+// contextKey prepares ctx and returns it with its cache key: the lowercase hex SHA-256 of the
+// prepared context's canonical JSON, so the cache never holds the context itself (#30).
+// Evaluate (which stores entries) and IsEnabledCached (which reads them) both use it, so the
+// two keys cannot drift apart.
+func (c *FlagClient) contextKey(ctx *Context) (Context, string, error) {
+	prepared, canonical, err := c.canonicalContext(ctx)
+	if err != nil {
+		return prepared, "", err
+	}
+	sum := sha256.Sum256([]byte(canonical))
+	return prepared, hex.EncodeToString(sum[:]), nil
 }
 
 // applyOverrides returns configuration and variation with the flag's overrides applied.
@@ -221,7 +234,7 @@ func (c *FlagClient) Evaluate(flagKey string, ctx *Context) (*EvaluationResult, 
 	}
 
 	// Prepare the context on a copy, so the caller's value is never modified. Its JSON (map
-	// keys sorted by encoding/json) is the cache key and the request body.
+	// keys sorted by encoding/json) is the request body, and its SHA-256 the cache key.
 	prepared, ctxKey, err := c.contextKey(ctx)
 	if err != nil {
 		return c.getDefaultResult(flagKey, err), err
