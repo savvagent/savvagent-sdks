@@ -12,10 +12,18 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -31,21 +39,26 @@ public class FlagClient implements AutoCloseable {
     private final OkHttpClient httpClient;
     private final Gson gson;
     /**
-     * Most contexts cached for one flag. When a new context finds its flag full, expired entries
-     * are swept, and if more than half the bound is still live the flag is cleared. The cost of
-     * the bound is cache misses, never a wrong answer.
+     * Most entries cached across every flag. When a new entry finds the cache full, the least
+     * recently used entry is evicted. The cost of the bound is cache misses, never a wrong answer.
      */
-    static final int MAX_CONTEXTS_PER_FLAG = 10_000;
+    static final int MAX_CACHE_ENTRIES = 10_000;
 
-    private final int maxContextsPerFlag;
-    /** Flag key to (context key to entry). The context key is the canonical JSON of the context. */
-    private final ConcurrentHashMap<String, ConcurrentHashMap<String, CacheEntry>> cache;
+    private final int maxCacheEntries;
     /**
-     * Bumped by every invalidation, so a result fetched before one is dropped instead of cached.
-     * Guarded by {@code generationLock}, which also makes check-then-store and bump-then-remove
-     * atomic with respect to each other.
+     * (flag key, context digest) to entry, in access order, so the eldest entry is the least
+     * recently used. The context digest is the SHA-256 hex of the context's canonical JSON; the
+     * context itself is never held. Guarded by {@code cacheLock}.
      */
-    private final Object generationLock = new Object();
+    private final LinkedHashMap<CacheKey, CacheEntry> cache = new LinkedHashMap<>(16, 0.75f, true);
+    /** Flag key to the context digests cached for it, for {@link #invalidateCache}. */
+    private final HashMap<String, Set<String>> digestsByFlag = new HashMap<>();
+    /**
+     * Guards the cache, its index and the invalidation generations. The generations are bumped
+     * by every invalidation, so a result fetched before one is dropped instead of cached; one
+     * lock makes check-then-store and bump-then-remove atomic with respect to each other.
+     */
+    private final Object cacheLock = new Object();
     private long epoch;
     private final java.util.HashMap<String, Long> generations = new java.util.HashMap<>();
     private final ConcurrentHashMap<String, ConfigOverrideEntry> configOverrides;
@@ -66,25 +79,24 @@ public class FlagClient implements AutoCloseable {
      * @param config the client's configuration
      */
     public FlagClient(FlagClientConfig config) {
-        this(config, MAX_CONTEXTS_PER_FLAG);
+        this(config, MAX_CACHE_ENTRIES);
     }
 
-    FlagClient(FlagClientConfig config, int maxContextsPerFlag) {
-        this(config, maxContextsPerFlag, RealtimeStream.Options.defaults());
+    FlagClient(FlagClientConfig config, int maxCacheEntries) {
+        this(config, maxCacheEntries, RealtimeStream.Options.defaults());
     }
 
-    FlagClient(FlagClientConfig config, int maxContextsPerFlag,
+    FlagClient(FlagClientConfig config, int maxCacheEntries,
             RealtimeStream.Options realtimeOptions) {
-        this(config, maxContextsPerFlag, realtimeOptions, null);
+        this(config, maxCacheEntries, realtimeOptions, null);
     }
 
-    private FlagClient(FlagClientConfig config, int maxContextsPerFlag,
+    private FlagClient(FlagClientConfig config, int maxCacheEntries,
             RealtimeStream.Options realtimeOptions, Map<String, Boolean> fixed) {
         this.config = config;
         this.fixed = fixed;
-        this.maxContextsPerFlag = maxContextsPerFlag;
+        this.maxCacheEntries = maxCacheEntries;
         this.gson = new Gson();
-        this.cache = new ConcurrentHashMap<>();
         this.configOverrides = new ConcurrentHashMap<>();
         this.variationOverrides = new ConcurrentHashMap<>();
 
@@ -148,7 +160,7 @@ public class FlagClient implements AutoCloseable {
                 .baseUrl(baseUrl)
                 .enableRealtime(false)
                 .build();
-        return new FlagClient(config, MAX_CONTEXTS_PER_FLAG, RealtimeStream.Options.defaults(),
+        return new FlagClient(config, MAX_CACHE_ENTRIES, RealtimeStream.Options.defaults(),
                 Collections.unmodifiableMap(copy));
     }
 
@@ -518,21 +530,27 @@ public class FlagClient implements AutoCloseable {
      * Invalidate cache for a specific flag
      */
     public void invalidateCache(String flagKey) {
-        synchronized (generationLock) {
+        synchronized (cacheLock) {
             if (flagKey != null) {
                 generations.merge(flagKey, 1L, Long::sum);
-                cache.remove(flagKey);
+                Set<String> digests = digestsByFlag.remove(flagKey);
+                if (digests != null) {
+                    for (String digest : digests) {
+                        cache.remove(new CacheKey(flagKey, digest));
+                    }
+                }
             } else {
                 epoch++;
                 generations.clear();
                 cache.clear();
+                digestsByFlag.clear();
             }
         }
     }
 
     /** The flag's invalidation generation, to pass to {@link #setCachedValue}. */
     private long[] generationOf(String flagKey) {
-        synchronized (generationLock) {
+        synchronized (cacheLock) {
             return new long[] {epoch, generations.getOrDefault(flagKey, 0L)};
         }
     }
@@ -544,8 +562,41 @@ public class FlagClient implements AutoCloseable {
 
     /** Number of contexts currently cached for a flag (for tests). */
     int cachedContextCount(String flagKey) {
-        ConcurrentHashMap<String, CacheEntry> contexts = cache.get(flagKey);
-        return contexts == null ? 0 : contexts.size();
+        return cachedContextKeys(flagKey).size();
+    }
+
+    /** The context digests currently cached for a flag (for tests). */
+    Set<String> cachedContextKeys(String flagKey) {
+        synchronized (cacheLock) {
+            Set<String> digests = digestsByFlag.get(flagKey);
+            return digests == null ? Collections.emptySet() : new HashSet<>(digests);
+        }
+    }
+
+    /** Number of entries currently cached across every flag (for tests). */
+    int cachedEntryCount() {
+        synchronized (cacheLock) {
+            return cache.size();
+        }
+    }
+
+    /** Every cache key as {@code flag/digest} (for tests). */
+    List<String> cachedKeyStrings() {
+        synchronized (cacheLock) {
+            List<String> keys = new ArrayList<>();
+            for (CacheKey key : cache.keySet()) {
+                keys.add(key.flagKey + "/" + key.digest);
+            }
+            return keys;
+        }
+    }
+
+    /** Whether an entry is cached for this flag and context, without touching recency (for tests). */
+    boolean isCached(String flagKey, FlagContext context) {
+        String digest = contextKey(preparedContextTree(context));
+        synchronized (cacheLock) {
+            return digest != null && cache.containsKey(new CacheKey(flagKey, digest));
+        }
     }
 
     /** The JSON tree of {@code context} as it is sent in the request body. */
@@ -568,16 +619,37 @@ public class FlagClient implements AutoCloseable {
     }
 
     /**
-     * The cache key of a context's JSON tree, or null when it cannot be keyed (such a context is
-     * not cached). {@link #evaluate}, which stores entries, and {@link #isEnabledCached}, which
-     * reads them, both use it, so the two keys cannot drift apart.
+     * The cache key of a context's JSON tree: the lowercase hex SHA-256 of its canonical JSON, so
+     * the cache never holds the context itself (#30). Null when it cannot be keyed (such a
+     * context is not cached). {@link #evaluate}, which stores entries, and
+     * {@link #isEnabledCached}, which reads them, both use it, so the two keys cannot drift apart.
      */
     private static String contextKey(JsonElement contextTree) {
         try {
-            return canonicalJson(contextTree);
+            return sha256Hex(canonicalJson(contextTree));
         } catch (RuntimeException e) {
             return null;
         }
+    }
+
+    private static final char[] HEX = "0123456789abcdef".toCharArray();
+
+    /** The lowercase hex SHA-256 of the UTF-8 bytes of {@code text}. */
+    static String sha256Hex(String text) {
+        MessageDigest sha256;
+        try {
+            sha256 = MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException e) {
+            // Every Java platform is required to provide SHA-256.
+            throw new IllegalStateException("SHA-256 is not available", e);
+        }
+        byte[] digest = sha256.digest(text.getBytes(StandardCharsets.UTF_8));
+        char[] hex = new char[digest.length * 2];
+        for (int i = 0; i < digest.length; i++) {
+            hex[2 * i] = HEX[(digest[i] >> 4) & 0xf];
+            hex[2 * i + 1] = HEX[digest[i] & 0xf];
+        }
+        return new String(hex);
     }
 
     /** {@code configuration} with the flag's config override, if any, applied. */
@@ -619,23 +691,37 @@ public class FlagClient implements AutoCloseable {
         return element;
     }
 
+    /** The unexpired entry for this flag and context, else null. A hit refreshes recency. */
     private CacheEntry getCachedEntry(String flagKey, String ctxKey) {
-        ConcurrentHashMap<String, CacheEntry> contexts = cache.get(flagKey);
-        if (contexts == null) return null;
-        CacheEntry entry = contexts.get(ctxKey);
-        if (entry == null) return null;
+        synchronized (cacheLock) {
+            CacheKey key = new CacheKey(flagKey, ctxKey);
+            CacheEntry entry = cache.get(key);
+            if (entry == null) return null;
 
-        if (System.currentTimeMillis() > entry.expiresAt) {
-            contexts.remove(ctxKey, entry);
-            return null;
+            if (System.currentTimeMillis() > entry.expiresAt) {
+                removeCachedEntry(key);
+                return null;
+            }
+
+            return entry;
         }
+    }
 
-        return entry;
+    /** Removes one entry and its index entry. Call with {@code cacheLock} held. */
+    private void removeCachedEntry(CacheKey key) {
+        cache.remove(key);
+        Set<String> digests = digestsByFlag.get(key.flagKey);
+        if (digests != null) {
+            digests.remove(key.digest);
+            if (digests.isEmpty()) {
+                digestsByFlag.remove(key.flagKey);
+            }
+        }
     }
 
     private void setCachedValue(String flagKey, String ctxKey, boolean value,
             Object configuration, String variation, Long version, String scope, long[] generation) {
-        synchronized (generationLock) {
+        synchronized (cacheLock) {
             // The flag was invalidated after the request started: its result is stale.
             if (!java.util.Arrays.equals(generation, new long[] {
                     epoch, generations.getOrDefault(flagKey, 0L)})) {
@@ -645,21 +731,22 @@ public class FlagClient implements AutoCloseable {
         }
     }
 
+    /**
+     * Stores an entry as the most recently used. When the cache is full, the least recently used
+     * entry of any flag is evicted first. Call with {@code cacheLock} held.
+     */
     private void storeCachedValue(String flagKey, String ctxKey, boolean value,
             Object configuration, String variation, Long version, String scope) {
-        ConcurrentHashMap<String, CacheEntry> contexts =
-                cache.computeIfAbsent(flagKey, k -> new ConcurrentHashMap<>());
+        CacheKey key = new CacheKey(flagKey, ctxKey);
         long now = System.currentTimeMillis();
-        synchronized (contexts) {
-            if (contexts.size() >= maxContextsPerFlag && !contexts.containsKey(ctxKey)) {
-                contexts.values().removeIf(e -> e.expiresAt < now);
-                if (contexts.size() > maxContextsPerFlag / 2) {
-                    contexts.clear();
-                }
+        if (!cache.containsKey(key)) {
+            while (!cache.isEmpty() && cache.size() >= maxCacheEntries) {
+                removeCachedEntry(cache.keySet().iterator().next());
             }
-            contexts.put(ctxKey, new CacheEntry(value, configuration, variation,
-                    version, scope, now + config.getCacheTtl()));
+            digestsByFlag.computeIfAbsent(flagKey, k -> new HashSet<>()).add(ctxKey);
         }
+        cache.put(key, new CacheEntry(value, configuration, variation,
+                version, scope, now + config.getCacheTtl()));
     }
 
     /**
@@ -801,6 +888,30 @@ public class FlagClient implements AutoCloseable {
         httpClient.dispatcher().executorService().shutdown();
         httpClient.connectionPool().evictAll();
         logger.info("Savvagent Flags FlagClient closed");
+    }
+
+    /** A cache entry's key: the flag key and the context digest. */
+    private static final class CacheKey {
+        final String flagKey;
+        final String digest;
+
+        CacheKey(String flagKey, String digest) {
+            this.flagKey = flagKey;
+            this.digest = digest;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof CacheKey)) return false;
+            CacheKey other = (CacheKey) o;
+            return flagKey.equals(other.flagKey) && digest.equals(other.digest);
+        }
+
+        @Override
+        public int hashCode() {
+            return 31 * flagKey.hashCode() + digest.hashCode();
+        }
     }
 
     private static class CacheEntry {
