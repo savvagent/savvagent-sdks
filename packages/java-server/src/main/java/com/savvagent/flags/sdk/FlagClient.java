@@ -43,6 +43,12 @@ public class FlagClient implements AutoCloseable {
      * recently used entry is evicted. The cost of the bound is cache misses, never a wrong answer.
      */
     static final int MAX_CACHE_ENTRIES = 10_000;
+    /**
+     * Most per-flag invalidation counters kept. Past it, a new epoch replaces them all, which
+     * invalidates every outstanding generation at once, so the stale re-cache guard still holds
+     * and the map cannot grow without limit.
+     */
+    static final int MAX_GENERATIONS = 10_000;
 
     private final int maxCacheEntries;
     /**
@@ -61,6 +67,8 @@ public class FlagClient implements AutoCloseable {
     private final Object cacheLock = new Object();
     private long epoch;
     private final java.util.HashMap<String, Long> generations = new java.util.HashMap<>();
+    /** {@link #MAX_GENERATIONS}, lowered by tests. Guarded by {@code cacheLock}. */
+    int maxGenerations = MAX_GENERATIONS;
     private final ConcurrentHashMap<String, ConfigOverrideEntry> configOverrides;
     private final ConcurrentHashMap<String, VariationOverrideEntry> variationOverrides;
     /** The flag-change stream, or null when real-time updates are off or could not start. */
@@ -533,6 +541,10 @@ public class FlagClient implements AutoCloseable {
         synchronized (cacheLock) {
             if (flagKey != null) {
                 generations.merge(flagKey, 1L, Long::sum);
+                if (generations.size() > maxGenerations) {
+                    epoch++;
+                    generations.clear();
+                }
                 Set<String> digests = digestsByFlag.remove(flagKey);
                 if (digests != null) {
                     for (String digest : digests) {
@@ -545,6 +557,13 @@ public class FlagClient implements AutoCloseable {
                 cache.clear();
                 digestsByFlag.clear();
             }
+        }
+    }
+
+    /** Number of per-flag invalidation counters held (for tests). */
+    int generationCount() {
+        synchronized (cacheLock) {
+            return generations.size();
         }
     }
 

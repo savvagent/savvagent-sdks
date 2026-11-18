@@ -21,6 +21,8 @@ class InFlightInvalidationTest {
     private final AtomicInteger requests = new AtomicInteger();
     private final AtomicReference<FlagClient> client = new AtomicReference<>();
     private volatile String invalidateOnFirstRequest;
+    /** When set, runs on the first request instead of {@link #invalidateOnFirstRequest}. */
+    private volatile Runnable onFirstRequest;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -29,7 +31,9 @@ class InFlightInvalidationTest {
             @Override
             public MockResponse dispatch(RecordedRequest request) {
                 int n = requests.incrementAndGet();
-                if (n == 1 && invalidateOnFirstRequest != null) {
+                if (n == 1 && onFirstRequest != null) {
+                    onFirstRequest.run();
+                } else if (n == 1 && invalidateOnFirstRequest != null) {
                     // The kill switch flips while this (stale) request is in flight.
                     client.get().invalidateCache(invalidateOnFirstRequest);
                 }
@@ -84,5 +88,35 @@ class InFlightInvalidationTest {
             assertEquals("cached", c.evaluate("checkout", user("a")).getReason());
             assertEquals(1, server.getRequestCount());
         }
+    }
+
+    @Test
+    void generationsAreBoundedAndTheGuardHoldsAcrossTheReset() {
+        try (FlagClient c = newClient()) {
+            c.maxGenerations = 3; // set before any other thread touches the client
+            // "checkout" has been invalidated once, so the request below reads generation 1.
+            c.invalidateCache("checkout");
+            AtomicInteger mostCounters = new AtomicInteger();
+            onFirstRequest = () -> {
+                // While the request is in flight, enough other flags are invalidated to reset
+                // the counters, and then "checkout" is invalidated again, back to 1.
+                for (int i = 0; i < 10; i++) {
+                    c.invalidateCache("other-" + i);
+                    mostCounters.accumulateAndGet(c.generationCount(), Math::max);
+                }
+                c.invalidateCache("checkout");
+            };
+            assertTrue(c.evaluate("checkout", user("a")).getValue());
+            // The stale write was dropped: the next read goes to the server again.
+            assertEquals("evaluated", c.evaluate("checkout", user("a")).getReason());
+            assertEquals(2, server.getRequestCount());
+            assertTrue(mostCounters.get() <= 3,
+                    "generations held " + mostCounters.get() + " counters, cap is 3");
+        }
+    }
+
+    @Test
+    void defaultGenerationCapIsTenThousand() {
+        assertEquals(10_000, FlagClient.MAX_GENERATIONS);
     }
 }
