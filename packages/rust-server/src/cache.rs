@@ -9,6 +9,11 @@ use std::time::{Duration, Instant};
 /// evicted (a hit counts as a use), so the bound costs cache misses, never a wrong answer.
 pub(crate) const MAX_ENTRIES: usize = 10_000;
 
+/// Most per-flag invalidation counters kept. Past it a new epoch replaces them all, which
+/// invalidates every outstanding generation at once, so the stale re-cache guard still holds and
+/// the map cannot grow without limit.
+pub(crate) const MAX_GENERATIONS: usize = 10_000;
+
 #[derive(Clone)]
 pub(crate) struct CacheEntry {
     pub value: bool,
@@ -36,6 +41,7 @@ pub(crate) struct Cache {
     generations: Arc<RwLock<Generations>>,
     ttl: Duration,
     max_entries: usize,
+    max_generations: usize,
 }
 
 struct Slot {
@@ -187,6 +193,7 @@ impl Cache {
             generations: Arc::new(RwLock::new(Generations::default())),
             ttl,
             max_entries,
+            max_generations: MAX_GENERATIONS,
         }
     }
 
@@ -273,7 +280,13 @@ impl Cache {
         if let Ok(mut store) = self.store.lock() {
             if let Ok(mut generations) = self.generations.write() {
                 match flag_key {
-                    Some(k) => *generations.flags.entry(k.to_string()).or_insert(0) += 1,
+                    Some(k) => {
+                        *generations.flags.entry(k.to_string()).or_insert(0) += 1;
+                        if generations.flags.len() > self.max_generations {
+                            generations.epoch += 1;
+                            generations.flags.clear();
+                        }
+                    }
                     None => {
                         generations.epoch += 1;
                         generations.flags.clear();
@@ -528,5 +541,26 @@ mod tests {
             None,
         );
         assert!(cache.get_entry("f", "a").is_some());
+    }
+
+    #[test]
+    fn the_generations_map_is_bounded_and_the_guard_holds_across_the_reset() {
+        let mut cache = Cache::new(Duration::from_secs(60));
+        cache.max_generations = 3;
+
+        cache.invalidate(Some("f"));
+        let before = cache.generation("f"); // a request for "f" starts here
+        for i in 0..10 {
+            cache.invalidate(Some(&format!("other-{i}")));
+            let held = cache.generations.read().unwrap().flags.len();
+            assert!(held <= 3, "generations held {held} counters, cap is 3");
+        }
+        // The reset cleared "f"'s counter; invalidating "f" again brings it back to the value the
+        // request read. The new epoch still tells the two apart.
+        cache.invalidate(Some("f"));
+        cache.set_at(before, "f", "a".into(), true, None, None, None);
+        assert!(cache.get_entry("f", "a").is_none());
+
+        assert_eq!(Cache::new(Duration::from_secs(60)).max_generations, 10_000);
     }
 }
