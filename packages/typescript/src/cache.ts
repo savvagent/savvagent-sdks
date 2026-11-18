@@ -1,14 +1,18 @@
+import { sha256Hex } from './sha256';
 import { CacheEntry, FlagEvaluationResult } from './types';
 
 /**
- * Deterministic cache key for an evaluation context: object keys are sorted
- * at every level, undefined values are dropped and values with `toJSON`
- * (such as Date) are serialized the way the request body serializes them,
- * so equal contexts always produce the same key and different request
- * bodies never share one.
+ * Deterministic cache key for an evaluation context: the lowercase SHA-256
+ * hex digest (64 characters) of the UTF-8 canonical JSON of the context.
+ * Object keys are sorted at every level, undefined values are dropped and
+ * values with `toJSON` (such as Date) are serialized the way the request
+ * body serializes them, so equal contexts always produce the same key and
+ * different request bodies never share one. Only the digest is kept by the
+ * cache, so the raw context (user IDs, attributes) is never held as a key.
+ * A cyclic context throws a TypeError.
  */
 export function contextCacheKey(context: unknown): string {
-  return JSON.stringify(normalize(context, new WeakSet())) ?? '';
+  return sha256Hex(JSON.stringify(normalize(context, new WeakSet())) ?? '');
 }
 
 /**

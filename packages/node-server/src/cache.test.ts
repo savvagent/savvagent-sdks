@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { FlagCache, contextCacheKey } from './cache';
 
 describe('FlagCache', () => {
@@ -264,7 +265,7 @@ describe('contextCacheKey edge values', () => {
   it('keeps an own "__proto__" attribute as data', () => {
     const withProto = JSON.parse('{"attributes":{"__proto__":{"plan":"pro"}}}');
     const other = JSON.parse('{"attributes":{"__proto__":{"plan":"free"}}}');
-    expect(contextCacheKey(withProto)).toContain('__proto__');
+    expect(contextCacheKey(withProto)).toMatch(/^[0-9a-f]{64}$/);
     expect(contextCacheKey(withProto)).not.toBe(contextCacheKey(other));
     expect(contextCacheKey(withProto)).not.toBe(contextCacheKey({ attributes: {} }));
   });
@@ -416,5 +417,35 @@ describe('FlagCache generation bound (#166)', () => {
         seen.add(g);
       }
     }
+  });
+});
+
+describe('node-server cache keys by digest (#30)', () => {
+  it('digest key: the stored key is the SHA-256 hex of the canonical JSON and carries no raw user_id', () => {
+    const key = contextCacheKey({ user_id: 'raw-user-id-123', language: 'en' });
+    expect(key).toBe(
+      createHash('sha256').update('{"language":"en","user_id":"raw-user-id-123"}', 'utf8').digest('hex')
+    );
+    const cache = new FlagCache(60000);
+    cache.set('f', true, undefined, undefined, undefined, key);
+    expect(cache.get('f', key)).toBe(true);
+    expect(cache.get('f', contextCacheKey({ language: 'en', user_id: 'raw-user-id-123' }))).toBe(true);
+    const shared = (cache as any).shared;
+    for (const k of [...shared.entries.keys(), ...shared.byFlag.keys()]) {
+      expect(k).not.toContain('raw-user-id-123');
+    }
+  });
+
+  it('total bound: entries across flags never exceed the cap; a hit refreshes recency', () => {
+    const cache = new FlagCache(60000, 3);
+    const c = (n: string) => contextCacheKey({ user_id: n });
+    cache.set('f1', true, undefined, undefined, undefined, c('a'));
+    cache.set('f2', true, undefined, undefined, undefined, c('a'));
+    cache.set('f1', true, undefined, undefined, undefined, c('b'));
+    expect(cache.get('f1', c('a'))).toBe(true);
+    cache.set('f2', true, undefined, undefined, undefined, c('b'));
+    expect(cache.size).toBe(3);
+    expect(cache.get('f2', c('a'))).toBeNull();
+    expect(cache.get('f1', c('a'))).toBe(true);
   });
 });
