@@ -224,12 +224,12 @@ class TestContextKeyedCache:
         assert cache.keys() == ["f"]
         assert len(cache) == 3
 
-    def test_contexts_per_flag_are_bounded(self) -> None:
+    def test_contexts_are_bounded_in_total(self) -> None:
         cache = FlagCache(ttl=60)
-        cache._max_contexts_per_flag = 4
+        cache._max_entries = 4
         for i in range(10):
             cache.set("f", True, context_key=f"c{i}")
-            assert len(cache._cache["f"]) <= 4
+            assert len(cache) <= 4
         assert cache.get("f", context_key="c9") is True
 
 
@@ -250,10 +250,10 @@ class TestAsyncContextKeyedCache:
         await cache.invalidate("f")
         assert await cache.get("f", context_key="x") is None
 
-    async def test_contexts_per_flag_are_bounded(self) -> None:
+    async def test_contexts_are_bounded_in_total(self) -> None:
         cache = AsyncFlagCache(ttl=60)
-        cache._max_contexts_per_flag = 4
+        cache._max_entries = 4
         for i in range(10):
             await cache.set("f", True, context_key=f"c{i}")
-            assert len(cache._cache["f"]) <= 4
+            assert len(cache._entries) <= 4
         assert await cache.get("f", context_key="c9") is True
