@@ -1,5 +1,0 @@
----
-'@savvagent/sdk': minor
----
-
-New `@savvagent/sdk/server` subpath: the request scope shared by the server integrations (#26). It provides `parseCookies`; `buildRequestContext` (the `user_id` cookie is read only with `trustUserIdCookie`); `createRequestScope`, whose `getUserId` is called once per request, bounded by `evaluationTimeoutMs` and treated as anonymous when it throws, rejects or times out, while an explicit `userId` or `user_id` wins; `assignAnonymousId`, `newAnonymousId`, `serializeAnonymousIdCookie` and `anonymousIdCookieOptions` for the per-visitor `savvagent_anonymous_id` cookie (not HttpOnly, `Path=/`, `SameSite=Lax`, one year, `Secure` on https); `toServerConfig` and `createServerClient` (no realtime, no language detection, one attempt per evaluation); `evaluateBounded` (one attempt, 1000 ms by default, the flag's default with `reason: 'error'` on a timeout, an error or a missing client); and `throttleErrors` (each message once a minute). The module carries no copy of `FlagClient` and needs only Web Crypto, so it runs on Node.js and edge runtimes. The root `@savvagent/sdk` entry is unchanged.

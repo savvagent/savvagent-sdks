@@ -1,6 +1,6 @@
 {
   "name": "@savvagent/react-router",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "React Router 8 SDK for Savvagent feature flags: server-side evaluation in loaders, actions and middleware, hydrated into the React provider",
   "author": "Savvagent",
   "license": "MIT",
