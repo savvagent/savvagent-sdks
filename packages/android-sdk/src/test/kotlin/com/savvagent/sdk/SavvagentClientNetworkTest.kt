@@ -538,4 +538,19 @@ class SavvagentClientNetworkTest {
         client.invalidateCache("flag-a")
         assertEquals(setOf("flag-b"), client.cachedFlagKeys())
     }
+
+    @Test
+    fun testCacheEntriesHoldDigestNotRawUserId() = runTest {
+        mockWebServer.enqueue(MockResponse().setResponseCode(200).setBody("""{"enabled": true}"""))
+        mockWebServer.enqueue(MockResponse().setResponseCode(200).setBody("""{"enabled": false}"""))
+        client.evaluate("flag", UserContext(userId = "user-123"))
+        assertEquals(
+            listOf("fcdec6df4d44dbc637c7c5b58efface52a7f8a88535423430255be0bb89bedd8"),
+            client.cachedUserDigests()
+        )
+        assertTrue(client.cachedUserDigests().none { it?.contains("user-123") == true })
+        // Same user hits the cache; a different user does not
+        assertEquals("cached", client.evaluate("flag", UserContext(userId = "user-123")).getOrThrow().reason)
+        assertEquals("evaluated", client.evaluate("flag", UserContext(userId = "user-456")).getOrThrow().reason)
+    }
 }

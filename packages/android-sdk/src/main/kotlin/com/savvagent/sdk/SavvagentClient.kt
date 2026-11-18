@@ -111,7 +111,7 @@ private data class CacheEntry(
     val value: Boolean,
     val configuration: Map<String, Any>? = null,
     val variation: String? = null,
-    val userId: String? = null,
+    val userDigest: String? = null,
     val version: Long = -1L
 ) {
     /** Recency stamp for least-recently-used eviction; not part of equality. */
@@ -173,7 +173,7 @@ class SavvagentClient(
         .readTimeout(0, TimeUnit.MILLISECONDS)
         .build()
 
-    // Keyed by flag key only (one entry per flag, remembering the user it was evaluated for), so
+    // Keyed by flag key only (one entry per flag, remembering a SHA-256 digest of the user it was evaluated for), so
     // no context-derived string is used as a key and there is no context JSON to digest. It is
     // bounded by a single total cap with least-recently-used eviction.
     private val flagCache = ConcurrentHashMap<String, CacheEntry>()
@@ -181,6 +181,14 @@ class SavvagentClient(
 
     /** Total cache cap across all flags. Internal so tests can use a small value. */
     @Volatile internal var maxCacheEntries: Int = DEFAULT_MAX_CACHE_ENTRIES
+
+    /** Lowercase SHA-256 hex of the user id; the cache never holds the raw id. */
+    internal fun userDigest(userId: String): String =
+        java.security.MessageDigest.getInstance("SHA-256")
+            .digest(userId.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+
+    internal fun cachedUserDigests(): List<String?> = flagCache.values.map { it.userDigest }
 
     internal fun cachedFlagKeys(): Set<String> = flagCache.keys.toSet()
 
@@ -252,7 +260,7 @@ class SavvagentClient(
         return withContext(Dispatchers.IO) {
             try {
                 // Check cache first (only valid for the same user)
-                flagCache[flagKey]?.takeIf { it.userId == userContext.userId }?.let { cached ->
+                flagCache[flagKey]?.takeIf { it.userDigest == userDigest(userContext.userId) }?.let { cached ->
                     cached.lastUsed = cacheClock.incrementAndGet()
                     val result = applyOverrides(
                         flagKey, cached.value, cached.configuration, cached.variation, "cached"
@@ -292,7 +300,7 @@ class SavvagentClient(
                 val version = jsonResponse.optLong("version", -1L)
 
                 // Update cache
-                putCache(flagKey, CacheEntry(enabled, configuration, variation, userContext.userId, version))
+                putCache(flagKey, CacheEntry(enabled, configuration, variation, userDigest(userContext.userId), version))
                 updateFlagFlow()
 
                 val result = applyOverrides(flagKey, enabled, configuration, variation, "evaluated")
