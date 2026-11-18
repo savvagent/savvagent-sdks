@@ -467,4 +467,75 @@ class SavvagentClientNetworkTest {
         assertEquals("text/event-stream", request.getHeader("Accept"))
         assertEquals("Bearer test-key", request.getHeader("Authorization"))
     }
+
+    // --- #59: strict boolean "enabled" ---
+
+    @Test
+    fun testNonBooleanEnabledIsAFailedLookupAndNotCached() = runTest {
+        val bodies = listOf(
+            """{"enabled": "true"}""",
+            """{"enabled": 1}""",
+            """{"enabled": 0}""",
+            """{"enabled": null}""",
+            """{"key": "flag"}"""
+        )
+        val context = UserContext(userId = "user-123")
+        for (body in bodies) {
+            mockWebServer.enqueue(MockResponse().setResponseCode(200).setBody(body))
+            val result = client.isEnabled("flag", context)
+            assertTrue("expected failure for $body", result.isFailure)
+            assertEquals("default for $body", true, result.getOrDefault(true))
+            assertEquals("default for $body", false, result.getOrDefault(false))
+            assertTrue("nothing cached for $body", client.cachedFlagKeys().isEmpty())
+        }
+        assertEquals(bodies.size, mockWebServer.requestCount)
+    }
+
+    @Test
+    fun testRealBooleanEnabledStillWorks() = runTest {
+        mockWebServer.enqueue(MockResponse().setResponseCode(200).setBody("""{"enabled": true}"""))
+        mockWebServer.enqueue(MockResponse().setResponseCode(200).setBody("""{"enabled": false}"""))
+        val context = UserContext(userId = "user-123")
+        assertEquals(true, client.isEnabled("on-flag", context).getOrThrow())
+        assertEquals(false, client.isEnabled("off-flag", context).getOrThrow())
+        assertEquals(setOf("on-flag", "off-flag"), client.cachedFlagKeys())
+    }
+
+    // --- #30: one total bound, least recently used ---
+
+    @Test
+    fun testCacheIsBoundedByTotalCapAndEvictsLeastRecentlyUsed() = runTest {
+        client.maxCacheEntries = 2
+        val context = UserContext(userId = "user-123")
+        for (flag in listOf("flag-a", "flag-b", "flag-c")) {
+            mockWebServer.enqueue(MockResponse().setResponseCode(200).setBody("""{"enabled": true}"""))
+            client.evaluate(flag, context)
+        }
+        assertEquals(setOf("flag-b", "flag-c"), client.cachedFlagKeys())
+    }
+
+    @Test
+    fun testCacheHitRefreshesRecency() = runTest {
+        client.maxCacheEntries = 2
+        val context = UserContext(userId = "user-123")
+        for (flag in listOf("flag-a", "flag-b")) {
+            mockWebServer.enqueue(MockResponse().setResponseCode(200).setBody("""{"enabled": true}"""))
+            client.evaluate(flag, context)
+        }
+        assertEquals("cached", client.evaluate("flag-a", context).getOrThrow().reason)
+        mockWebServer.enqueue(MockResponse().setResponseCode(200).setBody("""{"enabled": true}"""))
+        client.evaluate("flag-c", context)
+        assertEquals(setOf("flag-a", "flag-c"), client.cachedFlagKeys())
+    }
+
+    @Test
+    fun testInvalidateCacheRemovesOnlyThatFlag() = runTest {
+        val context = UserContext(userId = "user-123")
+        for (flag in listOf("flag-a", "flag-b")) {
+            mockWebServer.enqueue(MockResponse().setResponseCode(200).setBody("""{"enabled": true}"""))
+            client.evaluate(flag, context)
+        }
+        client.invalidateCache("flag-a")
+        assertEquals(setOf("flag-b"), client.cachedFlagKeys())
+    }
 }
