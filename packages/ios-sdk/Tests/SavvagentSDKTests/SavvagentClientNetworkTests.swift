@@ -379,4 +379,109 @@ final class SavvagentClientNetworkTests: XCTestCase {
         XCTAssertFalse(config.enableWebSocket)
         XCTAssertEqual(config.timeout, 45)
     }
+
+    // MARK: #59 strict boolean enabled
+
+    func testNonBooleanEnabledIsInvalidResponseAndNotCached() async {
+        let bodies = [
+            #"{"enabled":"true"}"#,
+            #"{"enabled":1}"#,
+            #"{"enabled":0}"#,
+            #"{"enabled":null}"#,
+            #"{"key":"f"}"#
+        ]
+        for body in bodies {
+            MockURLProtocol.requestHandler = { [self] request in ok(request, body) }
+            do {
+                _ = try await client.evaluate(flagKey: "f", context: UserContext(userId: "u"))
+                XCTFail("expected throw for \(body)")
+            } catch SavvagentError.invalidResponse {
+            } catch {
+                XCTFail("unexpected error \(error) for \(body)")
+            }
+            XCTAssertTrue(client.cachedDigestsForTesting().isEmpty, "nothing cached for \(body)")
+        }
+        let value = await client.getVariation(flagKey: "f", context: UserContext(userId: "u"), defaultValue: "dflt")
+        XCTAssertEqual(value, "dflt")
+    }
+
+    func testRealBooleanEnabledStillWorks() async throws {
+        MockURLProtocol.requestHandler = { [self] request in
+            ok(request, request.url!.path.contains("on-flag") ? #"{"enabled":true}"# : #"{"enabled":false}"#)
+        }
+        let on = try await client.isEnabled(flagKey: "on-flag", context: UserContext(userId: "u"))
+        let off = try await client.isEnabled(flagKey: "off-flag", context: UserContext(userId: "u"))
+        XCTAssertTrue(on)
+        XCTAssertFalse(off)
+    }
+
+    // MARK: #30 digest keys and one total bound
+
+    private func seed(_ flag: String, user: String) async throws {
+        MockURLProtocol.requestHandler = { [self] request in ok(request, #"{"enabled":true}"#) }
+        _ = try await client.evaluate(flagKey: flag, context: UserContext(userId: user))
+    }
+
+    func testCacheKeyIsSHA256HexOfContextKey() async throws {
+        try await seed("f", user: "user-123")
+        try await seed("f", user: "user-123")
+        let digests = client.cachedDigestsForTesting()["f"] ?? []
+        XCTAssertEqual(digests, ["fcdec6df4d44dbc637c7c5b58efface52a7f8a88535423430255be0bb89bedd8"])
+        XCTAssertFalse(digests.contains { $0.contains("user-123") })
+        XCTAssertEqual(
+            SavvagentClient.contextDigest(""),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        )
+        XCTAssertEqual(
+            SavvagentClient.contextDigest("abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        )
+    }
+
+    func testDifferentContextsGetDifferentEntries() async throws {
+        try await seed("f", user: "alice")
+        try await seed("f", user: "bob")
+        XCTAssertEqual(client.cachedDigestsForTesting()["f"]?.count, 2)
+    }
+
+    func testCacheIsBoundedByTotalCapAndEvictsLeastRecentlyUsed() async throws {
+        client.maxCacheEntries = 2
+        try await seed("flag-a", user: "u")
+        try await seed("flag-b", user: "u")
+        try await seed("flag-c", user: "u")
+        let cached = client.cachedDigestsForTesting()
+        XCTAssertEqual(Set(cached.keys), ["flag-b", "flag-c"])
+        XCTAssertEqual(cached.values.reduce(0) { $0 + $1.count }, 2)
+    }
+
+    func testCacheCapCountsContextsAcrossFlags() async throws {
+        client.maxCacheEntries = 2
+        try await seed("flag-a", user: "u1")
+        try await seed("flag-a", user: "u2")
+        try await seed("flag-b", user: "u1")
+        let cached = client.cachedDigestsForTesting()
+        XCTAssertEqual(cached.values.reduce(0) { $0 + $1.count }, 2)
+        XCTAssertEqual(cached["flag-a"]?.count, 1)
+        XCTAssertEqual(cached["flag-b"]?.count, 1)
+    }
+
+    func testCacheHitRefreshesRecency() async throws {
+        client.maxCacheEntries = 2
+        try await seed("flag-a", user: "u")
+        try await seed("flag-b", user: "u")
+        let hit = try await client.evaluate(flagKey: "flag-a", context: UserContext(userId: "u"))
+        XCTAssertEqual(hit.reason, "cached")
+        try await seed("flag-c", user: "u")
+        XCTAssertEqual(Set(client.cachedDigestsForTesting().keys), ["flag-a", "flag-c"])
+    }
+
+    func testInvalidateFlagRemovesAllItsContextsOnly() async throws {
+        try await seed("flag-a", user: "u1")
+        try await seed("flag-a", user: "u2")
+        try await seed("flag-b", user: "u1")
+        client.clearConfigOverride(flagKey: "flag-a") // drops every cached context for the flag
+        let cached = client.cachedDigestsForTesting()
+        XCTAssertNil(cached["flag-a"])
+        XCTAssertEqual(cached["flag-b"]?.count, 1)
+    }
 }
