@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
@@ -189,7 +190,12 @@ private struct CacheEntry {
     let configuration: [String: Any]?
     let variation: String?
     let version: Int?
+    /// Recency stamp for least-recently-used eviction.
+    var lastUsed: UInt64 = 0
 }
+
+/// Default cap on the evaluation cache, counted across all flags.
+let defaultMaxCacheEntries = 10_000
 
 /// Configuration override entry
 private struct ConfigOverrideEntry {
@@ -223,8 +229,12 @@ public class SavvagentClient {
     private let session: URLSession
     private let lock = NSLock()
 
+    /// Total cache cap across all flags. Internal so tests can use a small value; set it before use.
+    var maxCacheEntries = defaultMaxCacheEntries
+
     // Guarded by `lock`
-    private var flagCache: [String: [String: CacheEntry]] = [:] // flagKey -> contextKey -> entry
+    private var flagCache: [String: [String: CacheEntry]] = [:] // flagKey -> SHA-256 hex of the context key -> entry
+    private var cacheClock: UInt64 = 0
     private var configOverrides: [String: ConfigOverrideEntry] = [:]
     private var variationOverrides: [String: VariationOverrideEntry] = [:]
     private var pendingEvaluations: [EvaluationRecord] = []
@@ -262,11 +272,49 @@ public class SavvagentClient {
     }
 
     private func cachedEntry(flagKey: String, contextKey: String) -> CacheEntry? {
-        return withState { flagCache[flagKey]?[contextKey] }
+        return withState { () -> CacheEntry? in
+            guard var entry = flagCache[flagKey]?[contextKey] else { return nil }
+            cacheClock &+= 1
+            entry.lastUsed = cacheClock
+            flagCache[flagKey]?[contextKey] = entry
+            return entry
+        }
     }
 
     private func storeEntry(_ entry: CacheEntry, flagKey: String, contextKey: String) {
-        withState { flagCache[flagKey, default: [:]][contextKey] = entry }
+        withState {
+            var stamped = entry
+            cacheClock &+= 1
+            stamped.lastUsed = cacheClock
+            flagCache[flagKey, default: [:]][contextKey] = stamped
+            evictOverflowLocked()
+        }
+    }
+
+    /// Evicts least-recently-used entries until the total across all flags is within the cap.
+    /// Caller must hold `lock`.
+    private func evictOverflowLocked() {
+        var total = flagCache.values.reduce(0) { $0 + $1.count }
+        while total > maxCacheEntries {
+            var oldest: (flag: String, digest: String, stamp: UInt64)?
+            for (flag, entries) in flagCache {
+                for (digest, entry) in entries {
+                    if let current = oldest, entry.lastUsed >= current.stamp { continue }
+                    oldest = (flag, digest, entry.lastUsed)
+                }
+            }
+            guard let victim = oldest else { return }
+            flagCache[victim.flag]?.removeValue(forKey: victim.digest)
+            if flagCache[victim.flag]?.isEmpty == true {
+                flagCache.removeValue(forKey: victim.flag)
+            }
+            total -= 1
+        }
+    }
+
+    /// Cached context digests per flag. For tests.
+    func cachedDigestsForTesting() -> [String: Set<String>] {
+        return withState { flagCache.mapValues { Set($0.keys) } }
     }
 
     private func takePendingEvaluations() -> [EvaluationRecord] {
@@ -342,7 +390,7 @@ public class SavvagentClient {
 
     static func parseEvaluation(_ data: Data) throws -> EvaluationResponse {
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let enabled = json["enabled"] as? Bool else {
+              let enabled = strictBool(json["enabled"]) else {
             throw SavvagentError.invalidResponse
         }
         return EvaluationResponse(
@@ -385,8 +433,23 @@ public class SavvagentClient {
 
     // MARK: - Evaluation
 
+    /// Cache key for a context: the lowercase SHA-256 hex of the canonical context string
+    /// (the user id), so the raw context is never kept as a cache key.
     private func contextKey(_ context: UserContext) -> String {
-        return context.userId
+        return SavvagentClient.contextDigest(context.userId)
+    }
+
+    static func contextDigest(_ canonical: String) -> String {
+        return SHA256.hash(data: Data(canonical.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Returns the value only for a real JSON boolean. `as? Bool` on a `JSONSerialization` result
+    /// also accepts the numbers 1 and 0, so check the underlying CoreFoundation type.
+    private static func strictBool(_ value: Any?) -> Bool? {
+        guard let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else {
+            return nil
+        }
+        return number.boolValue
     }
 
     private func applyOverrides(
