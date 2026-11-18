@@ -1,14 +1,13 @@
 use crate::types::{Context, Metadata};
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use sha2::{Digest, Sha256};
+use std::collections::{BTreeMap, HashMap};
+use std::fmt::Write as _;
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
-/// Most contexts cached for one flag. When a new context finds the flag full, its expired
-/// entries are swept, and if more than half the bound is still live the flag is cleared. Either
-/// way at least half the bound is free afterwards, so a sweep (O(n), under the write lock) runs
-/// at most once per `MAX_CONTEXTS_PER_FLAG / 2` new contexts. The cost of the bound is cache
-/// misses, never a wrong answer.
-pub(crate) const MAX_CONTEXTS_PER_FLAG: usize = 10_000;
+/// Most entries cached across every flag and context. Past it the least recently used entry is
+/// evicted (a hit counts as a use), so the bound costs cache misses, never a wrong answer.
+pub(crate) const MAX_ENTRIES: usize = 10_000;
 
 #[derive(Clone)]
 pub(crate) struct CacheEntry {
@@ -25,17 +24,109 @@ pub(crate) struct CacheEntry {
 /// result is reused only for the context that produced it. Keying by flag alone handed one
 /// user's targeted result to every other user within the TTL (#91).
 ///
-/// Contexts are bounded per flag (`MAX_CONTEXTS_PER_FLAG`); the number of flags is not, and is
-/// bounded only by the flag keys the host code evaluates.
+/// A context is stored only as the SHA-256 hex digest of its canonical JSON (`context_key`), so
+/// the cache never holds user IDs or attributes (#30). One least-recently-used bound,
+/// `MAX_ENTRIES`, covers every flag.
 #[derive(Clone)]
 pub(crate) struct Cache {
-    entries: Arc<RwLock<HashMap<String, HashMap<String, CacheEntry>>>>,
+    store: Arc<Mutex<Store>>,
     /// Bumped by every invalidation, so a write from a request that started before it can be
-    /// dropped. Lock order: `entries` first, so a check-then-store and a bump-then-remove cannot
+    /// dropped. Lock order: `store` first, so a check-then-store and a bump-then-remove cannot
     /// interleave.
     generations: Arc<RwLock<Generations>>,
     ttl: Duration,
-    max_contexts_per_flag: usize,
+    max_entries: usize,
+}
+
+struct Slot {
+    entry: CacheEntry,
+    /// This entry's key in `Store::recency`.
+    tick: u64,
+}
+
+/// The entries by flag key and context digest, and the same entries by last use.
+#[derive(Default)]
+struct Store {
+    flags: HashMap<String, HashMap<String, Slot>>,
+    /// Last-use tick to (flag key, context digest); the first is the least recently used.
+    recency: BTreeMap<u64, (String, String)>,
+    tick: u64,
+}
+
+impl Store {
+    fn next_tick(&mut self) -> u64 {
+        self.tick += 1;
+        self.tick
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.recency.len()
+    }
+
+    fn remove(&mut self, flag_key: &str, digest: &str) {
+        if let Some(slots) = self.flags.get_mut(flag_key) {
+            if let Some(slot) = slots.remove(digest) {
+                self.recency.remove(&slot.tick);
+            }
+            if slots.is_empty() {
+                self.flags.remove(flag_key);
+            }
+        }
+    }
+
+    fn remove_flag(&mut self, flag_key: &str) {
+        if let Some(slots) = self.flags.remove(flag_key) {
+            for slot in slots.values() {
+                self.recency.remove(&slot.tick);
+            }
+        }
+    }
+
+    fn clear(&mut self) {
+        self.flags.clear();
+        self.recency.clear();
+    }
+
+    /// The unexpired entry, made the most recently used. An expired one is removed.
+    fn get(&mut self, flag_key: &str, digest: &str) -> Option<CacheEntry> {
+        let tick = self.next_tick();
+        let slot = self.flags.get_mut(flag_key)?.get_mut(digest)?;
+        if Instant::now() > slot.entry.expires_at {
+            self.remove(flag_key, digest);
+            return None;
+        }
+        let old = std::mem::replace(&mut slot.tick, tick);
+        let entry = slot.entry.clone();
+        if let Some(key) = self.recency.remove(&old) {
+            self.recency.insert(tick, key);
+        }
+        Some(entry)
+    }
+
+    fn insert(&mut self, flag_key: &str, digest: String, entry: CacheEntry, max_entries: usize) {
+        let tick = self.next_tick();
+        let previous = self
+            .flags
+            .entry(flag_key.to_string())
+            .or_default()
+            .insert(digest.clone(), Slot { entry, tick });
+        if let Some(previous) = previous {
+            self.recency.remove(&previous.tick);
+        }
+        self.recency.insert(tick, (flag_key.to_string(), digest));
+        while self.recency.len() > max_entries.max(1) {
+            let Some((_, (flag, digest))) = self.recency.pop_first() else {
+                break;
+            };
+            if let Some(slots) = self.flags.get_mut(&flag) {
+                slots.remove(&digest);
+                if slots.is_empty() {
+                    self.flags.remove(&flag);
+                }
+            }
+        }
+    }
 }
 
 #[derive(Default)]
@@ -50,13 +141,24 @@ impl Generations {
     }
 }
 
-/// The cache key for a context: its JSON with every object's keys sorted, so two contexts that
-/// serialize to the same request body share a key whatever the `HashMap` iteration order of
-/// their attributes (and whether or not serde_json's `preserve_order` is on). `None` means "do
-/// not cache this call"; serializing a `Context` cannot fail, so it is not expected.
+/// The canonical JSON of a context: its JSON with every object's keys sorted, so two contexts
+/// that serialize to the same request body match whatever the `HashMap` iteration order of their
+/// attributes (and whether or not serde_json's `preserve_order` is on). The cache stores only its
+/// digest. `None` means "do not cache this call"; serializing a `Context` cannot fail, so it is
+/// not expected.
 pub(crate) fn context_key(context: &Context) -> Option<String> {
     let value = serde_json::to_value(context).ok()?;
     serde_json::to_string(&sorted(value)).ok()
+}
+
+/// The lowercase hex SHA-256 of a context key's UTF-8 bytes: the key the cache stores it under.
+fn digest(context_key: &str) -> String {
+    let hash = Sha256::digest(context_key.as_bytes());
+    let mut hex = String::with_capacity(hash.len() * 2);
+    for byte in hash {
+        let _ = write!(hex, "{byte:02x}");
+    }
+    hex
 }
 
 fn sorted(value: serde_json::Value) -> serde_json::Value {
@@ -76,28 +178,23 @@ fn sorted(value: serde_json::Value) -> serde_json::Value {
 impl Cache {
     /// Create a new cache with the specified TTL
     pub fn new(ttl: Duration) -> Self {
-        Self::with_max_contexts_per_flag(ttl, MAX_CONTEXTS_PER_FLAG)
+        Self::with_max_entries(ttl, MAX_ENTRIES)
     }
 
-    fn with_max_contexts_per_flag(ttl: Duration, max_contexts_per_flag: usize) -> Self {
+    fn with_max_entries(ttl: Duration, max_entries: usize) -> Self {
         Self {
-            entries: Arc::new(RwLock::new(HashMap::new())),
+            store: Arc::new(Mutex::new(Store::default())),
             generations: Arc::new(RwLock::new(Generations::default())),
             ttl,
-            max_contexts_per_flag,
+            max_entries,
         }
     }
 
-    /// The unexpired entry for this flag and context, if any.
+    /// The unexpired entry for this flag and context, if any. A hit makes it the most recently
+    /// used.
     pub fn get_entry(&self, flag_key: &str, context_key: &str) -> Option<CacheEntry> {
-        let entries = self.entries.read().ok()?;
-        let entry = entries.get(flag_key)?.get(context_key)?;
-
-        if Instant::now() > entry.expires_at {
-            return None;
-        }
-
-        Some(entry.clone())
+        let digest = digest(context_key);
+        self.store.lock().ok()?.get(flag_key, &digest)
     }
 
     /// The flag's invalidation generation. Read it before sending the evaluate request and pass
@@ -122,7 +219,9 @@ impl Cache {
         variation: Option<String>,
         metadata: Option<Metadata>,
     ) {
-        if let Ok(mut entries) = self.entries.write() {
+        let entry = self.entry(value, configuration, variation, metadata);
+        let digest = digest(&context_key);
+        if let Ok(mut store) = self.store.lock() {
             let current = self
                 .generations
                 .read()
@@ -131,15 +230,7 @@ impl Cache {
             if current != generation {
                 return;
             }
-            self.store(
-                &mut entries,
-                flag_key,
-                context_key,
-                value,
-                configuration,
-                variation,
-                metadata,
-            );
+            store.insert(flag_key, digest, entry, self.max_entries);
         }
     }
 
@@ -154,56 +245,32 @@ impl Cache {
         variation: Option<String>,
         metadata: Option<Metadata>,
     ) {
-        if let Ok(mut entries) = self.entries.write() {
-            self.store(
-                &mut entries,
-                flag_key,
-                context_key,
-                value,
-                configuration,
-                variation,
-                metadata,
-            );
+        let entry = self.entry(value, configuration, variation, metadata);
+        let digest = digest(&context_key);
+        if let Ok(mut store) = self.store.lock() {
+            store.insert(flag_key, digest, entry, self.max_entries);
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn store(
+    fn entry(
         &self,
-        entries: &mut HashMap<String, HashMap<String, CacheEntry>>,
-        flag_key: &str,
-        context_key: String,
         value: bool,
         configuration: Option<serde_json::Value>,
         variation: Option<String>,
         metadata: Option<Metadata>,
-    ) {
-        {
-            let contexts = entries.entry(flag_key.to_string()).or_default();
-            if contexts.len() >= self.max_contexts_per_flag && !contexts.contains_key(&context_key)
-            {
-                let now = Instant::now();
-                contexts.retain(|_, entry| entry.expires_at >= now);
-                if contexts.len() > self.max_contexts_per_flag / 2 {
-                    contexts.clear();
-                }
-            }
-            contexts.insert(
-                context_key,
-                CacheEntry {
-                    value,
-                    configuration,
-                    variation,
-                    metadata,
-                    expires_at: Instant::now() + self.ttl,
-                },
-            );
+    ) -> CacheEntry {
+        CacheEntry {
+            value,
+            configuration,
+            variation,
+            metadata,
+            expires_at: Instant::now() + self.ttl,
         }
     }
 
     /// Invalidate one flag, for every context, or with `None` every flag
     pub fn invalidate(&self, flag_key: Option<&str>) {
-        if let Ok(mut entries) = self.entries.write() {
+        if let Ok(mut store) = self.store.lock() {
             if let Ok(mut generations) = self.generations.write() {
                 match flag_key {
                     Some(k) => *generations.flags.entry(k.to_string()).or_insert(0) += 1,
@@ -213,10 +280,9 @@ impl Cache {
                     }
                 }
             }
-            if let Some(k) = flag_key {
-                entries.remove(k);
-            } else {
-                entries.clear();
+            match flag_key {
+                Some(k) => store.remove_flag(k),
+                None => store.clear(),
             }
         }
     }
@@ -232,8 +298,23 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn len(cache: &Cache, flag_key: &str) -> usize {
-        cache.entries.read().unwrap()[flag_key].len()
+    /// SHA-256 of "abc" (FIPS 180-2, appendix B.1).
+    const SHA256_ABC: &str = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+
+    fn total(cache: &Cache) -> usize {
+        cache.store.lock().unwrap().len()
+    }
+
+    /// Every key the cache holds for a context, from both the per-flag map and the recency index.
+    fn stored_keys(cache: &Cache) -> Vec<(String, String)> {
+        let store = cache.store.lock().unwrap();
+        let mut keys: Vec<(String, String)> = store
+            .flags
+            .iter()
+            .flat_map(|(flag, slots)| slots.keys().map(move |d| (flag.clone(), d.clone())))
+            .collect();
+        keys.extend(store.recency.values().cloned());
+        keys
     }
 
     #[test]
@@ -255,6 +336,75 @@ mod tests {
             context_key(&Context::new().with_user_id("a")),
             context_key(&Context::new().with_user_id("b"))
         );
+    }
+
+    #[test]
+    fn digest_is_lowercase_sha256_hex() {
+        assert_eq!(digest("abc"), SHA256_ABC);
+        assert_eq!(
+            digest(""),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+    }
+
+    #[test]
+    fn stored_key_for_a_context_is_its_sha256_hex() {
+        let cache = Cache::new(Duration::from_secs(60));
+        cache.set("f", "abc".into(), true, None, None, None);
+
+        assert_eq!(
+            stored_keys(&cache),
+            vec![("f".to_string(), SHA256_ABC.to_string()); 2]
+        );
+        assert_eq!(cache.get_entry("f", "abc").map(|e| e.value), Some(true));
+    }
+
+    #[test]
+    fn equal_contexts_share_one_entry_and_different_contexts_do_not() {
+        let cache = Cache::new(Duration::from_secs(60));
+        let a = Context::new()
+            .with_user_id("u")
+            .with_attribute("x", json!(1))
+            .with_attribute("y", json!(2));
+        let b = Context::new()
+            .with_attribute("y", json!(2))
+            .with_attribute("x", json!(1))
+            .with_user_id("u");
+        let c = Context::new()
+            .with_user_id("u")
+            .with_attribute("x", json!(3));
+
+        cache.set("f", context_key(&a).unwrap(), true, None, None, None);
+        cache.set("f", context_key(&b).unwrap(), false, None, None, None);
+        assert_eq!(total(&cache), 1);
+        assert_eq!(
+            cache
+                .get_entry("f", &context_key(&a).unwrap())
+                .map(|e| e.value),
+            Some(false)
+        );
+
+        cache.set("f", context_key(&c).unwrap(), true, None, None, None);
+        assert_eq!(total(&cache), 2);
+    }
+
+    #[test]
+    fn raw_user_id_is_in_no_cache_key() {
+        let secret = "alice-secret-user-id";
+        let cache = Cache::new(Duration::from_secs(60));
+        let key = context_key(&Context::new().with_user_id(secret)).unwrap();
+        assert!(key.contains(secret));
+
+        cache.set("f", key.clone(), true, None, None, None);
+        cache.set("g", key.clone(), true, None, None, None);
+
+        let keys = stored_keys(&cache);
+        assert_eq!(keys.len(), 4);
+        for (flag, digest_key) in keys {
+            assert!(!flag.contains(secret));
+            assert!(!digest_key.contains(secret));
+            assert_eq!(digest_key, digest(&key));
+        }
     }
 
     #[test]
@@ -281,78 +431,102 @@ mod tests {
         assert!(cache.get_entry("f", "c1").is_none());
         assert!(cache.get_entry("f", "c2").is_none());
         assert!(cache.get_entry("g", "c1").is_some());
+        // The recency index forgets the flag's entries too.
+        assert_eq!(
+            stored_keys(&cache),
+            vec![("g".to_string(), digest("c1")); 2]
+        );
     }
 
     #[test]
-    fn a_full_flag_with_nothing_expired_is_cleared_and_takes_the_new_entry() {
-        let cache = Cache::with_max_contexts_per_flag(Duration::from_secs(60), 3);
-        for i in 0..3 {
-            cache.set("f", i.to_string(), true, None, None, None);
-        }
-        cache.set("g", "0".into(), true, None, None, None);
-
-        cache.set("f", "new".into(), false, None, None, None);
-
-        assert_eq!(cache.get_entry("f", "new").map(|e| e.value), Some(false));
-        assert!(cache.get_entry("f", "0").is_none());
-        assert_eq!(len(&cache, "f"), 1);
-        // Other flags are untouched.
-        assert!(cache.get_entry("g", "0").is_some());
+    fn default_total_bound_is_10_000_entries() {
+        assert_eq!(MAX_ENTRIES, 10_000);
+        assert_eq!(Cache::new(Duration::from_secs(60)).max_entries, MAX_ENTRIES);
     }
 
-    fn backdate(cache: &Cache, flag_key: &str, context_keys: &[&str]) {
-        let mut entries = cache.entries.write().unwrap();
-        let past = Instant::now() - Duration::from_secs(1);
-        for key in context_keys {
-            entries
-                .get_mut(flag_key)
-                .unwrap()
-                .get_mut(*key)
-                .unwrap()
-                .expires_at = past;
+    #[test]
+    fn entries_across_flags_never_exceed_the_cap_and_the_lru_goes_first() {
+        let cache = Cache::with_max_entries(Duration::from_secs(60), 3);
+        let flags = ["f", "g", "h"];
+        for i in 0..10 {
+            cache.set(flags[i % 3], i.to_string(), true, None, None, None);
+            assert!(total(&cache) <= 3);
+            assert!(cache.store.lock().unwrap().recency.len() <= 3);
+        }
+        // Only the three most recent writes remain, across three flags.
+        for i in 0..7 {
+            assert!(cache.get_entry(flags[i % 3], &i.to_string()).is_none());
+        }
+        for i in 7..10 {
+            assert!(cache.get_entry(flags[i % 3], &i.to_string()).is_some());
         }
     }
 
     #[test]
-    fn a_full_flag_sweeps_expired_entries_and_keeps_live_ones() {
-        let cache = Cache::with_max_contexts_per_flag(Duration::from_secs(60), 4);
-        for key in ["live", "old-0", "old-1", "old-2"] {
-            cache.set("f", key.into(), true, None, None, None);
-        }
-        backdate(&cache, "f", &["old-0", "old-1", "old-2"]);
-
-        cache.set("f", "new".into(), false, None, None, None);
-
-        assert!(cache.get_entry("f", "live").is_some());
-        assert!(cache.get_entry("f", "new").is_some());
-        assert_eq!(len(&cache, "f"), 2);
-    }
-
-    #[test]
-    fn a_sweep_that_frees_too_little_clears_the_flag() {
-        // Without the half-bound rule, a flag whose live entries hover just under the bound
-        // would be swept on nearly every new context.
-        let cache = Cache::with_max_contexts_per_flag(Duration::from_secs(60), 4);
-        for key in ["a", "b", "c", "old"] {
-            cache.set("f", key.into(), true, None, None, None);
-        }
-        backdate(&cache, "f", &["old"]);
-
-        cache.set("f", "new".into(), false, None, None, None);
-
-        assert_eq!(len(&cache, "f"), 1);
-        assert!(cache.get_entry("f", "new").is_some());
-    }
-
-    #[test]
-    fn refreshing_an_existing_context_in_a_full_flag_keeps_the_others() {
-        let cache = Cache::with_max_contexts_per_flag(Duration::from_secs(60), 2);
+    fn a_hit_refreshes_recency() {
+        let cache = Cache::with_max_entries(Duration::from_secs(60), 2);
         cache.set("f", "a".into(), true, None, None, None);
-        cache.set("f", "b".into(), true, None, None, None);
+        cache.set("g", "b".into(), true, None, None, None);
+
+        // Reading f/a makes g/b the least recently used.
+        assert!(cache.get_entry("f", "a").is_some());
+        cache.set("h", "c".into(), true, None, None, None);
+
+        assert!(cache.get_entry("f", "a").is_some());
+        assert!(cache.get_entry("g", "b").is_none());
+        assert!(cache.get_entry("h", "c").is_some());
+    }
+
+    #[test]
+    fn refreshing_an_existing_context_at_the_cap_keeps_the_others() {
+        let cache = Cache::with_max_entries(Duration::from_secs(60), 2);
+        cache.set("f", "a".into(), true, None, None, None);
+        cache.set("g", "b".into(), true, None, None, None);
 
         cache.set("f", "a".into(), false, None, None, None);
 
         assert_eq!(cache.get_entry("f", "a").map(|e| e.value), Some(false));
-        assert!(cache.get_entry("f", "b").is_some());
+        assert!(cache.get_entry("g", "b").is_some());
+        assert_eq!(total(&cache), 2);
+    }
+
+    #[test]
+    fn an_expired_entry_is_dropped_when_read() {
+        let cache = Cache::new(Duration::from_secs(60));
+        cache.set("f", "a".into(), true, None, None, None);
+        {
+            let mut store = cache.store.lock().unwrap();
+            let slot = store
+                .flags
+                .get_mut("f")
+                .and_then(|slots| slots.get_mut(&digest("a")))
+                .unwrap();
+            slot.entry.expires_at = Instant::now() - Duration::from_secs(1);
+        }
+
+        assert!(cache.get_entry("f", "a").is_none());
+        assert_eq!(total(&cache), 0);
+        assert!(stored_keys(&cache).is_empty());
+    }
+
+    #[test]
+    fn a_write_from_before_an_invalidation_is_dropped() {
+        let cache = Cache::new(Duration::from_secs(60));
+        let before = cache.generation("f");
+        cache.invalidate(Some("f"));
+
+        cache.set_at(before, "f", "a".into(), true, None, None, None);
+        assert!(cache.get_entry("f", "a").is_none());
+
+        cache.set_at(
+            cache.generation("f"),
+            "f",
+            "a".into(),
+            true,
+            None,
+            None,
+            None,
+        );
+        assert!(cache.get_entry("f", "a").is_some());
     }
 }

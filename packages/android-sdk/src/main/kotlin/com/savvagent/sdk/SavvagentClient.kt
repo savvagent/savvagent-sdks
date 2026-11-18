@@ -111,9 +111,17 @@ private data class CacheEntry(
     val value: Boolean,
     val configuration: Map<String, Any>? = null,
     val variation: String? = null,
-    val userId: String? = null,
+    val userDigest: String? = null,
     val version: Long = -1L
-)
+) {
+    /** Recency stamp for least-recently-used eviction; not part of equality. */
+    @Volatile var lastUsed: Long = 0L
+}
+
+/** Default cap on the evaluation cache, counted across all flags. */
+internal const val DEFAULT_MAX_CACHE_ENTRIES = 10_000
+
+private val HEX_CHARS = "0123456789abcdef".toCharArray()
 
 /**
  * Environment-level flag state from the bulk endpoint (master switch, not per-user)
@@ -167,7 +175,40 @@ class SavvagentClient(
         .readTimeout(0, TimeUnit.MILLISECONDS)
         .build()
 
+    // Keyed by flag key only (one entry per flag, remembering a SHA-256 digest of the user it was evaluated for), so
+    // no context-derived string is used as a key and there is no context JSON to digest. It is
+    // bounded by a single total cap with least-recently-used eviction.
     private val flagCache = ConcurrentHashMap<String, CacheEntry>()
+    private val cacheClock = java.util.concurrent.atomic.AtomicLong()
+
+    /** Total cache cap across all flags. Internal so tests can use a small value. */
+    @Volatile internal var maxCacheEntries: Int = DEFAULT_MAX_CACHE_ENTRIES
+
+    /** Lowercase SHA-256 hex of the user id; the cache never holds the raw id. */
+    internal fun userDigest(userId: String): String {
+        val bytes = java.security.MessageDigest.getInstance("SHA-256").digest(userId.toByteArray(Charsets.UTF_8))
+        val out = CharArray(bytes.size * 2)
+        for (i in bytes.indices) {
+            val v = bytes[i].toInt() and 0xff
+            out[i * 2] = HEX_CHARS[v ushr 4]
+            out[i * 2 + 1] = HEX_CHARS[v and 0x0f]
+        }
+        return String(out)
+    }
+
+    internal fun cachedUserDigests(): List<String?> = flagCache.values.map { it.userDigest }
+
+    internal fun cachedFlagKeys(): Set<String> = flagCache.keys.toSet()
+
+    private fun putCache(flagKey: String, entry: CacheEntry) {
+        entry.lastUsed = cacheClock.incrementAndGet()
+        flagCache[flagKey] = entry
+        while (flagCache.size > maxCacheEntries) {
+            val oldest = flagCache.entries.minByOrNull { it.value.lastUsed } ?: break
+            flagCache.remove(oldest.key, oldest.value)
+        }
+    }
+
     private val environmentFlags = ConcurrentHashMap<String, EnvironmentFlag>()
     private val configOverrides = ConcurrentHashMap<String, ConfigOverrideEntry>()
     private val variationOverrides = ConcurrentHashMap<String, VariationOverrideEntry>()
@@ -226,8 +267,11 @@ class SavvagentClient(
         }
         return withContext(Dispatchers.IO) {
             try {
+                // Digest once; it serves both the cache lookup and the store below
+                val digest = userDigest(userContext.userId)
                 // Check cache first (only valid for the same user)
-                flagCache[flagKey]?.takeIf { it.userId == userContext.userId }?.let { cached ->
+                flagCache[flagKey]?.takeIf { it.userDigest == digest }?.let { cached ->
+                    cached.lastUsed = cacheClock.incrementAndGet()
                     val result = applyOverrides(
                         flagKey, cached.value, cached.configuration, cached.variation, "cached"
                     )
@@ -255,13 +299,18 @@ class SavvagentClient(
                     JSONObject(response.body?.string() ?: "")
                 }
 
-                val enabled = jsonResponse.getBoolean("enabled")
+                // org.json's getBoolean also accepts the string "true"; require a real boolean
+                val enabled = jsonResponse.opt("enabled") as? Boolean
+                    ?: throw SavvagentException(
+                        "Malformed evaluate response for flag \"${sanitizeForMessage(flagKey)}\": " +
+                            "\"enabled\" is not a boolean"
+                    )
                 val configuration = jsonResponse.optJSONObject("configuration")?.toMap()
                 val variation = jsonResponse.optStringOrNull("variation")
                 val version = jsonResponse.optLong("version", -1L)
 
                 // Update cache
-                flagCache[flagKey] = CacheEntry(enabled, configuration, variation, userContext.userId, version)
+                putCache(flagKey, CacheEntry(enabled, configuration, variation, digest, version))
                 updateFlagFlow()
 
                 val result = applyOverrides(flagKey, enabled, configuration, variation, "evaluated")
@@ -715,7 +764,9 @@ class SavvagentClient(
             for (i in 0 until flags.length()) {
                 val flag = flags.getJSONObject(i)
                 fresh[flag.getString("key")] = EnvironmentFlag(
-                    enabled = flag.optBoolean("enabled", false),
+                    // A real JSON boolean only; optBoolean also accepts "true". Anything else counts as
+                    // disabled, the same as a missing field.
+                    enabled = flag.opt("enabled") as? Boolean ?: false,
                     version = flag.optLong("version", -1L)
                 )
             }

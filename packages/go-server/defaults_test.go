@@ -279,15 +279,16 @@ func TestIsEnabledCachedReadsTheKeyEvaluateStores(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The key Evaluate stored, pinned to today's bytes: the prepared context's JSON, with the
-	// configured ApplicationID filled in and map keys sorted.
-	const want = `{"user_id":"alice","application_id":"app-1","attributes":{"a":1,"plan":"pro"},"environment":"production"}`
-	client.cache.mu.RLock()
-	stored := make([]string, 0, len(client.cache.entries["banner"]))
-	for k := range client.cache.entries["banner"] {
+	// The key Evaluate stored, pinned to today's bytes: the SHA-256 hex of the prepared
+	// context's JSON, with the configured ApplicationID filled in and map keys sorted (#30).
+	const canonical = `{"user_id":"alice","application_id":"app-1","attributes":{"a":1,"plan":"pro"},"environment":"production"}`
+	want := sha256Hex(canonical)
+	client.cache.mu.Lock()
+	stored := make([]string, 0, len(client.cache.byFlag["banner"]))
+	for k := range client.cache.byFlag["banner"] {
 		stored = append(stored, k)
 	}
-	client.cache.mu.RUnlock()
+	client.cache.mu.Unlock()
 	if len(stored) != 1 || stored[0] != want {
 		t.Fatalf("Evaluate stored keys %q, want [%q]", stored, want)
 	}
@@ -295,6 +296,9 @@ func TestIsEnabledCachedReadsTheKeyEvaluateStores(t *testing.T) {
 	// The key IsEnabledCached reads is the same one.
 	if _, got, err := client.contextKey(ctx); err != nil || got != want {
 		t.Errorf("contextKey = %q, %v; want %q", got, err, want)
+	}
+	if _, got, err := client.canonicalContext(ctx); err != nil || got != canonical {
+		t.Errorf("canonicalContext = %q, %v; want %q", got, err, canonical)
 	}
 	// An equal context built separately (other map, other insertion order) hits it.
 	equal := &Context{

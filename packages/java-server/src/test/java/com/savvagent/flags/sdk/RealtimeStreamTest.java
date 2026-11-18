@@ -124,7 +124,7 @@ class RealtimeStreamTest {
                 .cacheTtl(ttl)
                 .defaults(new HashMap<>())
                 .onError(onError)
-                .build(), FlagClient.MAX_CONTEXTS_PER_FLAG, options);
+                .build(), FlagClient.MAX_CACHE_ENTRIES, options);
         clients.add(created);
         return created;
     }
@@ -465,7 +465,7 @@ class RealtimeStreamTest {
                         current.close();
                     }
                 })
-                .build(), FlagClient.MAX_CONTEXTS_PER_FLAG, testOptions());
+                .build(), FlagClient.MAX_CACHE_ENTRIES, testOptions());
         self.set(c);
         clients.add(c);
         RealtimeStream realtime = c.realtimeStream();

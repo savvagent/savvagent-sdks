@@ -91,6 +91,10 @@ FlagClientConfig config = FlagClientConfig.builder("srv_your_server_key_here")
 FlagClient client = new FlagClient(config);
 ```
 
+Results are cached per flag and per context. The cache holds at most 10,000 entries across all
+flags and evicts the least recently used entry when full. Entries are keyed by the SHA-256 digest
+of the context, so the cache never holds the context itself.
+
 `enableTelemetry(boolean)` is accepted, so existing code still compiles, but it is deprecated and
 has no effect: this SDK sends no telemetry.
 

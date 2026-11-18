@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { FlagCache, contextCacheKey } from '../src/cache';
 
 describe('FlagCache', () => {
@@ -107,6 +108,76 @@ describe('contextCacheKey', () => {
   });
 });
 
+describe('contextCacheKey digest (#30)', () => {
+  test('digest key: is the lowercase SHA-256 hex of the canonical JSON', () => {
+    const key = contextCacheKey({ user_id: 'secret-user-1', attributes: { b: 2, a: 1 } });
+    expect(key).toBe(
+      createHash('sha256').update('{"attributes":{"a":1,"b":2},"user_id":"secret-user-1"}', 'utf8').digest('hex')
+    );
+    expect(key).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  test('digest key: equal contexts share one entry, different contexts get different entries', () => {
+    const cache = new FlagCache(60000);
+    cache.set('f', true, undefined, contextCacheKey({ user_id: 'u', language: 'en' }));
+    cache.set('f', true, undefined, contextCacheKey({ language: 'en', user_id: 'u' }));
+    expect(cache.size).toBe(1);
+    cache.set('f', true, undefined, contextCacheKey({ user_id: 'v', language: 'en' }));
+    expect(cache.size).toBe(2);
+  });
+
+  test('digest key: the raw user_id appears in no cache key', () => {
+    const cache = new FlagCache(60000);
+    const ctx = contextCacheKey({ user_id: 'raw-user-id-123' });
+    cache.set('f', true, undefined, ctx);
+    const internals = cache as any;
+    const keys = [...internals.entries.keys(), ...internals.byFlag.keys()];
+    for (const set of internals.byFlag.values()) keys.push(...set);
+    expect(keys.length).toBeGreaterThan(0);
+    for (const k of keys) expect(k).not.toContain('raw-user-id-123');
+  });
+});
+
+describe('FlagCache total bound across flags (#30)', () => {
+  test('total bound: entries across several flags never exceed the cap and the LRU entry goes first', () => {
+    const cache = new FlagCache(60000, 4);
+    const c = (n: number) => contextCacheKey({ user_id: `u${n}` });
+    cache.set('f1', true, undefined, c(1));
+    cache.set('f2', true, undefined, c(1));
+    cache.set('f1', true, undefined, c(2));
+    cache.set('f2', true, undefined, c(2));
+    cache.set('f3', true, undefined, c(3));
+    expect(cache.size).toBe(4);
+    expect(cache.get('f1', c(1))).toBeNull(); // oldest went first
+    for (let i = 10; i < 100; i++) {
+      cache.set(`f${i % 3}`, true, undefined, c(i));
+      expect(cache.size).toBeLessThanOrEqual(4);
+    }
+  });
+
+  test('recency: a hit refreshes recency so the entry just read survives the next eviction', () => {
+    const cache = new FlagCache(60000, 3);
+    cache.set('f1', true, undefined, 'a');
+    cache.set('f2', true, undefined, 'a');
+    cache.set('f1', true, undefined, 'b');
+    expect(cache.get('f1', 'a')).toBe(true);
+    cache.set('f2', true, undefined, 'b'); // evicts (f2, a)
+    expect(cache.get('f2', 'a')).toBeNull();
+    expect(cache.get('f1', 'a')).toBe(true);
+  });
+
+  test('invalidation: invalidate(flag) removes all of that flag contexts and leaves other flags alone', () => {
+    const cache = new FlagCache(60000);
+    cache.set('f1', true, undefined, contextCacheKey({ user_id: 'a' }));
+    cache.set('f1', true, undefined, contextCacheKey({ user_id: 'b' }));
+    cache.set('f2', true, undefined, contextCacheKey({ user_id: 'a' }));
+    cache.invalidate('f1');
+    expect(cache.size).toBe(1);
+    expect(cache.get('f1', contextCacheKey({ user_id: 'a' }))).toBeNull();
+    expect(cache.get('f2', contextCacheKey({ user_id: 'a' }))).toBe(true);
+  });
+});
+
 describe('FlagCache size cap (LRU)', () => {
   test('keeps at most maxEntries entries across many distinct contexts', () => {
     const cache = new FlagCache(60000, 100);
@@ -187,7 +258,7 @@ describe('contextCacheKey edge values', () => {
   test('keeps an own "__proto__" attribute as data', () => {
     const withProto = JSON.parse('{"attributes":{"__proto__":{"plan":"pro"}}}');
     const other = JSON.parse('{"attributes":{"__proto__":{"plan":"free"}}}');
-    expect(contextCacheKey(withProto)).toContain('__proto__');
+    expect(contextCacheKey(withProto)).toMatch(/^[0-9a-f]{64}$/);
     expect(contextCacheKey(withProto)).not.toBe(contextCacheKey(other));
     expect(contextCacheKey(withProto)).not.toBe(contextCacheKey({ attributes: {} }));
   });

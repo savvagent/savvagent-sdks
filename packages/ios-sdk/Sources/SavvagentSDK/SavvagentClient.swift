@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
@@ -189,7 +190,12 @@ private struct CacheEntry {
     let configuration: [String: Any]?
     let variation: String?
     let version: Int?
+    /// Recency stamp for least-recently-used eviction.
+    var lastUsed: UInt64 = 0
 }
+
+/// Default cap on the evaluation cache, counted across all flags.
+let defaultMaxCacheEntries = 10_000
 
 /// Configuration override entry
 private struct ConfigOverrideEntry {
@@ -223,8 +229,13 @@ public class SavvagentClient {
     private let session: URLSession
     private let lock = NSLock()
 
+    /// Total cache cap across all flags. Internal so tests can use a small value; set it before use.
+    var maxCacheEntries = defaultMaxCacheEntries
+
     // Guarded by `lock`
-    private var flagCache: [String: [String: CacheEntry]] = [:] // flagKey -> contextKey -> entry
+    private var flagCache: [String: [String: CacheEntry]] = [:] // flagKey -> SHA-256 hex of the context key -> entry
+    private var cacheEntryCount = 0 // total entries across all flags, kept in step with flagCache
+    private var cacheClock: UInt64 = 0
     private var configOverrides: [String: ConfigOverrideEntry] = [:]
     private var variationOverrides: [String: VariationOverrideEntry] = [:]
     private var pendingEvaluations: [EvaluationRecord] = []
@@ -262,11 +273,71 @@ public class SavvagentClient {
     }
 
     private func cachedEntry(flagKey: String, contextKey: String) -> CacheEntry? {
-        return withState { flagCache[flagKey]?[contextKey] }
+        return withState { () -> CacheEntry? in
+            guard var entry = flagCache[flagKey]?[contextKey] else { return nil }
+            cacheClock &+= 1
+            entry.lastUsed = cacheClock
+            flagCache[flagKey]?[contextKey] = entry
+            return entry
+        }
     }
 
     private func storeEntry(_ entry: CacheEntry, flagKey: String, contextKey: String) {
-        withState { flagCache[flagKey, default: [:]][contextKey] = entry }
+        withState {
+            var stamped = entry
+            cacheClock &+= 1
+            stamped.lastUsed = cacheClock
+            let replaced = flagCache[flagKey, default: [:]].updateValue(stamped, forKey: contextKey) != nil
+            if !replaced { cacheEntryCount += 1 }
+            evictOverflowLocked()
+        }
+    }
+
+    /// Drops every cached entry for a flag. Caller must hold `lock`.
+    private func removeFlagLocked(_ flagKey: String) {
+        if let removed = flagCache.removeValue(forKey: flagKey) {
+            cacheEntryCount -= removed.count
+        }
+    }
+
+    /// Drops the whole cache. Caller must hold `lock`.
+    private func clearCacheLocked() {
+        flagCache.removeAll()
+        cacheEntryCount = 0
+    }
+
+    /// Once the total exceeds the cap, evicts the oldest `max(1, cap / 10)` entries by `lastUsed` in a single
+    /// pass, so the O(N) scan is paid once per batch rather than once per insert. Caller must hold `lock`.
+    private func evictOverflowLocked() {
+        guard cacheEntryCount > maxCacheEntries else { return }
+        var stamps: [(stamp: UInt64, flag: String, digest: String)] = []
+        stamps.reserveCapacity(cacheEntryCount)
+        for (flag, entries) in flagCache {
+            for (digest, entry) in entries {
+                stamps.append((entry.lastUsed, flag, digest))
+            }
+        }
+        stamps.sort { $0.stamp < $1.stamp }
+        let batch = max(1, maxCacheEntries / 10)
+        // Evict at least enough to get back within the cap, and at least one batch
+        let evictCount = min(stamps.count, max(batch, cacheEntryCount - maxCacheEntries))
+        for victim in stamps.prefix(evictCount) {
+            flagCache[victim.flag]?.removeValue(forKey: victim.digest)
+            if flagCache[victim.flag]?.isEmpty == true {
+                flagCache.removeValue(forKey: victim.flag)
+            }
+        }
+        cacheEntryCount -= evictCount
+    }
+
+    /// Running entry count. For tests.
+    func cacheEntryCountForTesting() -> Int {
+        return withState { cacheEntryCount }
+    }
+
+    /// Cached context digests per flag. For tests.
+    func cachedDigestsForTesting() -> [String: Set<String>] {
+        return withState { flagCache.mapValues { Set($0.keys) } }
     }
 
     private func takePendingEvaluations() -> [EvaluationRecord] {
@@ -342,7 +413,7 @@ public class SavvagentClient {
 
     static func parseEvaluation(_ data: Data) throws -> EvaluationResponse {
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let enabled = json["enabled"] as? Bool else {
+              let enabled = strictBool(json["enabled"]) else {
             throw SavvagentError.invalidResponse
         }
         return EvaluationResponse(
@@ -359,7 +430,7 @@ public class SavvagentClient {
             throw SavvagentError.invalidResponse
         }
         return flags.compactMap { flag in
-            guard let key = flag["key"] as? String, let enabled = flag["enabled"] as? Bool else { return nil }
+            guard let key = flag["key"] as? String, let enabled = strictBool(flag["enabled"]) else { return nil }
             return FlagDefinition(
                 key: key,
                 enabled: enabled,
@@ -385,8 +456,23 @@ public class SavvagentClient {
 
     // MARK: - Evaluation
 
+    /// Cache key for a context: the lowercase SHA-256 hex of the user ID, the mobile context key,
+    /// so the raw context is never kept as a cache key.
     private func contextKey(_ context: UserContext) -> String {
-        return context.userId
+        return SavvagentClient.contextDigest(context.userId)
+    }
+
+    static func contextDigest(_ canonical: String) -> String {
+        return SHA256.hash(data: Data(canonical.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Returns the value only for a real JSON boolean. `as? Bool` on a `JSONSerialization` result
+    /// also accepts the numbers 1 and 0, so check the underlying CoreFoundation type.
+    private static func strictBool(_ value: Any?) -> Bool? {
+        guard let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else {
+            return nil
+        }
+        return number.boolValue
     }
 
     private func applyOverrides(
@@ -670,7 +756,7 @@ public class SavvagentClient {
     public func setConfigOverride(flagKey: String, config: [String: Any], merge: Bool = false) {
         lock.lock()
         configOverrides[flagKey] = ConfigOverrideEntry(config: config, merge: merge, timestamp: Date())
-        flagCache.removeValue(forKey: flagKey)
+        removeFlagLocked(flagKey)
         lock.unlock()
     }
 
@@ -678,7 +764,7 @@ public class SavvagentClient {
     public func clearConfigOverride(flagKey: String) {
         lock.lock()
         configOverrides.removeValue(forKey: flagKey)
-        flagCache.removeValue(forKey: flagKey)
+        removeFlagLocked(flagKey)
         lock.unlock()
     }
 
@@ -686,7 +772,7 @@ public class SavvagentClient {
     public func setVariationOverride(flagKey: String, variation: String) {
         lock.lock()
         variationOverrides[flagKey] = VariationOverrideEntry(variation: variation, timestamp: Date())
-        flagCache.removeValue(forKey: flagKey)
+        removeFlagLocked(flagKey)
         lock.unlock()
     }
 
@@ -694,7 +780,7 @@ public class SavvagentClient {
     public func clearVariationOverride(flagKey: String) {
         lock.lock()
         variationOverrides.removeValue(forKey: flagKey)
-        flagCache.removeValue(forKey: flagKey)
+        removeFlagLocked(flagKey)
         lock.unlock()
     }
 
@@ -738,7 +824,7 @@ public class SavvagentClient {
         lock.lock()
         configOverrides.removeAll()
         variationOverrides.removeAll()
-        flagCache.removeAll()
+        clearCacheLocked()
         lock.unlock()
     }
 
@@ -808,7 +894,7 @@ public class SavvagentClient {
         case "flag.created", "flag.updated", "flag.deleted":
             guard let change = SavvagentClient.parseFlagChange(event) else { return }
             lock.lock()
-            flagCache.removeValue(forKey: change.flagKey)
+            removeFlagLocked(change.flagKey)
             let handlers = Array(listeners.values)
             lock.unlock()
             handlers.forEach { $0(change) }
@@ -846,12 +932,12 @@ public class SavvagentClient {
         withState {
             for (key, entries) in flagCache {
                 guard let known = versions[key] else {
-                    flagCache.removeValue(forKey: key)
+                    removeFlagLocked(key)
                     continue
                 }
                 if let serverVersion = known,
                    entries.values.contains(where: { $0.version != serverVersion }) {
-                    flagCache.removeValue(forKey: key)
+                    removeFlagLocked(key)
                 }
             }
         }
