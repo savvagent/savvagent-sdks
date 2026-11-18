@@ -29,3 +29,8 @@ updates:
     groups:
       github-actions:
         patterns: ['*']
+    ignore:
+      # changesets/action v2 requires Changesets CLI v3 and renames its inputs,
+      # so it is upgraded together with @changesets/cli, by hand.
+      - dependency-name: changesets/action
+        update-types: ['version-update:semver-major']
