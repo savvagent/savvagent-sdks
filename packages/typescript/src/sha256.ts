@@ -15,16 +15,54 @@ const K = new Uint32Array([
   0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
 ]);
 
-const encoder = new TextEncoder();
-
 const rotr = (x: number, n: number): number => (x >>> n) | (x << (32 - n));
+
+/**
+ * UTF-8 bytes of `text`, the same bytes `TextEncoder` produces (a lone
+ * surrogate encodes as U+FFFD). Written out so the digest does not depend on
+ * `TextEncoder`, which some runtimes and test environments lack.
+ */
+function utf8(text: string): Uint8Array {
+  const out = new Uint8Array(text.length * 3);
+  let n = 0;
+  for (let i = 0; i < text.length; i++) {
+    let c = text.charCodeAt(i);
+    if (c >= 0xd800 && c <= 0xdbff) {
+      const next = i + 1 < text.length ? text.charCodeAt(i + 1) : 0;
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        c = 0x10000 + ((c - 0xd800) << 10) + (next - 0xdc00);
+        i++;
+      } else {
+        c = 0xfffd;
+      }
+    } else if (c >= 0xdc00 && c <= 0xdfff) {
+      c = 0xfffd;
+    }
+    if (c < 0x80) {
+      out[n++] = c;
+    } else if (c < 0x800) {
+      out[n++] = 0xc0 | (c >> 6);
+      out[n++] = 0x80 | (c & 0x3f);
+    } else if (c < 0x10000) {
+      out[n++] = 0xe0 | (c >> 12);
+      out[n++] = 0x80 | ((c >> 6) & 0x3f);
+      out[n++] = 0x80 | (c & 0x3f);
+    } else {
+      out[n++] = 0xf0 | (c >> 18);
+      out[n++] = 0x80 | ((c >> 12) & 0x3f);
+      out[n++] = 0x80 | ((c >> 6) & 0x3f);
+      out[n++] = 0x80 | (c & 0x3f);
+    }
+  }
+  return out.subarray(0, n);
+}
 
 /**
  * Lowercase hex SHA-256 of the UTF-8 encoding of `text`. Lone surrogates
  * encode as U+FFFD, as `TextEncoder` does.
  */
 export function sha256Hex(text: string): string {
-  const data = encoder.encode(text);
+  const data = utf8(text);
   const bitLen = data.length * 8;
   const padded = new Uint8Array(((data.length + 9 + 63) >> 6) << 6);
   padded.set(data);
