@@ -11,6 +11,11 @@ import (
 // recently used entry is evicted.
 const defaultMaxEntries = 10000
 
+// defaultMaxGenerations bounds how many per-flag invalidation counters the cache keeps. Past it,
+// a new epoch replaces them all, which invalidates every outstanding generation at once, so the
+// stale re-cache guard still holds and the map cannot grow without limit.
+const defaultMaxGenerations = 10000
+
 // cacheKey names one entry: the flag key and the context key, which is the SHA-256 hex digest
 // of the context's canonical JSON (see FlagClient.contextKey), never the context itself.
 type cacheKey struct{ flag, ctx string }
@@ -34,8 +39,9 @@ type cache struct {
 
 	// epoch and generations are bumped by every invalidation, so a result fetched before
 	// one can be dropped instead of cached (see Generation and SetAt).
-	epoch       uint64
-	generations map[string]uint64
+	epoch          uint64
+	generations    map[string]uint64
+	maxGenerations int
 }
 
 // cacheGeneration is a flag's invalidation generation at one moment.
@@ -49,12 +55,13 @@ func newCache(ttl time.Duration) *cache {
 // newCacheWithMaxEntries creates a cache that holds at most maxEntries entries across every flag.
 func newCacheWithMaxEntries(ttl time.Duration, maxEntries int) *cache {
 	return &cache{
-		items:       make(map[cacheKey]*list.Element),
-		byFlag:      make(map[string]map[string]struct{}),
-		lru:         list.New(),
-		ttl:         ttl,
-		maxEntries:  maxEntries,
-		generations: make(map[string]uint64),
+		items:          make(map[cacheKey]*list.Element),
+		byFlag:         make(map[string]map[string]struct{}),
+		lru:            list.New(),
+		ttl:            ttl,
+		maxEntries:     maxEntries,
+		generations:    make(map[string]uint64),
+		maxGenerations: defaultMaxGenerations,
 	}
 }
 
@@ -167,6 +174,10 @@ func (c *cache) Invalidate(key string) {
 		return
 	}
 	c.generations[key]++
+	if len(c.generations) > c.maxGenerations {
+		c.epoch++
+		c.generations = make(map[string]uint64)
+	}
 	for ctxKey := range c.byFlag[key] {
 		k := cacheKey{key, ctxKey}
 		c.lru.Remove(c.items[k])

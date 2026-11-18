@@ -63,3 +63,28 @@ func TestCacheGenerationRules(t *testing.T) {
 		t.Error("write kept after Clear")
 	}
 }
+
+func TestGenerationsMapIsBoundedAndTheGuardHoldsAcrossTheReset(t *testing.T) {
+	c := newCache(60e9)
+	c.maxGenerations = 3
+
+	c.Invalidate("a")
+	gen := c.Generation("a") // a request for "a" starts here
+	for i := 0; i < 10; i++ {
+		c.Invalidate(fmt.Sprintf("other-%d", i))
+		if n := len(c.generations); n > c.maxGenerations {
+			t.Fatalf("generations holds %d counters, want at most %d", n, c.maxGenerations)
+		}
+	}
+	// The reset cleared "a"'s counter; a later invalidation of "a" brings it back to 1,
+	// the value the request read. The new epoch still tells the two apart.
+	c.Invalidate("a")
+	c.SetAt(gen, "a", "ctx", true, nil, "", 0, "")
+	if _, ok := c.Get("a", "ctx"); ok {
+		t.Error("a write from before the reset was cached")
+	}
+
+	if got := newCache(60e9).maxGenerations; got != 10000 {
+		t.Errorf("default maxGenerations = %d, want 10000", got)
+	}
+}
