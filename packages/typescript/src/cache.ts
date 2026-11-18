@@ -87,6 +87,9 @@ export const DEFAULT_CACHE_MAX_ENTRIES = 10000;
  *   {@link FlagCache.clear} drops everything; both advance the
  *   {@link FlagCache.generation} that {@link FlagCache.set} checks.
  * - A TTL of 0 (or less), or `maxEntries` of 0, stores nothing.
+ *
+ * Context keys must come from {@link contextCacheKey}; any other string is
+ * stored as given, so raw context JSON passed here is kept in the cache.
  */
 export class FlagCache {
   /** Entries in least-recently-used order (Map iteration order). */

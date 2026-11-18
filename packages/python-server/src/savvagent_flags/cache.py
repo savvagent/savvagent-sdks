@@ -89,8 +89,8 @@ class _CacheCore:
             if not digests:
                 del self._by_flag[flag]
 
-    def _get(self, key: str, context_key: str) -> CacheEntry | None:
-        slot = (key, _digest(context_key))
+    def _get(self, key: str, digest: str) -> CacheEntry | None:
+        slot = (key, digest)
         entry = self._entries.get(slot)
         if entry is None:
             return None
@@ -103,13 +103,13 @@ class _CacheCore:
     def _store(
         self,
         key: str,
-        context_key: str,
+        digest: str,
         generation: tuple[int, int] | None,
         entry: CacheEntry,
     ) -> None:
         if generation is not None and generation != self._generation(key):
             return
-        slot = (key, _digest(context_key))
+        slot = (key, digest)
         self._entries[slot] = entry
         self._entries.move_to_end(slot)
         self._by_flag.setdefault(key, set()).add(slot[1])
@@ -206,8 +206,9 @@ class FlagCache(_CacheCore):
         Returns:
             The complete CacheEntry, or None if not found or expired.
         """
+        digest = _digest(context_key)
         with self._lock:
-            return self._get(key, context_key)
+            return self._get(key, digest)
 
     def set(
         self,
@@ -238,8 +239,9 @@ class FlagCache(_CacheCore):
                 started; the write is dropped if the flag was invalidated since.
         """
         entry = self._entry(value, flag_id, configuration, variation, version, scope)
+        digest = _digest(context_key)
         with self._lock:
-            self._store(key, context_key, generation, entry)
+            self._store(key, digest, generation, entry)
 
     def invalidate(self, key: str | None = None) -> None:
         """
@@ -320,8 +322,9 @@ class AsyncFlagCache(_CacheCore):
         Returns:
             The complete CacheEntry, or None if not found or expired.
         """
+        digest = _digest(context_key)
         async with self._lock:
-            return self.peek_entry(key, context_key=context_key)
+            return self._get(key, digest)
 
     def peek_entry(self, key: str, *, context_key: str = "") -> CacheEntry | None:
         """
@@ -330,7 +333,7 @@ class AsyncFlagCache(_CacheCore):
         Safe on the event loop's thread without the lock: no critical section of
         this cache awaits, so none is ever suspended part-way when this runs.
         """
-        return self._get(key, context_key)
+        return self._get(key, _digest(context_key))
 
     async def set(
         self,
@@ -361,8 +364,9 @@ class AsyncFlagCache(_CacheCore):
                 started; the write is dropped if the flag was invalidated since.
         """
         entry = self._entry(value, flag_id, configuration, variation, version, scope)
+        digest = _digest(context_key)
         async with self._lock:
-            self._store(key, context_key, generation, entry)
+            self._store(key, digest, generation, entry)
 
     async def invalidate(self, key: str | None = None) -> None:
         """

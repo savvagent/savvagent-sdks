@@ -15,6 +15,8 @@ const K = new Uint32Array([
   0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
 ]);
 
+const encoder = new TextEncoder();
+
 const rotr = (x: number, n: number): number => (x >>> n) | (x << (32 - n));
 
 /**
@@ -22,7 +24,7 @@ const rotr = (x: number, n: number): number => (x >>> n) | (x << (32 - n));
  * encode as U+FFFD, as `TextEncoder` does.
  */
 export function sha256Hex(text: string): string {
-  const data = new TextEncoder().encode(text);
+  const data = encoder.encode(text);
   const bitLen = data.length * 8;
   const padded = new Uint8Array(((data.length + 9 + 63) >> 6) << 6);
   padded.set(data);
@@ -42,7 +44,14 @@ export function sha256Hex(text: string): string {
       const s1 = rotr(w[i - 2], 17) ^ rotr(w[i - 2], 19) ^ (w[i - 2] >>> 10);
       w[i] = (w[i - 16] + s0 + w[i - 7] + s1) | 0;
     }
-    let [a, b, c, d, e, f, g, hh] = h;
+    let a = h[0],
+      b = h[1],
+      c = h[2],
+      d = h[3],
+      e = h[4],
+      f = h[5],
+      g = h[6],
+      hh = h[7];
     for (let i = 0; i < 64; i++) {
       const t1 =
         (hh + (rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25)) + ((e & f) ^ (~e & g)) + K[i] + w[i]) | 0;

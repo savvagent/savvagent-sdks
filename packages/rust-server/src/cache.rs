@@ -246,8 +246,9 @@ impl Cache {
         metadata: Option<Metadata>,
     ) {
         let entry = self.entry(value, configuration, variation, metadata);
+        let digest = digest(&context_key);
         if let Ok(mut store) = self.store.lock() {
-            store.insert(flag_key, digest(&context_key), entry, self.max_entries);
+            store.insert(flag_key, digest, entry, self.max_entries);
         }
     }
 
